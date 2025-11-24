@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 // Changed ThermometerHalf to Gauge to fix the import error, as Gauge is also semantically appropriate for pressure.
 import { RefreshCcw, CloudRain, Gauge, Droplet, Leaf, Clock } from 'lucide-react';
 
@@ -9,6 +9,9 @@ const useScripts = (urls) => {
     const scriptsRef = useRef(new Set());
 
     useEffect(() => {
+        // Only attempt to load scripts if we are definitely in a client environment
+        if (typeof window === 'undefined') return;
+
         const loadScript = (url) => {
             if (scriptsRef.current.has(url)) return;
             scriptsRef.current.add(url);
@@ -19,27 +22,27 @@ const useScripts = (urls) => {
             
             return new Promise((resolve) => {
                 script.onload = () => resolve();
-                script.onerror = () => resolve(); // Resolve even on error to prevent blocking
+                // Resolve even on error to prevent blocking, but log a warning
+                script.onerror = () => { console.warn(`Failed to load script: ${url}`); resolve(); }; 
                 document.head.appendChild(script);
             });
         };
 
         const loadAll = async () => {
             await Promise.all(urls.map(loadScript));
-            // Check if libraries are actually available on the window object
-            if (window.Gauge && window.Chart) {
-                setScriptsLoaded(true);
-            } else {
-                // If not, wait a moment and check again
-                setTimeout(() => {
-                    if (window.Gauge && window.Chart) setScriptsLoaded(true);
-                }, 500);
-            }
+            // Check if libraries are actually available on the window object after loading
+            setTimeout(() => {
+                if (window.Gauge && window.Chart) {
+                    setScriptsLoaded(true);
+                } else {
+                    console.error('Gauge.js or Chart.js not found on window after loading.');
+                }
+            }, 50); 
         };
 
         loadAll();
 
-        // Cleanup: While we don't remove scripts, we clear the ref
+        // Cleanup: Clear the ref
         return () => scriptsRef.current.clear();
     }, [urls]);
 
@@ -55,8 +58,8 @@ const initialSensorData = {
     timestamp_client: new Date().toISOString()
 };
 
-// Helper function to get the current formatted time
-const getFormattedTime = () => {
+// Helper function to get the current formatted time (ONLY call this from inside useEffect or a click handler)
+const calculateFormattedTime = () => {
     return new Date().toLocaleDateString('en-US', {
         weekday: 'long',
         year: 'numeric',
@@ -69,10 +72,13 @@ const getFormattedTime = () => {
 
 // --- Main App Component ---
 const App = () => {
-    // State to hold the live data
+    // CRITICAL for Vercel/Next.js: Determine if we are running on the client (browser)
+    const [isClient, setIsClient] = useState(false);
+    
+    // State initialization is now safe for SSR
     const [liveData, setLiveData] = useState(initialSensorData);
-    const [currentTime, setCurrentTime] = useState(getFormattedTime());
-    const [isDark] = useState(true); // Default to dark mode (Tailwind setup)
+    const [currentTime, setCurrentTime] = useState('Loading...'); // Safe initial state for SSR
+    const [isDark] = useState(true); 
 
     // Refs for the Canvas elements to initialize Gauge/Chart.js
     const rainGaugeRef = useRef(null);
@@ -90,52 +96,70 @@ const App = () => {
         "https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"
     ]);
 
-    // === 0. Theme & Time Handling ===
+    // === 0. Client Mount & Time Handling ===
     useEffect(() => {
+        // Set isClient to true after the first render cycle (ensures client-side execution)
+        setIsClient(true);
+
         // Apply Tailwind dark mode class to body (Simulated)
         if (typeof document !== 'undefined') {
             document.body.classList.add('bg-gray-900', 'text-gray-100');
             document.documentElement.classList.add('dark');
         }
 
+        // Initialize time immediately on client mount
+        setCurrentTime(calculateFormattedTime());
+        
         // Time update interval
         const timeInterval = setInterval(() => {
-            setCurrentTime(getFormattedTime());
+            setCurrentTime(calculateFormattedTime());
         }, 10000);
-
         return () => clearInterval(timeInterval);
+        
     }, []);
 
-    // === 1. Initialization Effect (Runs after scripts are ready) ===
-    useEffect(() => {
-        // Only run initialization if scripts are confirmed loaded and available globally
-        if (!scriptsReady || typeof window.Gauge === 'undefined' || typeof window.Chart === 'undefined') return;
-        
+    // === 1. Initialization Logic (Memoized for stability) ===
+
+    // Function to initialize all charts and gauges
+    const initializeDashboard = useCallback(() => {
+        // Guard against running if scripts aren't ready, or libraries aren't loaded
+        if (!isClient || !scriptsReady || typeof window.Gauge === 'undefined' || typeof window.Chart === 'undefined') {
+            return;
+        }
+
         const Gauge = window.Gauge;
         const Chart = window.Chart;
 
-        // Base Gauge.js options (modified for dark theme and responsiveness)
+        // Clean up previous instances
+        if (gaugeInstances.current.chart) {
+            gaugeInstances.current.chart.destroy();
+            gaugeInstances.current.chart = null;
+        }
+        // Clear all gauge references before re-initialization
+        Object.keys(gaugeInstances.current).forEach(key => gaugeInstances.current[key] = null);
+
+
+        // Base Gauge.js options 
         const gaugeOptions = {
             angle: 0.15,
             lineWidth: 0.3,
             radiusScale: 0.9,
-            pointer: { length: 0.5, strokeWidth: 0.035, color: '#e2e8f0' }, // Light gray pointer
-            staticLabels: { font: "12px sans-serif", labels: [], color: '#9ca3af' }, // Gray labels
+            pointer: { length: 0.5, strokeWidth: 0.035, color: '#e2e8f0' }, 
+            staticLabels: { font: "12px sans-serif", labels: [], color: '#9ca3af' },
             staticZones: [],
             limitMax: false, limitMin: false, highDpiSupport: true,
-            strokeColor: '#374151', // Dark background stroke
+            strokeColor: '#374151',
             generateGradient: true,
             gradientStop: [
-                ['#10b981', 0.25], // Emerald
-                ['#f59e0b', 0.5], // Amber
-                ['#ef4444', 0.75]  // Red
+                ['#10b981', 0.25], 
+                ['#f59e0b', 0.5], 
+                ['#ef4444', 0.75]  
             ]
         };
 
         // --- Gauge Initialization Logic ---
         const initGauge = (ref, max, min, initial, labels, zones) => {
             if (ref.current) {
-                // Deep copy options to ensure independent gauge configurations
                 const options = JSON.parse(JSON.stringify(gaugeOptions));
                 options.staticLabels.labels = labels;
                 options.staticZones = zones;
@@ -178,7 +202,7 @@ const App = () => {
 
         // --- Chart Initialization (Chart.js) ---
         if (historyChartRef.current) {
-            const chartTextColor = '#e2e8f0'; // Light text for dark background
+            const chartTextColor = '#e2e8f0'; 
             
             // Sample data from your original JS
             const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -186,11 +210,6 @@ const App = () => {
             const pressureData = [1012, 1008, 1015, 1010, 995, 1000, 1018];
             const waterLevelData = [65, 68, 70, 62, 75, 80, 70];
             const soilMoistureData = [60, 55, 65, 70, 80, 75, 68];
-
-            // Destroy previous chart instance if it exists
-            if (gaugeInstances.current.chart) {
-                gaugeInstances.current.chart.destroy();
-            }
 
             gaugeInstances.current.chart = new Chart(historyChartRef.current.getContext('2d'), {
                 type: 'line',
@@ -220,7 +239,7 @@ const App = () => {
                         tooltip: { 
                             mode: 'index', 
                             intersect: false, 
-                            backgroundColor: 'rgba(31, 41, 55, 0.9)', // Darker tooltip background
+                            backgroundColor: 'rgba(31, 41, 55, 0.9)', 
                             titleColor: '#f3f4f6',
                             bodyColor: '#e5e7eb',
                             callbacks: {
@@ -239,18 +258,28 @@ const App = () => {
                 }
             });
         }
+    }, [isClient, scriptsReady, liveData.pressure, liveData.rain, liveData.soil, liveData.waterLevel]); 
+
+    // === 2. Initialization/Cleanup Effect ===
+    useEffect(() => {
+        // This effect runs whenever initialization dependencies change
+        initializeDashboard();
         
         // Cleanup function for charts/gauges (called when component unmounts)
         return () => {
             if (gaugeInstances.current.chart) {
                 gaugeInstances.current.chart.destroy();
+                gaugeInstances.current.chart = null;
             }
+            // Ensure all gauge references are cleared
+            gaugeInstances.current = {};
         };
-    }, [scriptsReady, liveData.pressure, liveData.rain, liveData.soil, liveData.waterLevel]); // Rerun init logic when scripts load or initial data changes
+    }, [initializeDashboard]);
 
-    // === 2. Data Fetching and Mock Data Update (for testing) ===
+
+    // === 3. Data Fetching and Mock Data Update (for testing) ===
     const updateMockData = () => {
-        // Mock data generation logic
+        // ... Mock data generation logic ...
         const rainChance = Math.random();
         let newRainValue;
         if (rainChance < 0.1) newRainValue = (30 + Math.random() * 20).toFixed(0);
@@ -278,49 +307,33 @@ const App = () => {
 
     // Effect to update the Gauge instances whenever liveData changes
     useEffect(() => {
-        // Only attempt to set the gauges if they have been initialized AND scripts are ready
-        if (scriptsReady && window.Gauge && gaugeInstances.current.rain) { 
-            gaugeInstances.current.rain.set(liveData.rain);
-            gaugeInstances.current.pressure.set(liveData.pressure);
-            gaugeInstances.current.waterLevel.set(liveData.waterLevel);
-            gaugeInstances.current.soil.set(liveData.soil);
+        // Only attempt to set the gauges if they have been initialized AND scripts are ready AND on client
+        if (isClient && scriptsReady && window.Gauge && gaugeInstances.current.rain) { 
+            requestAnimationFrame(() => {
+                try {
+                    gaugeInstances.current.rain.set(liveData.rain);
+                    gaugeInstances.current.pressure.set(liveData.pressure);
+                    gaugeInstances.current.waterLevel.set(liveData.waterLevel);
+                    gaugeInstances.current.soil.set(liveData.soil);
+                } catch (e) {
+                    // If gauges fail to update, try re-initializing them defensively
+                    // console.error("Error updating gauges, re-initializing:", e);
+                    initializeDashboard(); 
+                }
+            });
         }
-    }, [liveData, scriptsReady]);
+    }, [liveData, scriptsReady, initializeDashboard, isClient]);
 
 
-    // === 3. Helper functions to determine Status and Class Names ===
-    const getStatus = (value, thresholds, labels, classMap) => {
-        let status = labels[0], className = classMap[0], reading = '';
-        
-        if (value >= thresholds[2]) {
-            status = labels[2];
-            className = classMap[2];
-            reading = 'High/Wet/Heavy';
-        } else if (value >= thresholds[1]) {
-            status = labels[1];
-            className = classMap[1];
-            reading = 'Optimal/Normal/Moderate';
-        } else {
-            status = labels[0];
-            className = classMap[0];
-            reading = 'Low/Dry/Clear';
-        }
-        return { reading, status, className };
-    };
-
-    // Define thresholds and labels for different sensors
-    const RAIN_TH = [0, 10, 30]; 
+    // === 4. Helper functions to determine Status and Class Names ===
+    
     const RAIN_LABELS = ['STATUS: Clear', 'STATUS: Light Rainfall', 'ALERT: Heavy Rainfall!'];
-    const PRESSURE_TH = [950, 990, 1030];
     const PRESSURE_LABELS = ['WARNING: Low Pressure!', 'STATUS: Normal Pressure', 'STATUS: High Pressure'];
-    const WATER_TH = [0, 30, 90];
     const WATER_LABELS = ['ALERT: Level Low', 'STATUS: Optimal', 'ALERT: Tank Nearing Full!'];
-    const SOIL_TH = [0, 30, 70];
     const SOIL_LABELS = ['ALERT: Soil is Dry!', 'STATUS: Soil Moisture Optimal', 'WARNING: Soil is Wet!'];
     
     const CLASS_MAP = ['text-red-400 font-bold', 'text-green-400 font-bold', 'text-yellow-400 font-bold'];
 
-    // Specific Status Logic (for reading display)
     const getRainStatus = (rain) => {
         if (rain > 30) return { reading: 'Heavy Rain', status: RAIN_LABELS[2], className: CLASS_MAP[2] };
         if (rain > 0) return { reading: 'Light Rain', status: RAIN_LABELS[1], className: CLASS_MAP[1] };
@@ -350,11 +363,12 @@ const App = () => {
 
 
     // --- RENDER ---
-    if (!scriptsReady) {
+    // Render a loading state during SSR or until the scripts are loaded on the client
+    if (!isClient || !scriptsReady) {
         return (
             <div className="flex items-center justify-center min-h-screen bg-gray-900 text-gray-400">
                 <RefreshCcw className="w-8 h-8 animate-spin mr-3" />
-                <p>Loading essential libraries (Gauge.js, Chart.js)...</p>
+                <p>Initializing dashboard for client environment...</p>
             </div>
         );
     }
@@ -374,7 +388,8 @@ const App = () => {
                     gap: 1.5rem;
                 }
                 .gauge-wrapper canvas {
-                    width: 100% !important;
+                    /* Fixes Canvas sizing issue specific to Gauge.js responsiveness */
+                    max-width: 100% !important; 
                     height: auto !important;
                 }
                 @media (min-width: 768px) {
@@ -408,7 +423,7 @@ const App = () => {
                     </article>
 
                     <article className="card p-4 bg-gray-800 rounded-xl shadow-lg transition duration-300 hover:shadow-xl hover:scale-[1.02] border-t-4 border-violet-500">
-                        <Gauge className="w-8 h-8 mb-2 text-violet-400" /> {/* Updated Icon */}
+                        <Gauge className="w-8 h-8 mb-2 text-violet-400" />
                         <h3 className="text-lg font-semibold mb-1 text-gray-300">Barometric Pressure</h3>
                         <p className="text-xl font-extrabold mb-1 text-gray-100">{liveData.pressure} hPa</p>
                         <p className={`text-sm ${pressureStatus.className}`}>{pressureStatus.status}</p>
