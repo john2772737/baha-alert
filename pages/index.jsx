@@ -1,4 +1,5 @@
 import React from 'react';
+import { Clock, CloudRain, Gauge, Droplet, Leaf } from 'lucide-react';
 
 // Hardcoded data and structure for a static UI demonstration
 const App = () => {
@@ -19,13 +20,11 @@ const App = () => {
         ]
     };
 
-    // Helper functions removed, replaced with hardcoded status and classes
+    // Helper variables for hardcoded status
     const rainStatus = { reading: 'Light Rain', status: 'STATUS: Light Rainfall', className: 'text-green-400 font-bold' };
     const pressureStatus = { status: 'STATUS: Normal Pressure', className: 'text-green-400 font-bold' };
     const waterStatus = { status: 'STATUS: Optimal', className: 'text-green-400 font-bold' };
     const soilStatus = { reading: 'Optimal', status: 'STATUS: Soil Moisture Optimal', className: 'text-green-400 font-bold' };
-    
-    // Canvas elements are kept but will not initialize without the libraries
     
     return (
         <div className="min-h-screen bg-gray-900 text-gray-100 p-4 sm:p-8 font-inter dark">
@@ -63,8 +62,7 @@ const App = () => {
                     Smart Farm Monitor (Static UI)
                 </h1>
                 <div className="flex items-center text-sm font-medium text-gray-400">
-                    {/* Placeholder for Clock Icon */}
-                    <span className="w-4 h-4 mr-2 text-indigo-400">🕒</span> 
+                    <Clock className="w-4 h-4 mr-2 text-indigo-400" />
                     <span id="current-time">{hardcodedData.currentTime}</span>
                 </div>
             </header>
@@ -73,32 +71,28 @@ const App = () => {
                 {/* Status Grid Section */}
                 <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <article className="card p-4 bg-gray-800 rounded-xl shadow-lg transition duration-300 hover:shadow-xl hover:scale-[1.02] border-t-4 border-emerald-500">
-                        {/* Placeholder for CloudRain Icon */}
-                        <span className="w-8 h-8 mb-2 text-emerald-400 text-3xl">🌧️</span> 
+                        <CloudRain className="w-8 h-8 mb-2 text-emerald-400" />
                         <h3 className="text-lg font-semibold mb-1 text-gray-300">Rain Sensor</h3>
                         <p className="text-xl font-extrabold mb-1 text-gray-100">{rainStatus.reading}</p>
                         <p className={`text-sm ${rainStatus.className}`}>{rainStatus.status}</p>
                     </article>
 
                     <article className="card p-4 bg-gray-800 rounded-xl shadow-lg transition duration-300 hover:shadow-xl hover:scale-[1.02] border-t-4 border-violet-500">
-                        {/* Placeholder for Gauge Icon */}
-                        <span className="w-8 h-8 mb-2 text-violet-400 text-3xl">🎚️</span> 
+                        <Gauge className="w-8 h-8 mb-2 text-violet-400" />
                         <h3 className="text-lg font-semibold mb-1 text-gray-300">Barometric Pressure</h3>
                         <p className="text-xl font-extrabold mb-1 text-gray-100">{hardcodedData.pressure} hPa</p>
                         <p className={`text-sm ${pressureStatus.className}`}>{pressureStatus.status}</p>
                     </article>
 
                     <article className="card p-4 bg-gray-800 rounded-xl shadow-lg transition duration-300 hover:shadow-xl hover:scale-[1.02] border-t-4 border-cyan-500">
-                        {/* Placeholder for Droplet Icon */}
-                        <span className="w-8 h-8 mb-2 text-cyan-400 text-3xl">💧</span> 
+                        <Droplet className="w-8 h-8 mb-2 text-cyan-400" />
                         <h3 className="text-lg font-semibold mb-1 text-gray-300">Water Level (Tank)</h3>
                         <p className="text-xl font-extrabold mb-1 text-gray-100">{hardcodedData.waterLevel}%</p>
                         <p className={`text-sm ${waterStatus.className}`}>{waterStatus.status}</p>
                     </article>
 
                     <article className="card p-4 bg-gray-800 rounded-xl shadow-lg transition duration-300 hover:shadow-xl hover:scale-[1.02] border-t-4 border-lime-500">
-                        {/* Placeholder for Leaf Icon */}
-                        <span className="w-8 h-8 mb-2 text-lime-400 text-3xl">🌱</span> 
+                        <Leaf className="w-8 h-8 mb-2 text-lime-400" />
                         <h3 className="text-lg font-semibold mb-1 text-gray-300">Soil Moisture</h3>
                         <p className="text-xl font-extrabold mb-1 text-gray-100">{soilStatus.reading}</p>
                         <p className={`text-sm ${soilStatus.className}`}>{soilStatus.status}</p>
