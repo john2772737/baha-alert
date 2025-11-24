@@ -16,5 +16,6 @@
       "dest": "/api/index.js",
       "methods": ["POST", "GET"]
     }
+  ]
 
 }
