@@ -1,12 +1,12 @@
-import dbConnect from '../lib/dbConnect';
-import Alert from '../models/Alert';
+import dbConnect from '../../lib/dbConnect';
+import Alert from '../../models/Alert';
 
 /**
- * Vercel Serverless Function to handle incoming sensor data.
- * This endpoint corresponds to the '/api/data' URL configured on the ESP32.
+ * Vercel Serverless Function to handle incoming sensor data at the /api endpoint.
+ * NOTE: The vercel.json file enforces that this function is only accessible via POST requests.
  */
 export default async function handler(req, res) {
-  // 1. Only allow the POST method, as the ESP32 is sending data.
+  // Although vercel.json enforces the POST method, we check it here for local development and clarity.
   if (req.method !== 'POST') {
     res.setHeader('Allow', ['POST']);
     return res.status(405).end(`Method ${req.method} Not Allowed`);
@@ -18,16 +18,15 @@ export default async function handler(req, res) {
   }
 
   try {
-    // 2. Connect to the database (This calls dbConnect and reuses the cached connection)
+    // 1. Connect to the database (This calls dbConnect and reuses the cached connection)
     await dbConnect(); 
 
-    // 3. Create a new document using the incoming JSON payload as the value for the 'payload' field.
-    // The Alert model, which uses mongoose.Schema.Types.Mixed, handles the flexible sensor JSON.
+    // 2. Create a new document using the incoming JSON payload as the value for the 'payload' field.
     const newAlert = await Alert.create({
       payload: req.body,
     });
 
-    // 4. Send a successful response back to the ESP32
+    // 3. Send a successful response back to the ESP32
     return res.status(201).json({
       success: true,
       message: 'Data logged successfully.',
@@ -37,7 +36,7 @@ export default async function handler(req, res) {
   } catch (error) {
     console.error('Database save failed:', error);
     
-    // 5. Send an error response
+    // 4. Send an error response
     return res.status(500).json({
       success: false,
       message: 'Internal Server Error while logging data.',
