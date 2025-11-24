@@ -77,7 +77,7 @@ const App = () => {
         fetchLatestData();
 
         // Set up the interval for fetching every 1000 milliseconds (1 second)
-        const intervalId = setInterval(fetchLatestData, 1000);
+        const intervalId = setInterval(fetchLatestData, 3000);
 
         // Cleanup function: Clear the interval when the component unmounts
         return () => clearInterval(intervalId);
