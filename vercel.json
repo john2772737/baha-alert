@@ -2,6 +2,10 @@
   "version": 2,
   "builds": [
     {
+      "src": "package.json",
+      "use": "@vercel/next"
+    },
+    {
       "src": "api/index.js",
       "use": "@vercel/node"
     }
@@ -10,7 +14,7 @@
     {
       "src": "/api",
       "dest": "/api/index.js",
-      "methods": ["POST"]
+      "methods": ["POST", "GET"]
     }
-  ]
+
 }
