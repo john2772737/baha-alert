@@ -1,16 +1,14 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-// Changed ThermometerHalf to Gauge to fix the import error, as Gauge is also semantically appropriate for pressure.
 import { RefreshCcw, CloudRain, Gauge, Droplet, Leaf, Clock } from 'lucide-react';
 
 // --- Global Script Loader Hook ---
-// Utility to load external scripts (Gauge.js and Chart.js) and manage their loading state.
-const useScripts = (urls) => {
+const useScripts = (urls, isClient) => {
     const [scriptsLoaded, setScriptsLoaded] = useState(false);
     const scriptsRef = useRef(new Set());
 
     useEffect(() => {
-        // Only attempt to load scripts if we are definitely in a client environment
-        if (typeof window === 'undefined') return;
+        // Only proceed if running on the client (i.e., component has mounted)
+        if (!isClient) return;
 
         const loadScript = (url) => {
             if (scriptsRef.current.has(url)) return;
@@ -21,8 +19,8 @@ const useScripts = (urls) => {
             script.async = true;
             
             return new Promise((resolve) => {
+                // IMPORTANT: All DOM manipulation and window checks are inside this effect/promise
                 script.onload = () => resolve();
-                // Resolve even on error to prevent blocking, but log a warning
                 script.onerror = () => { console.warn(`Failed to load script: ${url}`); resolve(); }; 
                 document.head.appendChild(script);
             });
@@ -44,7 +42,7 @@ const useScripts = (urls) => {
 
         // Cleanup: Clear the ref
         return () => scriptsRef.current.clear();
-    }, [urls]);
+    }, [urls, isClient]); // Run only when isClient becomes true
 
     return scriptsLoaded;
 };
@@ -58,7 +56,7 @@ const initialSensorData = {
     timestamp_client: new Date().toISOString()
 };
 
-// Helper function to get the current formatted time (ONLY call this from inside useEffect or a click handler)
+// Helper function to get the current formatted time (Client-side only)
 const calculateFormattedTime = () => {
     return new Date().toLocaleDateString('en-US', {
         weekday: 'long',
@@ -90,27 +88,27 @@ const App = () => {
     // Refs for Gauge instances (to update them later)
     const gaugeInstances = useRef({});
     
-    // Load external scripts using the custom hook
+    // Load external scripts using the custom hook, dependent on isClient
     const scriptsReady = useScripts([
         "https://cdnjs.cloudflare.com/ajax/libs/gauge.js/1.3.7/gauge.min.js",
         "https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"
-    ]);
+    ], isClient);
 
     // === 0. Client Mount & Time Handling ===
     useEffect(() => {
-        // Set isClient to true after the first render cycle (ensures client-side execution)
+        // 1. Set isClient to true after the first render cycle
         setIsClient(true);
 
-        // Apply Tailwind dark mode class to body (Simulated)
+        // 2. Apply Tailwind dark mode class to body (Simulated)
         if (typeof document !== 'undefined') {
             document.body.classList.add('bg-gray-900', 'text-gray-100');
             document.documentElement.classList.add('dark');
         }
 
-        // Initialize time immediately on client mount
+        // 3. Initialize time immediately on client mount
         setCurrentTime(calculateFormattedTime());
         
-        // Time update interval
+        // 4. Time update interval
         const timeInterval = setInterval(() => {
             setCurrentTime(calculateFormattedTime());
         }, 10000);
@@ -130,13 +128,24 @@ const App = () => {
         const Gauge = window.Gauge;
         const Chart = window.Chart;
 
-        // Clean up previous instances
+        // Clean up previous instances defensively
         if (gaugeInstances.current.chart) {
-            gaugeInstances.current.chart.destroy();
+            try {
+                gaugeInstances.current.chart.destroy();
+            } catch (e) {
+                // Ignore errors during destruction if Chart.js state is broken
+            }
             gaugeInstances.current.chart = null;
         }
         // Clear all gauge references before re-initialization
-        Object.keys(gaugeInstances.current).forEach(key => gaugeInstances.current[key] = null);
+        Object.keys(gaugeInstances.current).forEach(key => {
+            if (key !== 'chart' && gaugeInstances.current[key]) {
+                try {
+                    // Gauge.js does not have a destroy method, so we nullify the reference
+                    gaugeInstances.current[key] = null;
+                } catch(e) { /* ignore */ }
+            }
+        });
 
 
         // Base Gauge.js options 
@@ -268,7 +277,9 @@ const App = () => {
         // Cleanup function for charts/gauges (called when component unmounts)
         return () => {
             if (gaugeInstances.current.chart) {
-                gaugeInstances.current.chart.destroy();
+                try {
+                    gaugeInstances.current.chart.destroy();
+                } catch(e) { /* Safe destroy */ }
                 gaugeInstances.current.chart = null;
             }
             // Ensure all gauge references are cleared
@@ -301,9 +312,11 @@ const App = () => {
 
     // Data Update Interval (Runs every 5 seconds)
     useEffect(() => {
+        if (!isClient) return; // Only run data simulation on client
+        
         const interval = setInterval(updateMockData, 5000);
         return () => clearInterval(interval); // Cleanup
-    }, []);
+    }, [isClient]);
 
     // Effect to update the Gauge instances whenever liveData changes
     useEffect(() => {
