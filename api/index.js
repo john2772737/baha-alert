@@ -1,8 +1,12 @@
-import dbConnect from '../lib/dbConnect';
-import Alert from '../models/Alert';
+import dbConnect from '../../lib/dbConnect';
+import Alert from '../../models/Alert';
 
+/**
+ * Handles POST to log new sensor data and GET to fetch the latest reading.
+ * Endpoint: /api/data
+ */
 export default async function handler(req, res) {
-  // 1. Connect to the database for all operations
+  // 1. Connect to the database
   await dbConnect(); 
 
   // --- 💾 Handle POST Request (SAVE to DB) ---
@@ -12,8 +16,14 @@ export default async function handler(req, res) {
     }
 
     try {
+      // 💡 FIX: Ensure a reliable server-side timestamp for sorting in the GET request.
+      const postPayload = req.body;
+      if (!postPayload.receivedAt) {
+          postPayload.receivedAt = new Date();
+      }
+      
       const newAlert = await Alert.create({
-        payload: req.body,
+        payload: postPayload,
       });
 
       return res.status(201).json({
@@ -33,7 +43,7 @@ export default async function handler(req, res) {
     }
   } 
   
-  // --- 🔎 Handle GET Request (SINGLE LATEST reading for live feed) ---
+  // --- 🔎 Handle GET Request (Latest Reading) ---
   else if (req.method === 'GET') {
     try {
         // Fetch the single latest document
@@ -42,12 +52,10 @@ export default async function handler(req, res) {
           .limit(1)
           .exec();
         
-        // Define the default/empty state data structure
         const defaultData = { 
             pressure: 1012.0, rain: 0.0, waterLevel: 65.0, soil: 60.0 
         };
         
-        // If a reading is found, use its payload; otherwise, use the default structure
         const responseData = latestReading 
             ? {
                 pressure: latestReading.payload.pressure,

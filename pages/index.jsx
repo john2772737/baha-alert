@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 
-// Define the expected sensor data structure
 const initialData = {
     pressure: '---', 
     rain: '---', 
@@ -9,16 +8,16 @@ const initialData = {
 };
 
 export default function Home() {
-    // State to hold the fetched data
     const [sensorData, setSensorData] = useState(initialData);
     const [loading, setLoading] = useState(true);
 
-    // Function to fetch the latest sensor data from the API
     const fetchLatestData = async () => {
-        console.log('--- Attempting to fetch data from /api/data ---');
+        console.log(`--- Attempting to fetch data at ${new Date().toLocaleTimeString()} ---`);
         try {
-            // NOTE: The API endpoint is relative to the root: /api/data
-            const response =  await fetch('/api'); 
+            // NOTE: Using cache: 'no-store' is CRITICAL to prevent the browser from serving stale data
+            const response = await fetch('/api/data', { 
+                cache: 'no-store' 
+            }); 
             
             if (!response.ok) {
                 throw new Error(`HTTP error! Status: ${response.status}`);
@@ -26,11 +25,9 @@ export default function Home() {
 
             const data = await response.json(); 
             
-            // 💡 LOG the successful data to the console for testing
-            console.log('✅ Fetch successful! Latest Sensor Data Received:');
-            console.log(data); 
+            // 💡 Console log to verify updated data
+            console.log('✅ Fetch successful! Data Received:', data); 
 
-            // Update the React state
             setSensorData(data);
             setLoading(false);
 
@@ -40,32 +37,43 @@ export default function Home() {
         }
     };
 
-    // useEffect hook to run the fetch when the component mounts
+    // Set up the polling loop
     useEffect(() => {
-        // Initial fetch
-        fetchLatestData();
+        fetchLatestData(); // Initial immediate fetch
 
-        // Set up the continuous polling (e.g., every 5 seconds)
-        const intervalId = setInterval(fetchLatestData, 5000); 
+        // Poll every 1 second (1000 milliseconds) for continuous updates
+        const intervalId = setInterval(fetchLatestData, 1000); 
 
-        // Cleanup function: stop the polling when the component is unmounted
+        // Cleanup function to stop the interval when the component unmounts
         return () => clearInterval(intervalId);
-    }, []); // Empty dependency array ensures it runs only once on mount
+    }, []); 
 
     return (
-        <div>
-            <h1>Next.js Sensor Data Live Feed</h1>
-            {loading ? (
-                <p>Loading...</p>
-            ) : (
-                <div style={{ display: 'flex', gap: '20px' }}>
-                    <p>Pressure: <strong>{sensorData.pressure}</strong></p>
-                    <p>Rain: <strong>{sensorData.rain}</strong></p>
-                    <p>Water Level: <strong>{sensorData.waterLevel}</strong></p>
-                    <p>Soil: <strong>{sensorData.soil}</strong></p>
+        <div style={{ padding: '20px', fontFamily: 'Arial, sans-serif' }}>
+            <h1>Next.js Live Sensor Data Feed</h1>
+            <p>Status: {loading ? 'Connecting...' : 'Live'}</p>
+            <p style={{ color: 'red' }}>Check your browser's console (F12) to see data updates every second.</p>
+            
+            <hr />
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '20px', marginTop: '20px' }}>
+                <div>
+                    <h2>Pressure</h2>
+                    <p style={{ fontSize: '2em', fontWeight: 'bold' }}>{sensorData.pressure} hPa</p>
                 </div>
-            )}
-            <p>Check your browser's console (F12) to see the polling logs.</p>
+                <div>
+                    <h2>Rain</h2>
+                    <p style={{ fontSize: '2em', fontWeight: 'bold' }}>{sensorData.rain} mm</p>
+                </div>
+                <div>
+                    <h2>Water Level</h2>
+                    <p style={{ fontSize: '2em', fontWeight: 'bold' }}>{sensorData.waterLevel} cm</p>
+                </div>
+                <div>
+                    <h2>Soil Moisture</h2>
+                    <p style={{ fontSize: '2em', fontWeight: 'bold' }}>{sensorData.soil} %</p>
+                </div>
+            </div>
         </div>
     );
 }
