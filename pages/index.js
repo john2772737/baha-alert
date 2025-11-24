@@ -1,12 +1,52 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import Head from 'next/head';
-import dynamic from 'next/dynamic';
-import '../styles/weather.css'; // Assuming this file is available in the styles folder
+// Changed ThermometerHalf to Gauge to fix the import error, as Gauge is also semantically appropriate for pressure.
+import { RefreshCcw, CloudRain, Gauge, Droplet, Leaf, Clock } from 'lucide-react';
 
-// Load Chart component dynamically (keep Chart.js managed by npm)
-const DynamicChart = dynamic(() => import('chart.js'), { ssr: false });
+// --- Global Script Loader Hook ---
+// Utility to load external scripts (Gauge.js and Chart.js) and manage their loading state.
+const useScripts = (urls) => {
+    const [scriptsLoaded, setScriptsLoaded] = useState(false);
+    const scriptsRef = useRef(new Set());
 
-// --- Initial Data Structure (Matching your ESP32 payload) ---
+    useEffect(() => {
+        const loadScript = (url) => {
+            if (scriptsRef.current.has(url)) return;
+            scriptsRef.current.add(url);
+            
+            const script = document.createElement('script');
+            script.src = url;
+            script.async = true;
+            
+            return new Promise((resolve) => {
+                script.onload = () => resolve();
+                script.onerror = () => resolve(); // Resolve even on error to prevent blocking
+                document.head.appendChild(script);
+            });
+        };
+
+        const loadAll = async () => {
+            await Promise.all(urls.map(loadScript));
+            // Check if libraries are actually available on the window object
+            if (window.Gauge && window.Chart) {
+                setScriptsLoaded(true);
+            } else {
+                // If not, wait a moment and check again
+                setTimeout(() => {
+                    if (window.Gauge && window.Chart) setScriptsLoaded(true);
+                }, 500);
+            }
+        };
+
+        loadAll();
+
+        // Cleanup: While we don't remove scripts, we clear the ref
+        return () => scriptsRef.current.clear();
+    }, [urls]);
+
+    return scriptsLoaded;
+};
+
+// --- Initial Data Structure ---
 const initialSensorData = {
     pressure: 1012, // hPa
     rain: 0, // mm/hr (simulated)
@@ -27,12 +67,12 @@ const getFormattedTime = () => {
     });
 };
 
-// --- Sensor Component (Refactored from your original JS) ---
-function SensorDashboard() {
+// --- Main App Component ---
+const App = () => {
     // State to hold the live data
     const [liveData, setLiveData] = useState(initialSensorData);
     const [currentTime, setCurrentTime] = useState(getFormattedTime());
-    const [isDark] = useState(true); // Default to dark mode
+    const [isDark] = useState(true); // Default to dark mode (Tailwind setup)
 
     // Refs for the Canvas elements to initialize Gauge/Chart.js
     const rainGaugeRef = useRef(null);
@@ -43,13 +83,19 @@ function SensorDashboard() {
 
     // Refs for Gauge instances (to update them later)
     const gaugeInstances = useRef({});
+    
+    // Load external scripts using the custom hook
+    const scriptsReady = useScripts([
+        "https://cdnjs.cloudflare.com/ajax/libs/gauge.js/1.3.7/gauge.min.js",
+        "https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"
+    ]);
 
-    // === 0. Theme Handling and Current Time ===
+    // === 0. Theme & Time Handling ===
     useEffect(() => {
-        // Apply initial theme attribute to body
-        // Ensure this only runs on the client side
+        // Apply Tailwind dark mode class to body (Simulated)
         if (typeof document !== 'undefined') {
-            document.body.setAttribute('data-theme', 'dark');
+            document.body.classList.add('bg-gray-900', 'text-gray-100');
+            document.documentElement.classList.add('dark');
         }
 
         // Time update interval
@@ -60,38 +106,41 @@ function SensorDashboard() {
         return () => clearInterval(timeInterval);
     }, []);
 
-    // === 1. Initialization Effect (Runs after DOM is ready) ===
+    // === 1. Initialization Effect (Runs after scripts are ready) ===
     useEffect(() => {
-        // Check if the component is mounted AND if the CDN libraries are loaded onto the window object
-        if (typeof window === 'undefined' || !window.Gauge || !window.Chart) return;
+        // Only run initialization if scripts are confirmed loaded and available globally
+        if (!scriptsReady || typeof window.Gauge === 'undefined' || typeof window.Chart === 'undefined') return;
         
-        // Base Gauge.js options (modified for React)
+        const Gauge = window.Gauge;
+        const Chart = window.Chart;
+
+        // Base Gauge.js options (modified for dark theme and responsiveness)
         const gaugeOptions = {
             angle: 0.15,
             lineWidth: 0.3,
             radiusScale: 0.9,
-            pointer: { length: 0.5, strokeWidth: 0.035, color: isDark ? '#e2e8f0' : '#333333' },
-            staticLabels: { font: "12px sans-serif", labels: [], color: isDark ? '#e2e8f0' : '#000000' },
+            pointer: { length: 0.5, strokeWidth: 0.035, color: '#e2e8f0' }, // Light gray pointer
+            staticLabels: { font: "12px sans-serif", labels: [], color: '#9ca3af' }, // Gray labels
             staticZones: [],
             limitMax: false, limitMin: false, highDpiSupport: true,
-            strokeColor: isDark ? '#4a5568' : '#E0E0E0',
+            strokeColor: '#374151', // Dark background stroke
             generateGradient: true,
             gradientStop: [
-                ['#10b981', 0.25], 
-                ['#f59e0b', 0.5],
-                ['#ef4444', 0.75]
+                ['#10b981', 0.25], // Emerald
+                ['#f59e0b', 0.5], // Amber
+                ['#ef4444', 0.75]  // Red
             ]
         };
 
         // --- Gauge Initialization Logic ---
         const initGauge = (ref, max, min, initial, labels, zones) => {
             if (ref.current) {
+                // Deep copy options to ensure independent gauge configurations
                 const options = JSON.parse(JSON.stringify(gaugeOptions));
                 options.staticLabels.labels = labels;
                 options.staticZones = zones;
 
-                // Use the globally available Gauge constructor (window.Gauge)
-                const gauge = new window.Gauge(ref.current).setOptions(options);
+                const gauge = new Gauge(ref.current).setOptions(options);
                 gauge.maxValue = max;
                 gauge.setMinValue(min);
                 gauge.set(initial);
@@ -128,8 +177,8 @@ function SensorDashboard() {
         );
 
         // --- Chart Initialization (Chart.js) ---
-        if (historyChartRef.current && window.Chart) {
-            const chartTextColor = isDark ? '#e2e8f0' : '#333';
+        if (historyChartRef.current) {
+            const chartTextColor = '#e2e8f0'; // Light text for dark background
             
             // Sample data from your original JS
             const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -138,39 +187,54 @@ function SensorDashboard() {
             const waterLevelData = [65, 68, 70, 62, 75, 80, 70];
             const soilMoistureData = [60, 55, 65, 70, 80, 75, 68];
 
-            gaugeInstances.current.chart = new window.Chart(historyChartRef.current.getContext('2d'), {
+            // Destroy previous chart instance if it exists
+            if (gaugeInstances.current.chart) {
+                gaugeInstances.current.chart.destroy();
+            }
+
+            gaugeInstances.current.chart = new Chart(historyChartRef.current.getContext('2d'), {
                 type: 'line',
                 data: {
                     labels,
                     datasets: [
-                        { label: 'Rain Sensor', data: rainData, borderColor: 'rgba(59, 130, 246, 1)', backgroundColor: 'rgba(59, 130, 246, 0.1)', fill: false, tension: 0.3, yAxisID: 'yRain', stepped: true },
-                        { label: 'Barometer Pressure (hPa)', data: pressureData, borderColor: 'rgba(168, 85, 247, 1)', backgroundColor: 'rgba(168, 85, 247, 0.1)', fill: false, tension: 0.3, yAxisID: 'yPressure' },
-                        { label: 'Water Level (%)', data: waterLevelData, borderColor: 'rgba(6, 182, 212, 1)', backgroundColor: 'rgba(6, 182, 212, 0.1)', fill: true, tension: 0.3, yAxisID: 'yWaterLevel' },
-                        { label: 'Soil Moisture (%)', data: soilMoistureData, borderColor: 'rgba(132, 204, 22, 1)', backgroundColor: 'rgba(132, 204, 22, 0.1)', fill: true, tension: 0.3, yAxisID: 'ySoil' }
+                        { label: 'Rain Sensor', data: rainData, borderColor: 'rgba(59, 130, 246, 1)', backgroundColor: 'rgba(59, 130, 246, 0.1)', fill: false, tension: 0.3, yAxisID: 'yRain', stepped: true, pointRadius: 4, pointHoverRadius: 6 },
+                        { label: 'Barometer Pressure (hPa)', data: pressureData, borderColor: 'rgba(168, 85, 247, 1)', backgroundColor: 'rgba(168, 85, 247, 0.1)', fill: false, tension: 0.3, yAxisID: 'yPressure', pointRadius: 4, pointHoverRadius: 6 },
+                        { label: 'Water Level (%)', data: waterLevelData, borderColor: 'rgba(6, 182, 212, 1)', backgroundColor: 'rgba(6, 182, 212, 0.1)', fill: true, tension: 0.3, yAxisID: 'yWaterLevel', pointRadius: 4, pointHoverRadius: 6 },
+                        { label: 'Soil Moisture (%)', data: soilMoistureData, borderColor: 'rgba(132, 204, 22, 1)', backgroundColor: 'rgba(132, 204, 22, 0.1)', fill: true, tension: 0.3, yAxisID: 'ySoil', pointRadius: 4, pointHoverRadius: 6 }
                     ]
                 },
                 options: {
                     responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
                     scales: {
-                        x: { grid: { color: 'rgba(107, 114, 128, 0.2)' }, ticks: { color: chartTextColor } },
-                        yRain: { type: 'linear', position: 'left', beginAtZero: true, max: 3, grid: { color: 'rgba(107, 114, 128, 0.2)' }, ticks: { stepSize: 1, callback: (v) => v === 0 ? 'No Rain' : v === 1 ? 'Light' : v === 2 ? 'Moderate' : v === 3 ? 'Heavy' : '', color: chartTextColor } },
+                        x: { 
+                            grid: { color: 'rgba(75, 85, 99, 0.3)', borderColor: '#4b5563' }, 
+                            ticks: { color: chartTextColor } 
+                        },
+                        yRain: { type: 'linear', position: 'left', beginAtZero: true, max: 3, grid: { color: 'rgba(75, 85, 99, 0.3)', borderColor: '#4b5563' }, ticks: { stepSize: 1, callback: (v) => v === 0 ? 'No Rain' : v === 1 ? 'Light' : v === 2 ? 'Moderate' : v === 3 ? 'Heavy' : '', color: chartTextColor } },
                         yPressure: { type: 'linear', position: 'right', beginAtZero: false, grid: { display: false }, ticks: { callback: (v) => v + ' hPa', color: chartTextColor } },
                         yWaterLevel: { type: 'linear', position: 'left', offset: true, beginAtZero: true, max: 100, grid: { display: false }, ticks: { callback: (v) => v + '%', color: chartTextColor } },
                         ySoil: { type: 'linear', position: 'right', offset: true, beginAtZero: true, max: 100, grid: { display: false }, ticks: { callback: (v) => v + '%', color: chartTextColor } }
                     },
                     plugins: {
-                        legend: { position: 'top', labels: { color: chartTextColor } },
-                        tooltip: { mode: 'index', intersect: false, callbacks: {
-                            label: (c) => {
-                                let label = c.dataset.label || '';
-                                if (label) label += ': ';
-                                if (c.dataset.label === 'Rain Sensor') label += c.raw === 0 ? 'No Rain' : c.raw === 1 ? 'Light' : c.raw === 2 ? 'Moderate' : 'Heavy';
-                                else if (c.dataset.label.includes('Pressure')) label += c.raw + ' hPa';
-                                else if (c.dataset.label.includes('%')) label += c.raw + '%';
-                                else label += c.raw;
-                                return label;
-                            }
-                        } }
+                        legend: { position: 'top', labels: { color: chartTextColor, usePointStyle: true } },
+                        tooltip: { 
+                            mode: 'index', 
+                            intersect: false, 
+                            backgroundColor: 'rgba(31, 41, 55, 0.9)', // Darker tooltip background
+                            titleColor: '#f3f4f6',
+                            bodyColor: '#e5e7eb',
+                            callbacks: {
+                                label: (c) => {
+                                    let label = c.dataset.label || '';
+                                    if (label) label += ': ';
+                                    if (c.dataset.label === 'Rain Sensor') label += c.raw === 0 ? 'No Rain' : c.raw === 1 ? 'Light' : c.raw === 2 ? 'Moderate' : 'Heavy';
+                                    else if (c.dataset.label.includes('Pressure')) label += c.raw + ' hPa';
+                                    else if (c.dataset.label.includes('%')) label += c.raw + '%';
+                                    else label += c.raw;
+                                    return label;
+                                }
+                            } 
+                        }
                     }
                 }
             });
@@ -182,18 +246,16 @@ function SensorDashboard() {
                 gaugeInstances.current.chart.destroy();
             }
         };
-    }, [isDark]); 
-
+    }, [scriptsReady, liveData.pressure, liveData.rain, liveData.soil, liveData.waterLevel]); // Rerun init logic when scripts load or initial data changes
 
     // === 2. Data Fetching and Mock Data Update (for testing) ===
-    // Function to run mock data (for testing)
     const updateMockData = () => {
-        // ... (Mock data generation logic here) ...
+        // Mock data generation logic
         const rainChance = Math.random();
         let newRainValue;
-        if (rainChance < 0.1) newRainValue = (30 + Math.random() * 20).toFixed(0); // Heavy
-        else if (rainChance < 0.3) newRainValue = (1 + Math.random() * 9).toFixed(0); // Light
-        else newRainValue = 0; // No Rain
+        if (rainChance < 0.1) newRainValue = (30 + Math.random() * 20).toFixed(0);
+        else if (rainChance < 0.3) newRainValue = (1 + Math.random() * 9).toFixed(0);
+        else newRainValue = 0;
 
         const newPressure = (980 + Math.random() * 60).toFixed(0);
         const newWaterLevel = (20 + Math.random() * 75).toFixed(0);
@@ -210,44 +272,76 @@ function SensorDashboard() {
 
     // Data Update Interval (Runs every 5 seconds)
     useEffect(() => {
-        // Run mock data updates every 5 seconds for testing purposes
         const interval = setInterval(updateMockData, 5000);
         return () => clearInterval(interval); // Cleanup
     }, []);
 
     // Effect to update the Gauge instances whenever liveData changes
     useEffect(() => {
-        // Only attempt to set the gauges if they have been initialized AND the global Gauge object exists
-        if (gaugeInstances.current.rain && window.Gauge) { 
+        // Only attempt to set the gauges if they have been initialized AND scripts are ready
+        if (scriptsReady && window.Gauge && gaugeInstances.current.rain) { 
             gaugeInstances.current.rain.set(liveData.rain);
             gaugeInstances.current.pressure.set(liveData.pressure);
             gaugeInstances.current.waterLevel.set(liveData.waterLevel);
             gaugeInstances.current.soil.set(liveData.soil);
         }
-    }, [liveData]);
+    }, [liveData, scriptsReady]);
 
 
     // === 3. Helper functions to determine Status and Class Names ===
+    const getStatus = (value, thresholds, labels, classMap) => {
+        let status = labels[0], className = classMap[0], reading = '';
+        
+        if (value >= thresholds[2]) {
+            status = labels[2];
+            className = classMap[2];
+            reading = 'High/Wet/Heavy';
+        } else if (value >= thresholds[1]) {
+            status = labels[1];
+            className = classMap[1];
+            reading = 'Optimal/Normal/Moderate';
+        } else {
+            status = labels[0];
+            className = classMap[0];
+            reading = 'Low/Dry/Clear';
+        }
+        return { reading, status, className };
+    };
+
+    // Define thresholds and labels for different sensors
+    const RAIN_TH = [0, 10, 30]; 
+    const RAIN_LABELS = ['STATUS: Clear', 'STATUS: Light Rainfall', 'ALERT: Heavy Rainfall!'];
+    const PRESSURE_TH = [950, 990, 1030];
+    const PRESSURE_LABELS = ['WARNING: Low Pressure!', 'STATUS: Normal Pressure', 'STATUS: High Pressure'];
+    const WATER_TH = [0, 30, 90];
+    const WATER_LABELS = ['ALERT: Level Low', 'STATUS: Optimal', 'ALERT: Tank Nearing Full!'];
+    const SOIL_TH = [0, 30, 70];
+    const SOIL_LABELS = ['ALERT: Soil is Dry!', 'STATUS: Soil Moisture Optimal', 'WARNING: Soil is Wet!'];
+    
+    const CLASS_MAP = ['text-red-400 font-bold', 'text-green-400 font-bold', 'text-yellow-400 font-bold'];
+
+    // Specific Status Logic (for reading display)
     const getRainStatus = (rain) => {
-        if (rain > 30) return { reading: 'Heavy Rain', status: 'ALERT: Heavy Rainfall!', className: 'status alert' };
-        if (rain > 0) return { reading: 'Light Rain', status: 'STATUS: Light Rainfall', className: 'status warning' };
-        return { reading: 'No Rain', status: 'STATUS: Clear', className: 'status safe' };
+        if (rain > 30) return { reading: 'Heavy Rain', status: RAIN_LABELS[2], className: CLASS_MAP[2] };
+        if (rain > 0) return { reading: 'Light Rain', status: RAIN_LABELS[1], className: CLASS_MAP[1] };
+        return { reading: 'No Rain', status: RAIN_LABELS[0], className: CLASS_MAP[0] };
     };
     const getPressureStatus = (pressure) => {
-        if (pressure < 990) return { status: 'WARNING: Low Pressure!', className: 'status warning' };
-        if (pressure > 1030) return { status: 'STATUS: High Pressure', className: 'status safe' };
-        return { status: 'STATUS: Normal Pressure', className: 'status safe' };
+        if (pressure < 990) return { status: PRESSURE_LABELS[0], className: CLASS_MAP[0] };
+        if (pressure > 1030) return { status: PRESSURE_LABELS[2], className: CLASS_MAP[2] };
+        return { status: PRESSURE_LABELS[1], className: CLASS_MAP[1] };
     };
     const getWaterStatus = (level) => {
-        if (level > 90) return { status: 'ALERT: Tank Nearing Full!', className: 'status warning' };
-        if (level < 30) return { status: 'STATUS: Level Low', className: 'status alert' };
-        return { status: 'STATUS: Optimal', className: 'status safe' };
+        if (level > 90) return { status: WATER_LABELS[2], className: CLASS_MAP[2] };
+        if (level < 30) return { status: WATER_LABELS[0], className: CLASS_MAP[0] };
+        return { status: WATER_LABELS[1], className: CLASS_MAP[1] };
     };
     const getSoilStatus = (moisture) => {
-        if (moisture < 30) return { reading: 'Dry', status: 'ALERT: Soil is Dry!', className: 'status alert' };
-        if (moisture < 70) return { reading: 'Optimal', status: 'STATUS: Soil Moisture Optimal', className: 'status safe' };
-        return { reading: 'Wet', status: 'WARNING: Soil is Wet!', className: 'status warning' };
+        if (moisture < 30) return { reading: 'Dry', status: SOIL_LABELS[0], className: CLASS_MAP[0] };
+        if (moisture < 70) return { reading: 'Optimal', status: SOIL_LABELS[1], className: CLASS_MAP[1] };
+        return { reading: 'Wet', status: SOIL_LABELS[2], className: CLASS_MAP[2] };
     };
+
 
     const rainStatus = useMemo(() => getRainStatus(liveData.rain), [liveData.rain]);
     const pressureStatus = useMemo(() => getPressureStatus(liveData.pressure), [liveData.pressure]);
@@ -256,92 +350,119 @@ function SensorDashboard() {
 
 
     // --- RENDER ---
-    return (
-        <>
-            <Head>
-                <title>Smart Farm Monitor</title>
-                {/* CRITICAL FIX: Load gauge.js via CDN since it fails npm install 
-                  We keep Chart.js (which is more modern) via npm package.
-                */}
-                <script src="https://cdnjs.cloudflare.com/ajax/libs/gauge.js/1.3.7/gauge.min.js" async defer></script>
-                
-                <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
-                <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-            </Head>
-
-            <div className="dashboard-container">
-                <header>
-                    <h1>Smart Farm Monitor</h1>
-                    <div className="time" id="current-time">{currentTime}</div>
-                </header>
-
-                <main>
-                    {/* Status Grid Section */}
-                    <section className="status-grid">
-                        <article className="card">
-                            <h3>Rain Sensor</h3>
-                            <i className="fas fa-cloud-rain icon" style={{color: 'var(--primary-color)'}}></i>
-                            <p className="reading">{rainStatus.reading}</p>
-                            <p className={rainStatus.className}>{rainStatus.status}</p>
-                        </article>
-
-                        <article className="card">
-                            <h3>Barometric Pressure</h3>
-                            <i className="fas fa-tachometer-alt icon" style={{color: '#6d28d9'}}></i>
-                            <p className="reading">{liveData.pressure} hPa</p>
-                            <p className={pressureStatus.className}>{pressureStatus.status}</p>
-                        </article>
-
-                        <article className="card">
-                            <h3>Water Level(Tank)</h3>
-                            <i className="fas fa-water icon" style={{color: '#0e7490'}}></i>
-                            <p className="reading">Tank: {liveData.waterLevel}%</p>
-                            <p className={waterStatus.className}>{waterStatus.status}</p>
-                        </article>
-
-                        <article className="card">
-                            <h3>Soil Moisture</h3>
-                            <i className="fas fa-seedling icon" style={{color: '#65a30d'}}></i>
-                            <p className="reading">{soilStatus.reading}</p>
-                            <p className={soilStatus.className}>{soilStatus.status}</p>
-                        </article>
-                    </section>
-
-                    {/* Main Content Section - Gauges & Chart */}
-                    <section className="main-content">
-                        <article className="card live-readings">
-                            <h3>Live Readings</h3>
-                            <div className="gauges-container">
-                                <div className="gauge-wrapper">
-                                    <canvas id="gaugeRain" ref={rainGaugeRef} width="200" height="100"></canvas>
-                                    <p>Rain: {liveData.rain} mm/hr</p>
-                                </div>
-                                <div className="gauge-wrapper">
-                                    <canvas id="gaugePressure" ref={pressureGaugeRef} width="200" height="100"></canvas>
-                                    <p>Pressure: {liveData.pressure} hPa</p>
-                                </div>
-                                <div className="gauge-wrapper">
-                                    <canvas id="gaugeWaterLevel" ref={waterLevelGaugeRef} width="200" height="100"></canvas>
-                                    <p>Water Level: {liveData.waterLevel}%</p>
-                                </div>
-                                <div className="gauge-wrapper">
-                                    <canvas id="gaugeSoil" ref={soilGaugeRef} width="200" height="100"></canvas>
-                                    <p>Soil Moisture: {liveData.soil}%</p>
-                                </div>
-                            </div>
-                        </article>
-
-                        <article className="card history-chart">
-                            <h3>7-Day History</h3>
-                            <div className="chart-container">
-                                <canvas id="historyChart" ref={historyChartRef}></canvas>
-                            </div>
-                        </article>
-                    </section>
-                </main>
+    if (!scriptsReady) {
+        return (
+            <div className="flex items-center justify-center min-h-screen bg-gray-900 text-gray-400">
+                <RefreshCcw className="w-8 h-8 animate-spin mr-3" />
+                <p>Loading essential libraries (Gauge.js, Chart.js)...</p>
             </div>
-        </>
+        );
+    }
+    
+    return (
+        <div className="min-h-screen bg-gray-900 text-gray-100 p-4 sm:p-8 font-inter dark">
+            <style>{`
+                /* Ensure responsive canvas sizes */
+                .chart-container {
+                    position: relative;
+                    height: 50vh;
+                    width: 100%;
+                }
+                .gauges-container {
+                    display: grid;
+                    grid-template-columns: repeat(2, 1fr);
+                    gap: 1.5rem;
+                }
+                .gauge-wrapper canvas {
+                    width: 100% !important;
+                    height: auto !important;
+                }
+                @media (min-width: 768px) {
+                    .gauges-container {
+                        grid-template-columns: repeat(4, 1fr);
+                    }
+                    .chart-container {
+                        height: 400px;
+                    }
+                }
+            `}</style>
+            
+            <header className="mb-8 p-4 bg-gray-800 rounded-xl shadow-2xl flex flex-col md:flex-row justify-between items-center">
+                <h1 className="text-3xl font-bold text-emerald-400 mb-2 md:mb-0">
+                    Smart Farm Monitor
+                </h1>
+                <div className="flex items-center text-sm font-medium text-gray-400">
+                    <Clock className="w-4 h-4 mr-2 text-indigo-400" />
+                    <span id="current-time">{currentTime}</span>
+                </div>
+            </header>
+
+            <main className="space-y-8">
+                {/* Status Grid Section */}
+                <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <article className="card p-4 bg-gray-800 rounded-xl shadow-lg transition duration-300 hover:shadow-xl hover:scale-[1.02] border-t-4 border-emerald-500">
+                        <CloudRain className="w-8 h-8 mb-2 text-emerald-400" />
+                        <h3 className="text-lg font-semibold mb-1 text-gray-300">Rain Sensor</h3>
+                        <p className="text-xl font-extrabold mb-1 text-gray-100">{rainStatus.reading}</p>
+                        <p className={`text-sm ${rainStatus.className}`}>{rainStatus.status}</p>
+                    </article>
+
+                    <article className="card p-4 bg-gray-800 rounded-xl shadow-lg transition duration-300 hover:shadow-xl hover:scale-[1.02] border-t-4 border-violet-500">
+                        <Gauge className="w-8 h-8 mb-2 text-violet-400" /> {/* Updated Icon */}
+                        <h3 className="text-lg font-semibold mb-1 text-gray-300">Barometric Pressure</h3>
+                        <p className="text-xl font-extrabold mb-1 text-gray-100">{liveData.pressure} hPa</p>
+                        <p className={`text-sm ${pressureStatus.className}`}>{pressureStatus.status}</p>
+                    </article>
+
+                    <article className="card p-4 bg-gray-800 rounded-xl shadow-lg transition duration-300 hover:shadow-xl hover:scale-[1.02] border-t-4 border-cyan-500">
+                        <Droplet className="w-8 h-8 mb-2 text-cyan-400" />
+                        <h3 className="text-lg font-semibold mb-1 text-gray-300">Water Level (Tank)</h3>
+                        <p className="text-xl font-extrabold mb-1 text-gray-100">{liveData.waterLevel}%</p>
+                        <p className={`text-sm ${waterStatus.className}`}>{waterStatus.status}</p>
+                    </article>
+
+                    <article className="card p-4 bg-gray-800 rounded-xl shadow-lg transition duration-300 hover:shadow-xl hover:scale-[1.02] border-t-4 border-lime-500">
+                        <Leaf className="w-8 h-8 mb-2 text-lime-400" />
+                        <h3 className="text-lg font-semibold mb-1 text-gray-300">Soil Moisture</h3>
+                        <p className="text-xl font-extrabold mb-1 text-gray-100">{soilStatus.reading}</p>
+                        <p className={`text-sm ${soilStatus.className}`}>{soilStatus.status}</p>
+                    </article>
+                </section>
+
+                {/* Main Content Section - Gauges & Chart */}
+                <section className="grid grid-cols-1 gap-8 md:grid-cols-1">
+                    <article className="card p-6 bg-gray-800 rounded-xl shadow-2xl">
+                        <h3 className="text-2xl font-bold mb-4 text-gray-200">Live Sensor Readings (Gauges)</h3>
+                        <div className="gauges-container">
+                            <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
+                                <canvas id="gaugeRain" ref={rainGaugeRef} className="max-w-full h-auto"></canvas>
+                                <p className="mt-2 text-sm text-gray-400">Rain: {liveData.rain} mm/hr</p>
+                            </div>
+                            <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
+                                <canvas id="gaugePressure" ref={pressureGaugeRef} className="max-w-full h-auto"></canvas>
+                                <p className="mt-2 text-sm text-gray-400">Pressure: {liveData.pressure} hPa</p>
+                            </div>
+                            <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
+                                <canvas id="gaugeWaterLevel" ref={waterLevelGaugeRef} className="max-w-full h-auto"></canvas>
+                                <p className="mt-2 text-sm text-gray-400">Water Level: {liveData.waterLevel}%</p>
+                            </div>
+                            <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
+                                <canvas id="gaugeSoil" ref={soilGaugeRef} className="max-w-full h-auto"></canvas>
+                                <p className="mt-2 text-sm text-gray-400">Soil Moisture: {liveData.soil}%</p>
+                            </div>
+                        </div>
+                    </article>
+
+                    <article className="card p-6 bg-gray-800 rounded-xl shadow-2xl">
+                        <h3 className="text-2xl font-bold mb-4 text-gray-200">7-Day Historical Trends</h3>
+                        <div className="chart-container">
+                            <canvas id="historyChart" ref={historyChartRef}></canvas>
+                        </div>
+                    </article>
+                </section>
+            </main>
+        </div>
     );
 }
 
-export default SensorDashboard;
+export default App;
