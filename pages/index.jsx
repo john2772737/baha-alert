@@ -43,39 +43,48 @@ const App = () => {
     // === 0. Client Mount, Script Injection, and Time Handling ===
     useEffect(() => {
         // --- 0a. Set isClient state ---
-        // This runs once the component is mounted on the client side.
         setIsClient(true);
         setCurrentTime(getFormattedTime());
         
-        // --- 0b. Manual CDN Script Loading (Since we removed useScripts) ---
-        const gaugeUrl = "https://cdnjs.cloudflare.com/ajax/libs/gauge.js/1.3.7/gauge.min.js";
-        const chartUrl = "https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js";
+        // --- 0b. Manual CDN Script Loading (Includes Tailwind for quick fix) ---
+        const cdnUrls = [
+            "https://cdnjs.cloudflare.com/ajax/libs/gauge.js/1.3.7/gauge.min.js",
+            "https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js",
+            "https://cdn.tailwindcss.com", // Injecting Tailwind CSS via CDN
+        ];
 
-        // Check if libraries are already present (e.g., if dynamically loaded elsewhere)
-        if (window.Gauge && window.Chart) {
-            setScriptsLoaded(true);
-        } else {
-            const loadScript = (url) => {
-                return new Promise(resolve => {
-                    if (document.querySelector(`script[src="${url}"]`)) return resolve();
-                    const script = document.createElement('script');
-                    script.src = url;
-                    script.async = true;
-                    script.onload = resolve;
+        const loadScript = (url) => {
+            return new Promise(resolve => {
+                if (document.querySelector(`script[src="${url}"]`)) return resolve();
+                const script = document.createElement('script');
+                script.src = url;
+                script.async = true;
+                script.onload = resolve;
+                // For Tailwind, ensure it's loaded before Chart/Gauge for potential canvas styling
+                if (url.includes('tailwindcss')) {
+                    document.head.prepend(script);
+                } else {
                     document.head.appendChild(script);
-                });
-            };
+                }
+                
+                // Special case: Tailwind CDN executes and sets up the styles immediately
+                if (url.includes('tailwindcss')) {
+                     // Resolve immediately after appending Tailwind, though its execution is sync
+                     resolve();
+                }
+            });
+        };
 
-            Promise.all([loadScript(gaugeUrl), loadScript(chartUrl)])
-                .then(() => {
-                    // Final check after loading to ensure globals exist
-                    if (window.Gauge && window.Chart) {
-                        setScriptsLoaded(true);
-                    } else {
-                        console.error('Failed to load Gauge.js or Chart.js even after injection.');
-                    }
-                });
-        }
+        Promise.all(cdnUrls.map(loadScript))
+            .then(() => {
+                // Final check after loading to ensure globals exist
+                if (window.Gauge && window.Chart) {
+                    setScriptsLoaded(true);
+                } else {
+                    // This will still trigger if Tailwind loaded but Chart/Gauge failed
+                    console.warn('Chart/Gauge libraries may be missing, but UI styles should load.');
+                }
+            });
 
         // Time update interval
         const timeInterval = setInterval(() => {
