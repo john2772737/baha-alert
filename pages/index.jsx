@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 
 // Real API Endpoint provided by the user
 const REAL_API_ENDPOINT = 'https://baha-alert.vercel.app/api'; 
@@ -7,6 +7,9 @@ const ApiTestPage = () => {
     const [fetchError, setFetchError] = useState(null);
     const [liveData, setLiveData] = useState({ message: "Awaiting first fetch..." });
     const [status, setStatus] = useState('info');
+
+    // Helper to get formatted time (simulating minimal environment utilities)
+    const getFormattedTime = () => new Date().toLocaleTimeString('en-US');
 
     const updateStatus = (message, type = 'info') => {
         setFetchError(message);
@@ -21,19 +24,29 @@ const ApiTestPage = () => {
             const response = await fetch(REAL_API_ENDPOINT);
 
             if (!response.ok) {
-                const errorText = await response.text();
+                // Read response body for better debugging info
+                const errorText = await response.text(); 
                 throw new Error(`HTTP Status ${response.status}: ${response.statusText || 'Unknown Error'}. Body: ${errorText.substring(0, 50)}...`);
             }
 
             const data = await response.json();
             
-            updateStatus('SUCCESS: Data Fetched and Parsed!', 'success');
+            // Critical check to ensure the format is what the gauge dashboard expects
+            const requiredKeys = ['pressure', 'rain', 'waterLevel', 'soil'];
+            const isValidFormat = requiredKeys.every(key => key in data);
+
+            if (isValidFormat) {
+                 updateStatus('SUCCESS: Data Fetched and Format is Correct!', 'success');
+            } else {
+                 updateStatus('WARNING: Fetch Succeeded, but Data Format is Unexpected.', 'error');
+            }
+            
             setLiveData(data);
 
         } catch (error) {
             updateStatus(`FETCH FAILED! Error: ${error.message}. Check browser console.`, 'error');
             setLiveData({ message: 'Fetch failed. See error status above.' });
-            console.error(`[${new Date().toLocaleTimeString()}] CRITICAL FETCH ERROR:`, error);
+            console.error(`[${getFormattedTime()}] CRITICAL FETCH ERROR:`, error);
         }
     }, []);
 
