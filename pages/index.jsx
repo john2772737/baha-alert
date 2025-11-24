@@ -4,16 +4,15 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 const initialSensorData = {
     pressure: 1012.0, // hPa (numeric)
     rain: 0.0, // mm/hr (numeric, or categorical string)
-    waterLevel: 65.0, // % (numeric)
     soil: 60.0, // % (numeric, or categorical string)
-    waterTank: 'Normal' // New key for Ultrasonic status
+    waterTank: 'Normal' // Ultrasonic status
 };
 
 // Real API Endpoint provided by the user
 const REAL_API_ENDPOINT = 'https://baha-alert.vercel.app/api'; 
 
 // Define timing constant
-const FETCH_INTERVAL_MS = 1500; // 5 seconds
+const FETCH_INTERVAL_MS = 5000; // 5 seconds
 
 // Helper function to get the current formatted time
 const getFormattedTime = () => {
@@ -50,7 +49,6 @@ const App = () => {
     // Refs for the Canvas elements to initialize Gauge/Chart.js
     const rainGaugeRef = useRef(null);
     const pressureGaugeRef = useRef(null);
-    const waterLevelGaugeRef = useRef(null);
     const soilGaugeRef = useRef(null);
     const historyChartRef = useRef(null);
 
@@ -135,13 +133,6 @@ const App = () => {
         return { status: 'STATUS: Normal Pressure', className: 'text-emerald-400 font-bold' };
     };
 
-    // Ultrasonic Water Level (Tank) status remains numeric-based (% full)
-    const getWaterLevelStatus = (level) => {
-        if (level > 90) return { status: 'ALERT: Tank Nearing Full!', className: 'text-red-400 font-bold' };
-        if (level < 30) return { status: 'STATUS: Level Low', className: 'text-yellow-400 font-bold' };
-        return { status: 'STATUS: Optimal Level', className: 'text-emerald-400 font-bold' };
-    };
-
     // Water Tank Status (Ultrasonic Categorical Feedback)
     const getWaterTankStatus = (tankStatus) => {
         const normalizedStatus = tankStatus.toLowerCase();
@@ -149,10 +140,8 @@ const App = () => {
         if (normalizedStatus.includes('below normal') || normalizedStatus.includes('low')) 
             return { reading: 'Below Normal', status: 'ALERT: Below Normal!', className: 'text-red-400 font-bold' };
         
-        // --- UPDATED LOGIC FOR ABOVE NORMAL ---
         if (normalizedStatus.includes('above normal') || normalizedStatus.includes('high')) 
             return { reading: 'Above Normal', status: 'WARNING: Above Normal!', className: 'text-yellow-400 font-bold' };
-        // --------------------------------------
             
         if (normalizedStatus.includes('normal')) 
             return { reading: 'Normal', status: 'STATUS: Level Optimal', className: 'text-emerald-400 font-bold' };
@@ -177,7 +166,6 @@ const App = () => {
     // Recalculate statuses whenever liveData changes
     const rainStatus = useMemo(() => getRainStatus(liveData.rain), [liveData.rain]);
     const pressureStatus = useMemo(() => getPressureStatus(liveData.pressure), [liveData.pressure]);
-    const waterLevelStatus = useMemo(() => getWaterLevelStatus(liveData.waterLevel), [liveData.waterLevel]);
     const soilStatus = useMemo(() => getSoilStatus(liveData.soil), [liveData.soil]);
     const waterTankStatus = useMemo(() => getWaterTankStatus(liveData.waterTank), [liveData.waterTank]);
 
@@ -209,7 +197,8 @@ const App = () => {
         }
 
         // CRITICAL: Ensure all canvas elements are rendered and referenced before initializing libraries
-        if (!rainGaugeRef.current || !pressureGaugeRef.current || !waterLevelGaugeRef.current || !soilGaugeRef.current || !historyChartRef.current) {
+        // (Removed waterLevelGaugeRef check)
+        if (!rainGaugeRef.current || !pressureGaugeRef.current || !soilGaugeRef.current || !historyChartRef.current) {
              console.warn("Canvas elements not yet mounted for Auto mode. Skipping gauge/chart initialization.");
              return; // Safely exit if refs are not ready
         }
@@ -279,12 +268,7 @@ const App = () => {
             [{strokeStyle: "#f59e0b", min: 950, max: 980}, {strokeStyle: "#10b981", min: 980, max: 1040}, {strokeStyle: "#f59e0b", min: 1040, max: 1050}]
         );
 
-        // 3. Water Level Gauge
-        gaugeInstances.current.waterLevel = initGauge(
-            waterLevelGaugeRef, 100, 0, liveData.waterLevel, 
-            [0, 25, 50, 75, 100],
-            [{strokeStyle: "#ef4444", min: 0, max: 30}, {strokeStyle: "#10b981", min: 30, max: 80}, {strokeStyle: "#f59e0b", min: 80, max: 100}]
-        );
+        // 3. Water Level Gauge (REMOVED)
 
         // 4. Soil Moisture Gauge
         gaugeInstances.current.soil = initGauge(
@@ -310,7 +294,7 @@ const App = () => {
                     datasets: [
                         { label: 'Rain Sensor (mm)', data: rainData, borderColor: 'rgba(59, 130, 246, 1)', backgroundColor: 'rgba(59, 130, 246, 0.1)', fill: false, tension: 0.3, yAxisID: 'yRain', stepped: true, pointRadius: 4, pointHoverRadius: 6 },
                         { label: 'Barometer Pressure (hPa)', data: pressureData, borderColor: 'rgba(168, 85, 247, 1)', backgroundColor: 'rgba(168, 85, 247, 0.1)', fill: false, tension: 0.3, yAxisID: 'yPressure', pointRadius: 4, pointHoverRadius: 6 },
-                        { label: 'Water Level (%)', data: waterLevelData, borderColor: 'rgba(6, 182, 212, 1)', backgroundColor: 'rgba(6, 182, 212, 0.1)', fill: true, tension: 0.3, yAxisID: 'yLevel', pointRadius: 4, pointHoverRadius: 6 },
+                        // Water Level removed from Chart datasets
                         { label: 'Soil Moisture (%)', data: soilMoistureData, borderColor: 'rgba(132, 204, 22, 1)', backgroundColor: 'rgba(132, 204, 22, 0.1)', fill: true, tension: 0.3, yAxisID: 'yLevel', pointRadius: 4, pointHoverRadius: 6 }
                     ]
                 },
@@ -407,7 +391,8 @@ const App = () => {
                 return {
                     // Numerical sensors (requires conversion from string)
                     pressure: safeParseFloat(payload.pressure, prevData.pressure),
-                    waterLevel: safeParseFloat(payload.waterLevel, prevData.waterLevel),
+                    // waterLevel REMOVED
+                    // waterLevel: safeParseFloat(payload.waterLevel, prevData.waterLevel),
 
                     // Categorical sensors (expected to be strings)
                     rain: safeParseString(payload.rain || payload.Rain, prevData.rain),
@@ -475,7 +460,8 @@ const App = () => {
                     // Update the gauges with the new liveData values. Gauges only take numbers.
                     if (gaugeInstances.current.rain && typeof liveData.rain === 'number') gaugeInstances.current.rain.set(liveData.rain);
                     if (gaugeInstances.current.pressure) gaugeInstances.current.pressure.set(liveData.pressure);
-                    if (gaugeInstances.current.waterLevel) gaugeInstances.current.waterLevel.set(liveData.waterLevel);
+                    // waterLevel REMOVED
+                    // if (gaugeInstances.current.waterLevel) gaugeInstances.current.waterLevel.set(liveData.waterLevel);
                     if (gaugeInstances.current.soil && typeof liveData.soil === 'number') gaugeInstances.current.soil.set(liveData.soil);
                 } catch (e) {
                     console.error("Error updating gauges:", e);
@@ -492,10 +478,11 @@ const App = () => {
     const ClockIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>);
     const CloudRainIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"></path><path d="M16 20v-3"></path><path d="M8 20v-3"></path><path d="M12 18v-3"></path></svg>);
     const GaugeIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19c-3.3 0-6-2.7-6-6s2.7-6 6-6 6 2.7 6 6-2.7 6-6 6z"></path><path d="M9 13l3 3 3-3"></path></svg>);
-    const DropletIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2.69L6 8.52A10.74 10.74 0 0 0 12 22a10.74 10.74 0 0 0 6-13.48L12 2.69z"></path></svg>);
+    // DropletIcon REMOVED
+    // const DropletIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2.69L6 8.52A10.74 10.74 0 0 0 12 22a10.74 10.74 0 0 0 6-13.48L12 2.69z"></path></svg>);
     const LeafIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 20A10 10 0 0 0 2 11c0-4 4-4 8-8 3 0 4 3 4 5 0 2-3 5-3 5l-1 1 1 1c1.5 1.5 3.5 1.5 5 0l1-1c3 0 5 3 5 5 0 3-4 5-8 5z"></path></svg>);
     const RefreshCcwIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 18A8 8 0 1 0 7 19l-4-4"></path><path d="M4 13v-2"></path><path d="M17 19h-2l-4-4"></path></svg>);
-    // New Icon for Water Tank Status
+    // Icon for Water Tank Status
     const BoxIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><path d="M3.27 6.3L12 11.5l8.73-5.2"></path><path d="M12 22.78V11.5"></path></svg>);
 
 
@@ -529,9 +516,10 @@ const App = () => {
                     max-width: 100% !important; 
                     height: auto !important; 
                 }
+                /* Adjusted for 3 gauges remaining (Rain, Pressure, Soil) */
                 @media (min-width: 768px) {
                     .gauges-container {
-                        grid-template-columns: repeat(4, 1fr);
+                        grid-template-columns: repeat(3, 1fr); /* Change from 4 to 3 */
                     }
                     .chart-container {
                         height: 450px;
@@ -599,11 +587,10 @@ const App = () => {
                                 <p className={`text-sm ${pressureStatus.className}`}>{pressureStatus.status}</p>
                             </article>
                             
-                            {/* NEW CARD for Water Tank Status (Categorical Ultrasonic) */}
+                            {/* Water Tank Status (Categorical Ultrasonic) - Card 3 */}
                             <article className="card p-5 bg-slate-800 rounded-xl shadow-2xl transition duration-300 hover:shadow-cyan-500/50 hover:scale-[1.02] border border-slate-700 hover:border-cyan-600/70">
                                 <BoxIcon className="w-10 h-10 mb-3 text-cyan-400 p-2 bg-cyan-900/40 rounded-lg" />
                                 <h3 className="text-lg font-semibold mb-1 text-slate-300">Water Tank Status</h3>
-                                {/* UPDATED: Uses derived reading property for consistency */}
                                 <p className="text-3xl font-black mb-1 text-slate-50">{waterTankStatus.reading}</p>
                                 <p className={`text-sm ${waterTankStatus.className}`}>{waterTankStatus.status}</p>
                             </article>
@@ -619,21 +606,13 @@ const App = () => {
                             </article>
                         </section>
                         
-                        {/* Status Grid Section (Water Level is moved here to make space for the new categorical one) */}
-                        <section className="grid grid-cols-2 lg:grid-cols-4 gap-6">
-                             <article className="card p-5 bg-slate-800 rounded-xl shadow-2xl transition duration-300 hover:shadow-sky-500/50 hover:scale-[1.02] border border-slate-700 hover:border-sky-600/70">
-                                <DropletIcon className="w-10 h-10 mb-3 text-sky-400 p-2 bg-sky-900/40 rounded-lg" />
-                                <h3 className="text-lg font-semibold mb-1 text-slate-300">Water Level (Tank %)</h3>
-                                <p className="text-3xl font-black mb-1 text-slate-50">{liveData.waterLevel.toFixed(1)}%</p>
-                                <p className={`text-sm ${waterLevelStatus.className}`}>{waterLevelStatus.status}</p>
-                            </article>
-                        </section>
-
-
+                        {/* Secondary Status Grid Section (REMOVED: The Water Level card was here) */}
+                        
                         {/* Main Content Section - Gauges & Chart (Dynamic) */}
                         <section className="grid grid-cols-1 gap-8 md:grid-cols-1">
                             <article className="card p-6 bg-slate-800 rounded-3xl shadow-2xl border border-slate-700">
                                 <h3 className="text-2xl font-bold mb-6 text-slate-200 border-b border-slate-700 pb-2">Live Sensor Readings (Gauges)</h3>
+                                {/* Changed grid layout to 3 columns (3 gauges remaining) */}
                                 <div className="gauges-container">
                                     <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
                                         <canvas id="gaugeRain" ref={rainGaugeRef} className="max-w-full h-auto"></canvas>
@@ -643,10 +622,7 @@ const App = () => {
                                         <canvas id="gaugePressure" ref={pressureGaugeRef} className="max-w-full h-auto"></canvas>
                                         <p className="mt-3 text-lg font-semibold text-slate-300">Pressure: <span className="text-purple-400">{liveData.pressure.toFixed(1)} hPa</span></p>
                                     </div>
-                                    <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
-                                        <canvas id="gaugeWaterLevel" ref={waterLevelGaugeRef} className="max-w-full h-auto"></canvas>
-                                        <p className="mt-3 text-lg font-semibold text-slate-300">Water Level: <span className="text-sky-400">{liveData.waterLevel.toFixed(1)}%</span></p>
-                                    </div>
+                                    {/* Water Level Gauge REMOVED */}
                                     <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
                                         <canvas id="gaugeSoil" ref={soilGaugeRef} className="max-w-full h-auto"></canvas>
                                         <p className="mt-3 text-lg font-semibold text-slate-300">Soil Moisture: <span className="text-orange-400">{typeof liveData.soil === 'number' ? `${liveData.soil.toFixed(1)}%` : liveData.soil}</span></p>
