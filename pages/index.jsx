@@ -15,7 +15,7 @@ export default function Home() {
         console.log(`--- Attempting to fetch data at ${new Date().toLocaleTimeString()} ---`);
         try {
             // NOTE: Using cache: 'no-store' is CRITICAL to prevent the browser from serving stale data
-            const response = await fetch('/api/data', { 
+            const response = await fetch('/api', { 
                 cache: 'no-store' 
             }); 
             
