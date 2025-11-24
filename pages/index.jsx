@@ -146,6 +146,13 @@ const App = () => {
         // Prevent initialization if not in Auto mode
         if (mode !== 'Auto') return;
 
+        // CRITICAL FIX: Ensure all canvas elements are rendered and referenced before initializing libraries
+        if (!rainGaugeRef.current || !pressureGaugeRef.current || !waterLevelGaugeRef.current || !soilGaugeRef.current || !historyChartRef.current) {
+             console.warn("Canvas elements not yet mounted for Auto mode. Skipping gauge/chart initialization.");
+             return; // Safely exit if refs are not ready
+        }
+
+
         const Gauge = window.Gauge;
         const Chart = window.Chart;
 
@@ -157,6 +164,7 @@ const App = () => {
             }
         } catch(e) { /* ignore cleanup errors */ }
         
+        // Explicitly clear all gauge instances
         Object.keys(gaugeInstances.current).forEach(key => gaugeInstances.current[key] = null);
 
 
@@ -180,17 +188,16 @@ const App = () => {
 
         // --- Gauge Initialization Logic ---
         const initGauge = (ref, max, min, initial, labels, zones) => {
-            if (ref.current) {
-                const options = JSON.parse(JSON.stringify(gaugeOptions));
-                options.staticLabels.labels = labels;
-                options.staticZones = zones;
+            // Ref check is guaranteed by the block-level check above, but keep helper clean
+            const options = JSON.parse(JSON.stringify(gaugeOptions));
+            options.staticLabels.labels = labels;
+            options.staticZones = zones;
 
-                const gauge = new Gauge(ref.current).setOptions(options);
-                gauge.maxValue = max;
-                gauge.setMinValue(min);
-                gauge.set(initial);
-                return gauge;
-            }
+            const gauge = new Gauge(ref.current).setOptions(options);
+            gauge.maxValue = max;
+            gauge.setMinValue(min);
+            gauge.set(initial);
+            return gauge;
         };
 
         // 1. Rain Gauge
@@ -346,17 +353,19 @@ const App = () => {
         if (mode === 'Auto' && isClient && scriptsLoaded && window.Gauge && gaugeInstances.current.rain) { 
             requestAnimationFrame(() => {
                 try {
-                    gaugeInstances.current.rain.set(liveData.rain);
-                    gaugeInstances.current.pressure.set(liveData.pressure);
-                    gaugeInstances.current.waterLevel.set(liveData.waterLevel);
-                    gaugeInstances.current.soil.set(liveData.soil);
+                    // Check if gauges were successfully initialized (non-null) before setting values
+                    if (gaugeInstances.current.rain) gaugeInstances.current.rain.set(liveData.rain);
+                    if (gaugeInstances.current.pressure) gaugeInstances.current.pressure.set(liveData.pressure);
+                    if (gaugeInstances.current.waterLevel) gaugeInstances.current.waterLevel.set(liveData.waterLevel);
+                    if (gaugeInstances.current.soil) gaugeInstances.current.soil.set(liveData.soil);
                 } catch (e) {
-                    // If gauges fail to update, try re-initializing them defensively
-                    console.error("Error updating gauges:", e);
+                    console.error("Error updating gauges, attempting re-initialization:", e);
+                    // Force re-initialization if an error occurs during update
+                    initializeDashboard(); 
                 }
             });
         }
-    }, [liveData, scriptsLoaded, isClient, mode]);
+    }, [liveData, scriptsLoaded, isClient, mode, initializeDashboard]);
 
     
     // --- SVG ICON COMPONENTS (Using inline SVGs to avoid npm dependencies) ---
@@ -444,7 +453,8 @@ const App = () => {
                             <article className="card p-5 bg-slate-800 rounded-xl shadow-2xl transition duration-300 hover:shadow-emerald-500/50 hover:scale-[1.02] border border-slate-700 hover:border-emerald-600/70">
                                 <CloudRainIcon className="w-10 h-10 mb-3 text-sky-400 p-2 bg-sky-900/40 rounded-lg" />
                                 <h3 className="text-lg font-semibold mb-1 text-slate-300">Rain Sensor</h3>
-                                <p className="text-3xl font-black mb-1 text-slate-50">{liveData.rain} mm/hr</p>
+                                {/* FIX: Display descriptive reading */}
+                                <p className="text-3xl font-black mb-1 text-slate-50">{rainStatus.reading}</p> 
                                 <p className={`text-sm ${rainStatus.className}`}>{rainStatus.status}</p>
                             </article>
 
@@ -465,7 +475,8 @@ const App = () => {
                             <article className="card p-5 bg-slate-800 rounded-xl shadow-2xl transition duration-300 hover:shadow-orange-500/50 hover:scale-[1.02] border border-slate-700 hover:border-orange-600/70">
                                 <LeafIcon className="w-10 h-10 mb-3 text-orange-400 p-2 bg-orange-900/40 rounded-lg" />
                                 <h3 className="text-lg font-semibold mb-1 text-slate-300">Soil Moisture</h3>
-                                <p className="text-3xl font-black mb-1 text-slate-50">{liveData.soil}%</p>
+                                {/* FIX: Display descriptive reading */}
+                                <p className="text-3xl font-black mb-1 text-slate-50">{soilStatus.reading}</p>
                                 <p className={`text-sm ${soilStatus.className}`}>{soilStatus.status}</p>
                             </article>
                         </section>
@@ -507,7 +518,7 @@ const App = () => {
                 {/* Placeholder for Maintenance/Sleep Modes */}
                 {mode !== 'Auto' && (
                     <div className="p-16 bg-slate-800 rounded-3xl shadow-2xl border border-slate-700 text-center flex flex-col items-center justify-center min-h-[50vh]">
-                        <RefreshCcwIcon className={`w-16 h-16 mb-6 ${mode === 'Maintenance' ? 'text-yellow-400' : 'text-gray-500'}`} />
+                        <RefreshCcwIcon className={`w-16 h-16 mb-6 ${mode === 'Maintenance' ? 'text-yellow-400 animate-spin' : 'text-gray-500'}`} />
                         <h3 className="text-4xl font-extrabold mb-4 text-emerald-400">
                             System Mode: <span className={mode === 'Maintenance' ? 'text-yellow-400' : 'text-gray-400'}>{mode}</span>
                         </h3>
