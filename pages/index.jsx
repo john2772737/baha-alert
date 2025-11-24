@@ -13,7 +13,7 @@ const initialSensorData = {
 const REAL_API_ENDPOINT = 'https://baha-alert.vercel.app/api'; 
 
 // Define timing constant
-const FETCH_INTERVAL_MS = 3000; // 5 seconds
+const FETCH_INTERVAL_MS = 1500; // 5 seconds
 
 // Helper function to get the current formatted time
 const getFormattedTime = () => {
@@ -147,17 +147,17 @@ const App = () => {
         const normalizedStatus = tankStatus.toLowerCase();
         
         if (normalizedStatus.includes('below normal') || normalizedStatus.includes('low')) 
-            return { status: 'ALERT: Below Normal!', className: 'text-red-400 font-bold' };
+            return { reading: 'Below Normal', status: 'ALERT: Below Normal!', className: 'text-red-400 font-bold' };
         
-        // --- NEW LOGIC ADDED HERE ---
+        // --- UPDATED LOGIC FOR ABOVE NORMAL ---
         if (normalizedStatus.includes('above normal') || normalizedStatus.includes('high')) 
-            return { status: 'WARNING: Above Normal!', className: 'text-yellow-400 font-bold' };
-        // ----------------------------
+            return { reading: 'Above Normal', status: 'WARNING: Above Normal!', className: 'text-yellow-400 font-bold' };
+        // --------------------------------------
             
         if (normalizedStatus.includes('normal')) 
-            return { status: 'STATUS: Normal Level', className: 'text-emerald-400 font-bold' };
+            return { reading: 'Normal', status: 'STATUS: Level Optimal', className: 'text-emerald-400 font-bold' };
 
-        return { status: 'STATUS: Unknown Status', className: 'text-slate-400 font-bold' }; // Default fallback
+        return { reading: tankStatus, status: 'STATUS: Unknown Status', className: 'text-slate-400 font-bold' }; // Default fallback
     };
     
     // Soil Status now accepts either a number (%) or a categorical string
@@ -603,7 +603,8 @@ const App = () => {
                             <article className="card p-5 bg-slate-800 rounded-xl shadow-2xl transition duration-300 hover:shadow-cyan-500/50 hover:scale-[1.02] border border-slate-700 hover:border-cyan-600/70">
                                 <BoxIcon className="w-10 h-10 mb-3 text-cyan-400 p-2 bg-cyan-900/40 rounded-lg" />
                                 <h3 className="text-lg font-semibold mb-1 text-slate-300">Water Tank Status</h3>
-                                <p className="text-3xl font-black mb-1 text-slate-50">{liveData.waterTank}</p>
+                                {/* UPDATED: Uses derived reading property for consistency */}
+                                <p className="text-3xl font-black mb-1 text-slate-50">{waterTankStatus.reading}</p>
                                 <p className={`text-sm ${waterTankStatus.className}`}>{waterTankStatus.status}</p>
                             </article>
 
