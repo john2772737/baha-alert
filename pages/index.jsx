@@ -55,8 +55,6 @@ const App = () => {
     const [liveData, setLiveData] = useState(initialSensorData);
     const [currentTime, setCurrentTime] = useState(getFormattedTime());
 
-    // NOTE: Gauge Refs and Instances have been removed entirely.
-
     // --- Status Calculation Functions ---
     const getRainStatus = (rain) => {
         if (rain > 30) return { reading: 'Heavy Rain', status: 'ALERT: Heavy Rainfall!', className: 'text-red-400 font-bold' };
@@ -101,7 +99,7 @@ const App = () => {
             script.async = true;
             script.onload = resolve;
             document.head.appendChild(script);
-        }))).then(() => setScriptsLoaded(true)); // Simplified check
+        }))).then(() => setScriptsLoaded(true)); 
         
         const timeInterval = setInterval(() => setCurrentTime(getFormattedTime()), 1000);
         return () => clearInterval(timeInterval);
@@ -109,8 +107,8 @@ const App = () => {
 
     // 1. Fetch Live Data (1-second polling)
     const fetchSensorData = useCallback(async () => {
-        if (!isClient) return;
-        
+        if (mode !== 'Auto' || !isClient) return; // Depend only on mode and isClient state
+
         try {
             const response = await fetch(REAL_API_ENDPOINT); 
             
@@ -132,34 +130,37 @@ const App = () => {
 
         } catch (error) {
             console.error("Failed to fetch live sensor data:", error);
+            // Since we know the fetch works, this error might be transient or a JSON parse issue on the server side (even if the fetch status is 200)
             setFetchError(`API Error: ${error.message}. Check console for details.`);
         }
-    }, [isClient]); 
+    }, [isClient, mode]); // Simplified dependency array
 
-    // 2. Dashboard Initialization (Removed the gauge initialization logic entirely)
-    const initializeDashboard = useCallback(() => {
-        // This function is now empty as there are no external libraries to initialize.
-    }, []); 
+    // 2. Dashboard Initialization (Empty, as no external UI libs need initializing)
+    const initializeDashboard = useCallback(() => {}, []); 
 
     // === 3. Effects ===
 
-    // Effect 3a: Data Polling (1 second interval)
+    // Effect 3a: Data Polling (1 second interval) - DEPENDS on the stable fetchSensorData
     useEffect(() => {
         if (mode !== 'Auto') return;
+        
+        // Initial fetch right away
+        fetchSensorData(); 
+
         const interval = setInterval(fetchSensorData, 1000); 
         return () => clearInterval(interval);
-    }, [fetchSensorData, mode]); 
-    
-    // Effect 3b: Initialization (Simplified)
+    }, [fetchSensorData, mode]); // fetchSensorData is now in the dependency array
+
+    // Effect 3b: Initialization
     useEffect(() => {
         if (scriptsLoaded && mode === 'Auto') {
             initializeDashboard();
         } 
     }, [initializeDashboard, mode, scriptsLoaded]);
-
-    // NOTE: Effect 3c (Gauge Update) has been removed as the UI updates automatically via liveData state.
     
-    // --- SVG ICON COMPONENTS (Kept for visual appeal in the text cards) ---
+    // NOTE: The UI update is implicit because the whole component re-renders when `liveData` changes.
+    
+    // --- SVG ICON COMPONENTS ---
     const CloudRainIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"></path><path d="M16 20v-3"></path><path d="M8 20v-3"></path><path d="M12 18v-3"></path></svg>);
     const GaugeIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19c-3.3 0-6-2.7-6-6s2.7-6 6-6 6 2.7 6 6-2.7 6-6 6z"></path><path d="M9 13l3 3 3-3"></path></svg>);
     const DropletIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2.69L6 8.52A10.74 10.74 0 0 0 12 22a10.74 10.74 0 0 0 6-13.48L12 2.69z"></path></svg>);
