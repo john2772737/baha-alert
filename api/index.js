@@ -3,7 +3,7 @@ import Alert from '../models/Alert';
 
 /**
  * Vercel Serverless Function to handle incoming sensor data (POST) or retrieve 
- * all alerts (GET) at the /api endpoint.
+ * filtered alerts (GET) at the /api endpoint.
  */
 export default async function handler(req, res) {
   // 1. Connect to the database for all operations
@@ -18,6 +18,7 @@ export default async function handler(req, res) {
 
     try {
       // Create a new document using the incoming JSON payload as the value for the 'payload' field.
+      // NOTE: Ensure the 'Alert' model structure matches the expected document shape.
       const newAlert = await Alert.create({
         payload: req.body,
       });
@@ -41,13 +42,41 @@ export default async function handler(req, res) {
     }
   } 
   
-  // --- 🔎 Handle GET Request (GET from DB) ---
+  // --- 🔎 Handle GET Request (GET from DB, supports time filtering) ---
   else if (req.method === 'GET') {
-    try {
-      // Retrieve all documents from the Alert collection
-      const alerts = await Alert.find({}); 
+    const { startDate, endDate } = req.query;
+    let dateFilter = {};
 
-      // Send a successful response with the data
+    // 2. Construct the date filter if parameters are provided
+    if (startDate || endDate) {
+      dateFilter = { 'payload.receivedAt': {} };
+      
+      if (startDate) {
+        // Find documents greater than or equal to the start date
+        dateFilter['payload.receivedAt']['$gte'] = new Date(startDate);
+      }
+      if (endDate) {
+        // Find documents less than or equal to the end date
+        dateFilter['payload.receivedAt']['$lte'] = new Date(endDate);
+      }
+      
+      // Basic validation: ensure dates are valid before proceeding
+      if (startDate && isNaN(dateFilter['payload.receivedAt']['$gte'])) {
+         return res.status(400).json({ success: false, message: 'Invalid startDate format.' });
+      }
+      if (endDate && isNaN(dateFilter['payload.receivedAt']['$lte'])) {
+         return res.status(400).json({ success: false, message: 'Invalid endDate format.' });
+      }
+    }
+
+    try {
+      // 3. Retrieve documents from the Alert collection using the constructed filter
+      const alerts = await Alert.find(dateFilter)
+        // Sort results by the timestamp field inside the payload, in ascending order
+        .sort({ 'payload.receivedAt': 1 }) 
+        .exec();
+
+      // 4. Send a successful response with the data
       return res.status(200).json({
         success: true,
         data: alerts,

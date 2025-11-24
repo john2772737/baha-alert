@@ -29,13 +29,15 @@ const App = () => {
     const [isClient, setIsClient] = useState(false);
     const [scriptsLoaded, setScriptsLoaded] = useState(false);
     const [fetchError, setFetchError] = useState(null); // State for showing API errors
+    const [isHistoryLoading, setIsHistoryLoading] = useState(false);
     
     // NEW STATE: System mode control
     const [mode, setMode] = useState('Auto');
     const modes = ['Auto', 'Maintenance', 'Sleep'];
 
-    // State to hold the live data and time
+    // State to hold the live data, historical data, and current time
     const [liveData, setLiveData] = useState(initialSensorData);
+    const [historicalData, setHistoricalData] = useState([]);
     const [currentTime, setCurrentTime] = useState('Loading...'); // Safe initial state for SSR
 
     // Refs for the Canvas elements to initialize Gauge/Chart.js
@@ -100,7 +102,7 @@ const App = () => {
         
     }, []);
 
-    // --- Status Calculation Functions (Updated 'Optimal' color to emerald) ---
+    // --- Status Calculation Functions ---
     const getRainStatus = (rain) => {
         if (rain > 30) return { reading: 'Heavy Rain', status: 'ALERT: Heavy Rainfall!', className: 'text-red-400 font-bold' };
         if (rain > 0) return { reading: 'Light Rain', status: 'STATUS: Light Rainfall', className: 'text-yellow-400 font-bold' };
@@ -127,37 +129,145 @@ const App = () => {
     const waterStatus = useMemo(() => getWaterStatus(liveData.waterLevel), [liveData.waterLevel]);
     const soilStatus = useMemo(() => getSoilStatus(liveData.soil), [liveData.soil]);
 
-    // Hardcoded historical data (kept for the chart sample)
-    const hardcodedHistory = [
-        { day: 'Sun', rain: 0, pressure: 1018, level: 70, soil: 68 },
-        { day: 'Mon', rain: 1, pressure: 1012, level: 65, soil: 60 },
-        { day: 'Tue', rain: 0, pressure: 1008, level: 68, soil: 55 },
-        { day: 'Wed', rain: 20, pressure: 1015, level: 70, soil: 65 },
-        { day: 'Thu', rain: 5, pressure: 1010, level: 62, soil: 70 },
-        { day: 'Fri', rain: 0, pressure: 995, level: 75, soil: 80 },
-        { day: 'Sat', rain: 0, pressure: 1000, level: 80, soil: 75 },
-    ];
+    /**
+     * Helper function to map descriptive API strings back to numerical values 
+     * needed by the gauges (0-100%).
+     */
+    const mapDescriptiveValue = (key, value) => {
+        if (typeof value === 'number') return value;
+
+        const normalizedValue = String(value).toLowerCase().trim();
+
+        switch (key) {
+            case 'rain':
+                if (normalizedValue.includes('dry') || normalizedValue.includes('no rain')) return 0.0;
+                // Since we don't know the full range of strings, we'll map common phrases
+                if (normalizedValue.includes('light')) return 5.0; 
+                if (normalizedValue.includes('heavy')) return 35.0; 
+                return 0.0; 
+                
+            case 'waterlevel':
+                if (normalizedValue.includes('above normal')) return 85.0; 
+                if (normalizedValue.includes('normal') || normalizedValue.includes('optimal')) return 65.0; 
+                if (normalizedValue.includes('low')) return 20.0; 
+                return 65.0; 
+                
+            case 'soil':
+                if (normalizedValue.includes('dry')) return 20.0; 
+                if (normalizedValue.includes('optimal') || normalizedValue.includes('normal')) return 50.0;
+                if (normalizedValue.includes('wet')) return 80.0; 
+                return 50.0; 
+                
+            default:
+                return 0.0;
+        }
+    };
     
-    // === 1. Initialization Logic (Guarded by isClient and scriptsLoaded) ===
+    // === Data Fetching (Live & Historical) ===
+
+    // 1. Fetch Live Data (1-second polling)
+    const fetchSensorData = useCallback(async () => {
+        if (mode !== 'Auto' || !isClient) return;
+        
+        try {
+            // This is the live data endpoint for the single latest record
+            const response = await fetch(REAL_API_ENDPOINT); 
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const data = await response.json();
+            
+            // Map string values to numerical values
+            const mappedData = {
+                pressure: parseFloat(data.pressure),
+                rain: mapDescriptiveValue('rain', data.rain),
+                waterLevel: mapDescriptiveValue('waterLevel', data.waterLevel),
+                soil: mapDescriptiveValue('soil', data.soil),
+            };
+
+            // Basic NaN check
+            if (isNaN(mappedData.pressure)) mappedData.pressure = initialSensorData.pressure;
+            if (isNaN(mappedData.rain)) mappedData.rain = initialSensorData.rain;
+            if (isNaN(mappedData.waterLevel)) mappedData.waterLevel = initialSensorData.waterLevel;
+            if (isNaN(mappedData.soil)) mappedData.soil = initialSensorData.soil;
+            
+            setLiveData(mappedData);
+            setFetchError(null); 
+
+        } catch (error) {
+            console.error("Failed to fetch live sensor data:", error);
+            setFetchError(`Error connecting to live endpoint. Check console for details.`);
+        }
+    }, [isClient, mode]); 
+
+    // 2. Fetch Historical Data (For Chart)
+    const fetchHistoryData = useCallback(async () => {
+        if (mode !== 'Auto' || !isClient) return;
+        
+        setIsHistoryLoading(true);
+        try {
+            // Calculate 7 days ago date for filtering
+            const sevenDaysAgo = new Date();
+            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+            const startDate = sevenDaysAgo.toISOString();
+            
+            // This is the historical endpoint with filtering parameters
+            const historyEndpoint = `${REAL_API_ENDPOINT}?startDate=${startDate}`;
+
+            const response = await fetch(historyEndpoint);
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const result = await response.json();
+            
+            // Check if data array exists and is valid
+            if (!result.success || !Array.isArray(result.data)) {
+                throw new Error('Invalid historical data structure received.');
+            }
+            
+            // Map historical data: we need to extract the payload and convert strings to numbers
+            const mappedHistory = result.data.map(item => {
+                const payload = item.payload || {};
+                return {
+                    day: new Date(payload.receivedAt || item.createdAt).toLocaleDateString(),
+                    rain: mapDescriptiveValue('rain', payload.rain),
+                    pressure: parseFloat(payload.pressure) || initialSensorData.pressure,
+                    level: mapDescriptiveValue('waterLevel', payload.waterLevel),
+                    soil: mapDescriptiveValue('soil', payload.soil),
+                };
+            });
+            
+            setHistoricalData(mappedHistory);
+            setFetchError(null);
+
+        } catch (error) {
+            console.error("Failed to fetch historical data:", error);
+            setFetchError(`Error fetching history. API likely returned an error.`);
+        } finally {
+            setIsHistoryLoading(false);
+        }
+    }, [isClient, mode]);
+
+
+    // === 3. Initialization Logic (Gauges and Chart) ===
     const initializeDashboard = useCallback(() => {
-        // Only run if we are client-side and libraries are loaded
         if (!isClient || !scriptsLoaded || typeof window.Gauge === 'undefined' || typeof window.Chart === 'undefined') {
             return;
         }
         
-        // Prevent initialization if not in Auto mode
-        if (mode !== 'Auto') return;
+        if (mode !== 'Auto' || historicalData.length === 0) return;
 
-        // CRITICAL: Ensure all canvas elements are rendered and referenced before initializing libraries
         if (!rainGaugeRef.current || !pressureGaugeRef.current || !waterLevelGaugeRef.current || !soilGaugeRef.current || !historyChartRef.current) {
-             console.warn("Canvas elements not yet mounted for Auto mode. Skipping gauge/chart initialization.");
-             return; // Safely exit if refs are not ready
+             console.warn("Canvas elements not yet mounted. Skipping initialization.");
+             return;
         }
 
         const Gauge = window.Gauge;
         const Chart = window.Chart;
 
-        // Clean up previous instances defensively
+        // --- Cleanup previous instances ---
         try {
             if (gaugeInstances.current.chart) {
                 gaugeInstances.current.chart.destroy();
@@ -165,30 +275,19 @@ const App = () => {
             }
         } catch(e) { /* ignore cleanup errors */ }
         
-        // Reset all gauge instances
         Object.keys(gaugeInstances.current).forEach(key => gaugeInstances.current[key] = null);
 
 
-        // Base Gauge.js options (Updated colors for dark theme)
+        // Base Gauge.js options (using same visual configuration as before)
         const gaugeOptions = {
-            angle: 0.15,
-            lineWidth: 0.25, 
-            radiusScale: 0.9,
+            angle: 0.15, lineWidth: 0.25, radiusScale: 0.9,
             pointer: { length: 0.6, strokeWidth: 0.045, color: '#f3f4f6' }, 
             staticLabels: { font: "12px sans-serif", labels: [], color: '#9ca3af' },
-            staticZones: [],
-            limitMax: false, limitMin: false, highDpiSupport: true,
-            strokeColor: '#374151',
-            generateGradient: true,
-            // Gradient stops for visual appeal: Emerald for optimal
-            gradientStop: [
-                ['#10b981', 0.25], 
-                ['#f59e0b', 0.5], 
-                ['#ef4444', 0.75]  
-            ]
+            staticZones: [], limitMax: false, limitMin: false, highDpiSupport: true,
+            strokeColor: '#374151', generateGradient: true,
+            gradientStop: [['#10b981', 0.25], ['#f59e0b', 0.5], ['#ef4444', 0.75]]
         };
 
-        // --- Gauge Initialization Logic ---
         const initGauge = (ref, max, min, initial, labels, zones) => {
             if (ref.current) {
                 const options = JSON.parse(JSON.stringify(gaugeOptions));
@@ -203,43 +302,22 @@ const App = () => {
             }
         };
 
-        // 1. Rain Gauge (Max 50 mm/hr)
-        gaugeInstances.current.rain = initGauge(
-            rainGaugeRef, 50, 0, liveData.rain, 
-            [0, 10, 20, 30, 40, 50],
-            [{strokeStyle: "#10b981", min: 0, max: 10}, {strokeStyle: "#f59e0b", min: 10, max: 30}, {strokeStyle: "#ef4444", min: 30, max: 50}]
-        );
+        // Initialize Gauges
+        gaugeInstances.current.rain = initGauge(rainGaugeRef, 50, 0, liveData.rain, [0, 10, 20, 30, 40, 50], [{strokeStyle: "#10b981", min: 0, max: 10}, {strokeStyle: "#f59e0b", min: 10, max: 30}, {strokeStyle: "#ef4444", min: 30, max: 50}]);
+        gaugeInstances.current.pressure = initGauge(pressureGaugeRef, 1050, 950, liveData.pressure, [950, 980, 1010, 1040, 1050], [{strokeStyle: "#f59e0b", min: 950, max: 980}, {strokeStyle: "#10b981", min: 980, max: 1040}, {strokeStyle: "#f59e0b", min: 1040, max: 1050}]);
+        gaugeInstances.current.waterLevel = initGauge(waterLevelGaugeRef, 100, 0, liveData.waterLevel, [0, 25, 50, 75, 100], [{strokeStyle: "#ef4444", min: 0, max: 30}, {strokeStyle: "#10b981", min: 30, max: 80}, {strokeStyle: "#f59e0b", min: 80, max: 100}]);
+        gaugeInstances.current.soil = initGauge(soilGaugeRef, 100, 0, liveData.soil, [0, 25, 50, 75, 100], [{strokeStyle: "#ef4444", min: 0, max: 30}, {strokeStyle: "#10b981", min: 30, max: 70}, {strokeStyle: "#f59e0b", min: 70, max: 100}]);
 
-        // 2. Pressure Gauge (950 to 1050 hPa)
-        gaugeInstances.current.pressure = initGauge(
-            pressureGaugeRef, 1050, 950, liveData.pressure, 
-            [950, 980, 1010, 1040, 1050],
-            [{strokeStyle: "#f59e0b", min: 950, max: 980}, {strokeStyle: "#10b981", min: 980, max: 1040}, {strokeStyle: "#f59e0b", min: 1040, max: 1050}]
-        );
-
-        // 3. Water Level Gauge (0 to 100%)
-        gaugeInstances.current.waterLevel = initGauge(
-            waterLevelGaugeRef, 100, 0, liveData.waterLevel, 
-            [0, 25, 50, 75, 100],
-            [{strokeStyle: "#ef4444", min: 0, max: 30}, {strokeStyle: "#10b981", min: 30, max: 80}, {strokeStyle: "#f59e0b", min: 80, max: 100}]
-        );
-
-        // 4. Soil Moisture Gauge (0 to 100%)
-        gaugeInstances.current.soil = initGauge(
-            soilGaugeRef, 100, 0, liveData.soil, 
-            [0, 25, 50, 75, 100],
-            [{strokeStyle: "#ef4444", min: 0, max: 30}, {strokeStyle: "#10b981", min: 30, max: 70}, {strokeStyle: "#f59e0b", min: 70, max: 100}]
-        );
-
-        // --- Chart Initialization (Chart.js) ---
+        // --- Chart Initialization (Chart.js) using historicalData ---
         if (historyChartRef.current) {
             const chartTextColor = '#e2e8f0'; 
             
-            const labels = hardcodedHistory.map(d => d.day);
-            const rainData = hardcodedHistory.map(d => d.rain); 
-            const pressureData = hardcodedHistory.map(d => d.pressure);
-            const waterLevelData = hardcodedHistory.map(d => d.level);
-            const soilMoistureData = hardcodedHistory.map(d => d.soil);
+            // Map data for chart
+            const labels = historicalData.map(d => d.day);
+            const rainData = historicalData.map(d => d.rain); 
+            const pressureData = historicalData.map(d => d.pressure);
+            const waterLevelData = historicalData.map(d => d.level);
+            const soilMoistureData = historicalData.map(d => d.soil);
 
             gaugeInstances.current.chart = new Chart(historyChartRef.current.getContext('2d'), {
                 type: 'line',
@@ -267,11 +345,9 @@ const App = () => {
                     plugins: {
                         legend: { position: 'top', labels: { color: chartTextColor, usePointStyle: true } },
                         tooltip: { 
-                            mode: 'index', 
-                            intersect: false, 
+                            mode: 'index', intersect: false, 
                             backgroundColor: 'rgba(31, 41, 55, 0.9)', 
-                            titleColor: '#f3f4f6',
-                            bodyColor: '#e5e7eb',
+                            titleColor: '#f3f4f6', bodyColor: '#e5e7eb',
                             callbacks: {
                                 label: (c) => {
                                     let label = c.dataset.label || '';
@@ -285,15 +361,30 @@ const App = () => {
                 }
             });
         }
-    }, [isClient, scriptsLoaded, liveData.pressure, liveData.rain, liveData.soil, liveData.waterLevel, mode]); 
+    }, [isClient, scriptsLoaded, liveData.pressure, liveData.rain, liveData.soil, liveData.waterLevel, mode, historicalData]); 
 
-    // === 2. Initialization/Cleanup Effect ===
+    // === 4. Primary Effects (Fetching, Initializing, Updating) ===
+
+    // Effect 4a: Data Polling (1 second interval for live data)
     useEffect(() => {
-        // Only run init/cleanup logic if scripts are loaded
+        if (mode !== 'Auto') return;
+        const interval = setInterval(fetchSensorData, 1000); 
+        return () => clearInterval(interval);
+    }, [fetchSensorData, mode]); 
+    
+    // Effect 4b: Initial load and mode change handlers (History & Dashboard Init)
+    useEffect(() => {
+        // Fetch historical data whenever entering Auto mode or when scripts load
+        if (mode === 'Auto' && scriptsLoaded) {
+            fetchHistoryData();
+        }
+        
+        // This effect manages cleanup and initialization based on mode/data readiness
         if (scriptsLoaded) {
-            if (mode === 'Auto') {
+            if (mode === 'Auto' && historicalData.length > 0) {
+                // Initialize/Re-initialize dashboard only if history data is ready
                 initializeDashboard();
-            } else {
+            } else if (mode !== 'Auto') {
                  // Cleanup if we switch away from Auto
                  try {
                     if (gaugeInstances.current.chart) {
@@ -305,7 +396,7 @@ const App = () => {
             }
         }
         
-        // Cleanup function for charts/gauges when component unmounts
+        // Final cleanup on unmount
         return () => {
              try {
                 if (gaugeInstances.current.chart) {
@@ -315,105 +406,20 @@ const App = () => {
             } catch(e) { /* ignore cleanup errors */ }
             gaugeInstances.current = {};
         };
-    }, [initializeDashboard, mode, scriptsLoaded]);
+    }, [initializeDashboard, mode, scriptsLoaded, historicalData, fetchHistoryData]);
 
-    /**
-     * Helper function to map descriptive API strings back to numerical values 
-     * needed by the gauges (0-100%).
-     */
-    const mapDescriptiveValue = (key, value) => {
-        if (typeof value === 'number') return value; // Already a number, return it.
-
-        const normalizedValue = String(value).toLowerCase().trim();
-
-        switch (key) {
-            case 'rain':
-                // Gauge max is 50 mm/hr. 0 is for dry, 5 is light, 35+ is heavy.
-                if (normalizedValue.includes('dry') || normalizedValue.includes('no rain')) return 0.0;
-                // Add more cases here as your API provides them (e.g., 'light rain' -> 5.0)
-                return 0.0; // Default to 0 if unknown rain status
-                
-            case 'waterlevel':
-                // Gauge range is 0-100%. Optimal is 30-80.
-                if (normalizedValue.includes('above normal')) return 85.0; // High level
-                if (normalizedValue.includes('normal') || normalizedValue.includes('optimal')) return 65.0; 
-                if (normalizedValue.includes('low')) return 20.0; // Low level alert
-                // Add more cases here (e.g., 'critical' -> 95.0, 'empty' -> 5.0)
-                return 65.0; // Default to optimal
-                
-            case 'soil':
-                // Gauge range is 0-100%. Optimal is 30-70.
-                if (normalizedValue.includes('dry')) return 20.0; // Dry alert range
-                if (normalizedValue.includes('optimal') || normalizedValue.includes('normal')) return 50.0;
-                if (normalizedValue.includes('wet')) return 80.0; // Wet warning range
-                // Add more cases here
-                return 50.0; // Default to optimal
-                
-            default:
-                return 0.0;
-        }
-    };
-
-
-    // --- Data Fetching Logic (Connects to online endpoint, runs every 1s) ---
-    const fetchSensorData = useCallback(async () => {
-        if (mode !== 'Auto' || !isClient) return;
-        
-        try {
-            // Fetch live data from the user's provided API endpoint
-            const response = await fetch(REAL_API_ENDPOINT); 
-            
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            const data = await response.json();
-            
-            // CRITICAL: Map string values to numerical values for gauges/logic
-            const mappedData = {
-                pressure: parseFloat(data.pressure),
-                // Use mapping helper for descriptive strings
-                rain: mapDescriptiveValue('rain', data.rain),
-                waterLevel: mapDescriptiveValue('waterLevel', data.waterLevel),
-                soil: mapDescriptiveValue('soil', data.soil),
-            };
-
-            // Ensure we have valid numbers before updating state
-            if (isNaN(mappedData.pressure)) mappedData.pressure = initialSensorData.pressure;
-            if (isNaN(mappedData.rain)) mappedData.rain = initialSensorData.rain;
-            if (isNaN(mappedData.waterLevel)) mappedData.waterLevel = initialSensorData.waterLevel;
-            if (isNaN(mappedData.soil)) mappedData.soil = initialSensorData.soil;
-            
-            setLiveData(mappedData);
-            setFetchError(null); 
-
-        } catch (error) {
-            console.error("Failed to fetch live sensor data:", error);
-            setFetchError(`Error connecting to online endpoint (${REAL_API_ENDPOINT}). Check console for details.`);
-        }
-    }, [isClient, mode]); 
-
-    // Data Update Interval (Runs every 1 second, matching the ESP upload frequency)
+    // Effect 4c: Gauge Update (Runs whenever liveData changes)
     useEffect(() => {
-        // Set polling interval to 1000ms (1 second)
-        const interval = setInterval(fetchSensorData, 1000); 
-        return () => clearInterval(interval);
-    }, [fetchSensorData]); 
-
-    // Effect to update the Gauge instances whenever liveData changes
-    // This is the CRITICAL block that updates the gauges based on the state change
-    useEffect(() => {
-        // Only attempt to set the gauges if they have been initialized AND scripts are ready AND on client AND in Auto mode
         if (mode === 'Auto' && isClient && scriptsLoaded && window.Gauge && gaugeInstances.current.rain) { 
             requestAnimationFrame(() => {
                 try {
-                    // Update the gauges with the new liveData values
                     if (gaugeInstances.current.rain) gaugeInstances.current.rain.set(liveData.rain);
                     if (gaugeInstances.current.pressure) gaugeInstances.current.pressure.set(liveData.pressure);
                     if (gaugeInstances.current.waterLevel) gaugeInstances.current.waterLevel.set(liveData.waterLevel);
                     if (gaugeInstances.current.soil) gaugeInstances.current.soil.set(liveData.soil);
                 } catch (e) {
                     console.error("Error updating gauges:", e);
-                    // Force re-initialization if an error occurs during update
+                    // Force re-initialization if a runtime gauge error occurs
                     initializeDashboard(); 
                 }
             });
@@ -421,7 +427,7 @@ const App = () => {
     }, [liveData, scriptsLoaded, isClient, mode, initializeDashboard]);
 
     
-    // --- SVG ICON COMPONENTS (Using inline SVGs to avoid npm dependencies) ---
+    // --- SVG ICON COMPONENTS ---
     const ClockIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>);
     const CloudRainIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"></path><path d="M16 20v-3"></path><path d="M8 20v-3"></path><path d="M12 18v-3"></path></svg>);
     const GaugeIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19c-3.3 0-6-2.7-6-6s2.7-6 6-6 6 2.7 6 6-2.7 6-6 6z"></path><path d="M9 13l3 3 3-3"></path></svg>);
@@ -431,7 +437,6 @@ const App = () => {
 
 
     // --- RENDER ---
-    // Render a loading state during SSR or until the scripts are loaded on the client
     if (!isClient || !scriptsLoaded) {
         return (
             <div className="flex items-center justify-center min-h-screen bg-slate-900 text-slate-400 font-inter">
@@ -569,7 +574,20 @@ const App = () => {
                             <article className="card p-6 bg-slate-800 rounded-3xl shadow-2xl border border-slate-700">
                                 <h3 className="text-2xl font-bold mb-6 text-slate-200 border-b border-slate-700 pb-2">7-Day Historical Trends (Chart)</h3>
                                 <div className="chart-container">
-                                    <canvas id="historyChart" ref={historyChartRef}></canvas>
+                                    {isHistoryLoading ? (
+                                        <div className="flex items-center justify-center h-full text-slate-400">
+                                            <RefreshCcwIcon className="w-6 h-6 animate-spin mr-3 text-indigo-400" />
+                                            Fetching 7-day historical data...
+                                        </div>
+                                    ) : (
+                                        historicalData.length > 0 ? (
+                                            <canvas id="historyChart" ref={historyChartRef}></canvas>
+                                        ) : (
+                                            <div className="flex items-center justify-center h-full text-slate-400">
+                                                No historical data found for the last 7 days.
+                                            </div>
+                                        )
+                                    )}
                                 </div>
                             </article>
                         </section>

@@ -18,7 +18,7 @@ String password = "";
 // Global Variables for upload timing
 unsigned long lastUploadTime = 0;
 // Enforce a minimum delay of 60 seconds (1 minute) between database uploads
-const long uploadInterval = 60000; 
+const long uploadInterval = 3000; 
 
 // --- 🛠️ SETUP ---
 
