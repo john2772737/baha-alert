@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 
 // --- Configuration ---
 const initialSensorData = { pressure: 1012.0, rain: 0.0, waterLevel: 65.0, soil: 60.0 };
@@ -48,20 +48,16 @@ const App = () => {
     const [scriptsLoaded, setScriptsLoaded] = useState(false);
     const [fetchError, setFetchError] = useState(null); 
     
-    // Mode State (Simplified to just Auto for this final test)
+    // Mode State 
     const [mode, setMode] = useState('Auto'); 
     const modes = ['Auto', 'Maintenance', 'Sleep'];
 
     const [liveData, setLiveData] = useState(initialSensorData);
     const [currentTime, setCurrentTime] = useState(getFormattedTime());
 
-    const gaugeRefs = {
-        rain: useRef(null), pressure: useRef(null), waterLevel: useRef(null), soil: useRef(null)
-    };
-    const gaugeInstances = useRef({});
+    // NOTE: Gauge Refs and Instances have been removed entirely.
 
     // --- Status Calculation Functions ---
-    // (Used for display text, not gauge logic)
     const getRainStatus = (rain) => {
         if (rain > 30) return { reading: 'Heavy Rain', status: 'ALERT: Heavy Rainfall!', className: 'text-red-400 font-bold' };
         if (rain > 0) return { reading: 'Light Rain', status: 'STATUS: Light Rainfall', className: 'text-yellow-400 font-bold' };
@@ -92,10 +88,10 @@ const App = () => {
     // === 0. Initialization & Script Loading ===
     useEffect(() => {
         setIsClient(true);
+        // Removed Gauge.js dependency
         const cdnUrls = [
             "https://unpkg.com/react@18/umd/react.production.min.js",
             "https://unpkg.com/react-dom@18/umd/react-dom.production.min.js",
-            "https://cdnjs.cloudflare.com/ajax/libs/gauge.js/1.3.7/gauge.min.js",
             "https://cdn.tailwindcss.com",
         ];
 
@@ -105,7 +101,7 @@ const App = () => {
             script.async = true;
             script.onload = resolve;
             document.head.appendChild(script);
-        }))).then(() => setScriptsLoaded(window.Gauge));
+        }))).then(() => setScriptsLoaded(true)); // Simplified check
         
         const timeInterval = setInterval(() => setCurrentTime(getFormattedTime()), 1000);
         return () => clearInterval(timeInterval);
@@ -126,7 +122,6 @@ const App = () => {
             
             const mappedData = {
                 pressure: parseFloat(data.pressure) || initialSensorData.pressure,
-                // CRITICAL: Use mapping function here
                 rain: mapDescriptiveValue('rain', data.rain),
                 waterLevel: mapDescriptiveValue('waterLevel', data.waterLevel),
                 soil: mapDescriptiveValue('soil', data.soil),
@@ -141,50 +136,10 @@ const App = () => {
         }
     }, [isClient]); 
 
-    // 2. Dashboard Initialization (Gauges only)
+    // 2. Dashboard Initialization (Removed the gauge initialization logic entirely)
     const initializeDashboard = useCallback(() => {
-        if (!isClient || !scriptsLoaded || typeof window.Gauge === 'undefined') return;
-        
-        if (!gaugeRefs.rain.current || mode !== 'Auto') return;
-
-        const Gauge = window.Gauge;
-        
-        // Reset previous instances
-        Object.keys(gaugeInstances.current).forEach(key => {
-             if (gaugeInstances.current[key]) gaugeInstances.current[key] = null;
-        });
-
-        const gaugeOptions = {
-            angle: 0.15, lineWidth: 0.25, radiusScale: 0.9,
-            pointer: { length: 0.6, strokeWidth: 0.045, color: '#f3f4f6' }, 
-            staticLabels: { font: "12px sans-serif", labels: [], color: '#9ca3af' },
-            staticZones: [], limitMax: false, limitMin: false, highDpiSupport: true,
-            strokeColor: '#374151', generateGradient: true,
-            gradientStop: [['#10b981', 0.25], ['#f59e0b', 0.5], ['#ef4444', 0.75]]
-        };
-
-        const initGauge = (ref, max, min, initial, labels, zones) => {
-            if (ref.current) {
-                const options = JSON.parse(JSON.stringify(gaugeOptions));
-                options.staticLabels.labels = labels;
-                options.staticZones = zones;
-
-                const gauge = new Gauge(ref.current).setOptions(options);
-                gauge.maxValue = max;
-                gauge.setMinValue(min);
-                gauge.set(initial);
-                return gauge;
-            }
-            return null;
-        };
-
-        // Initialize Gauges
-        gaugeInstances.current.rain = initGauge(gaugeRefs.rain, 50, 0, liveData.rain, [0, 10, 20, 30, 40, 50], [{strokeStyle: "#10b981", min: 0, max: 10}, {strokeStyle: "#f59e0b", min: 10, max: 30}, {strokeStyle: "#ef4444", min: 30, max: 50}]);
-        gaugeInstances.current.pressure = initGauge(gaugeRefs.pressure, 1050, 950, liveData.pressure, [950, 980, 1010, 1040, 1050], [{strokeStyle: "#f59e0b", min: 950, max: 980}, {strokeStyle: "#10b981", min: 980, max: 1040}, {strokeStyle: "#f59e0b", min: 1040, max: 1050}]);
-        gaugeInstances.current.waterLevel = initGauge(gaugeRefs.waterLevel, 100, 0, liveData.waterLevel, [0, 25, 50, 75, 100], [{strokeStyle: "#ef4444", min: 0, max: 30}, {strokeStyle: "#10b981", min: 30, max: 80}, {strokeStyle: "#f59e0b", min: 80, max: 100}]);
-        gaugeInstances.current.soil = initGauge(gaugeRefs.soil, 100, 0, liveData.soil, [0, 25, 50, 75, 100], [{strokeStyle: "#ef4444", min: 0, max: 30}, {strokeStyle: "#10b981", min: 30, max: 70}, {strokeStyle: "#f59e0b", min: 70, max: 100}]);
-        
-    }, [isClient, scriptsLoaded, liveData.pressure, liveData.rain, liveData.soil, liveData.waterLevel, mode]); 
+        // This function is now empty as there are no external libraries to initialize.
+    }, []); 
 
     // === 3. Effects ===
 
@@ -195,40 +150,29 @@ const App = () => {
         return () => clearInterval(interval);
     }, [fetchSensorData, mode]); 
     
-    // Effect 3b: Initialization on script load/mode change
+    // Effect 3b: Initialization (Simplified)
     useEffect(() => {
         if (scriptsLoaded && mode === 'Auto') {
             initializeDashboard();
-        } else if (mode !== 'Auto') {
-             // Cleanup when switching away from Auto
-             gaugeInstances.current = {};
-        }
-        return () => { gaugeInstances.current = {}; };
+        } 
     }, [initializeDashboard, mode, scriptsLoaded]);
 
-    // Effect 3c: Gauge Update (Runs whenever liveData changes)
-    useEffect(() => {
-        if (mode === 'Auto' && isClient && scriptsLoaded && window.Gauge && gaugeInstances.current.rain) { 
-            requestAnimationFrame(() => {
-                try {
-                    if (gaugeInstances.current.rain) gaugeInstances.current.rain.set(liveData.rain);
-                    if (gaugeInstances.current.pressure) gaugeInstances.current.pressure.set(liveData.pressure);
-                    if (gaugeInstances.current.waterLevel) gaugeInstances.current.waterLevel.set(liveData.waterLevel);
-                    if (gaugeInstances.current.soil) gaugeInstances.current.soil.set(liveData.soil);
-                } catch (e) {
-                    console.error("Error updating gauges:", e);
-                    initializeDashboard(); 
-                }
-            });
-        }
-    }, [liveData, scriptsLoaded, isClient, mode, initializeDashboard]);
+    // NOTE: Effect 3c (Gauge Update) has been removed as the UI updates automatically via liveData state.
+    
+    // --- SVG ICON COMPONENTS (Kept for visual appeal in the text cards) ---
+    const CloudRainIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"></path><path d="M16 20v-3"></path><path d="M8 20v-3"></path><path d="M12 18v-3"></path></svg>);
+    const GaugeIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19c-3.3 0-6-2.7-6-6s2.7-6 6-6 6 2.7 6 6-2.7 6-6 6z"></path><path d="M9 13l3 3 3-3"></path></svg>);
+    const DropletIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2.69L6 8.52A10.74 10.74 0 0 0 12 22a10.74 10.74 0 0 0 6-13.48L12 2.69z"></path></svg>);
+    const LeafIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 20A10 10 0 0 0 2 11c0-4 4-4 8-8 3 0 4 3 4 5 0 2-3 5-3 5l-1 1 1 1c1.5 1.5 3.5 1.5 5 0l1-1c3 0 5 3 5 5 0 3-4 5-8 5z"></path></svg>);
+    const RefreshCcwIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 18A8 8 0 1 0 7 19l-4-4"></path><path d="M4 13v-2"></path><path d="M17 19h-2l-4-4"></path></svg>);
+
 
     // --- RENDER ---
     if (!isClient || !scriptsLoaded) {
         return (
             <div className="flex items-center justify-center min-h-screen bg-slate-900 text-slate-400 font-inter">
-                <svg className="w-8 h-8 animate-spin mr-3 text-emerald-400" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 18A8 8 0 1 0 7 19l-4-4"></path><path d="M4 13v-2"></path><path d="M17 19h-2l-4-4"></path></svg>
-                <p>Initializing dashboard and loading external libraries...</p>
+                <RefreshCcwIcon className="w-8 h-8 animate-spin mr-3 text-emerald-400" />
+                <p>Initializing dashboard...</p>
             </div>
         );
     }
@@ -236,21 +180,10 @@ const App = () => {
     return (
         <div className="min-h-screen bg-slate-900 text-slate-100 p-4 sm:p-10 font-inter dark">
             <style>{`
-                /* Ensure responsive canvas sizes */
-                .gauges-container {
-                    display: grid;
-                    grid-template-columns: repeat(2, 1fr);
-                    gap: 2rem;
-                }
-                .gauge-wrapper canvas {
-                    /* Max-width to enforce responsiveness */
-                    max-width: 100% !important; 
-                    height: auto !important; 
-                }
+                /* Simplified CSS as no gauges are present */
+                .gauges-container { display: none; }
                 @media (min-width: 768px) {
-                    .gauges-container {
-                        grid-template-columns: repeat(4, 1fr);
-                    }
+                    .status-grid { grid-template-columns: repeat(4, 1fr); }
                 }
             `}</style>
             
@@ -291,69 +224,45 @@ const App = () => {
                             </div>
                         )}
 
-                        {/* Status Grid Section (Dynamic Data) */}
-                        <section className="grid grid-cols-2 lg:grid-cols-4 gap-6">
+                        {/* Status Grid Section (Dynamic Data - Text Only) */}
+                        <section className="grid grid-cols-2 lg:grid-cols-4 gap-6 status-grid">
                             {/* Rain */}
                             <article className="card p-5 bg-slate-800 rounded-xl shadow-2xl transition duration-300 hover:shadow-emerald-500/50 hover:scale-[1.02] border border-slate-700 hover:border-emerald-600/70">
-                                <svg className="w-10 h-10 mb-3 text-sky-400 p-2 bg-sky-900/40 rounded-lg" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"></path><path d="M16 20v-3"></path><path d="M8 20v-3"></path><path d="M12 18v-3"></path></svg>
+                                <CloudRainIcon className="w-10 h-10 mb-3 text-sky-400 p-2 bg-sky-900/40 rounded-lg" />
                                 <h3 className="text-lg font-semibold mb-1 text-slate-300">Rain Sensor</h3>
                                 <p className="text-3xl font-black mb-1 text-slate-50">{liveData.rain.toFixed(1)} mm/hr</p>
                                 <p className={`text-sm ${rainStatus.className}`}>{rainStatus.status}</p>
                             </article>
                             {/* Pressure */}
                             <article className="card p-5 bg-slate-800 rounded-xl shadow-2xl transition duration-300 hover:shadow-purple-500/50 hover:scale-[1.02] border border-slate-700 hover:border-purple-600/70">
-                                <svg className="w-10 h-10 mb-3 text-purple-400 p-2 bg-purple-900/40 rounded-lg" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19c-3.3 0-6-2.7-6-6s2.7-6 6-6 6 2.7 6 6-2.7 6-6 6z"></path><path d="M9 13l3 3 3-3"></path></svg>
+                                <GaugeIcon className="w-10 h-10 mb-3 text-purple-400 p-2 bg-purple-900/40 rounded-lg" />
                                 <h3 className="text-lg font-semibold mb-1 text-slate-300">Barometric Pressure</h3>
                                 <p className="text-3xl font-black mb-1 text-slate-50">{liveData.pressure.toFixed(1)} hPa</p>
                                 <p className={`text-sm ${pressureStatus.className}`}>{pressureStatus.status}</p>
                             </article>
                             {/* Water Level */}
                             <article className="card p-5 bg-slate-800 rounded-xl shadow-2xl transition duration-300 hover:shadow-sky-500/50 hover:scale-[1.02] border border-slate-700 hover:border-sky-600/70">
-                                <svg className="w-10 h-10 mb-3 text-sky-400 p-2 bg-sky-900/40 rounded-lg" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2.69L6 8.52A10.74 10.74 0 0 0 12 22a10.74 10.74 0 0 0 6-13.48L12 2.69z"></path></svg>
+                                <DropletIcon className="w-10 h-10 mb-3 text-sky-400 p-2 bg-sky-900/40 rounded-lg" />
                                 <h3 className="text-lg font-semibold mb-1 text-slate-300">Water Level (Tank)</h3>
                                 <p className="text-3xl font-black mb-1 text-slate-50">{liveData.waterLevel.toFixed(1)}%</p>
                                 <p className={`text-sm ${waterStatus.className}`}>{waterStatus.status}</p>
                             </article>
                             {/* Soil Moisture */}
                             <article className="card p-5 bg-slate-800 rounded-xl shadow-2xl transition duration-300 hover:shadow-orange-500/50 hover:scale-[1.02] border border-slate-700 hover:border-orange-600/70">
-                                <svg className="w-10 h-10 mb-3 text-orange-400 p-2 bg-orange-900/40 rounded-lg" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 20A10 10 0 0 0 2 11c0-4 4-4 8-8 3 0 4 3 4 5 0 2-3 5-3 5l-1 1 1 1c1.5 1.5 3.5 1.5 5 0l1-1c3 0 5 3 5 5 0 3-4 5-8 5z"></path></svg>
+                                <LeafIcon className="w-10 h-10 mb-3 text-orange-400 p-2 bg-orange-900/40 rounded-lg" />
                                 <h3 className="text-lg font-semibold mb-1 text-slate-300">Soil Moisture</h3>
                                 <p className="text-3xl font-black mb-1 text-slate-50">{liveData.soil.toFixed(1)}%</p>
                                 <p className={`text-sm ${soilStatus.className}`}>{soilStatus.status}</p>
                             </article>
                         </section>
 
-                        {/* Main Content Section - Gauges */}
-                        <section className="grid grid-cols-1 gap-8 md:grid-cols-1">
-                            <article className="card p-6 bg-slate-800 rounded-3xl shadow-2xl border border-slate-700">
-                                <h3 className="text-2xl font-bold mb-6 text-slate-200 border-b border-slate-700 pb-2">Live Sensor Readings (Gauges)</h3>
-                                <div className="gauges-container">
-                                    <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
-                                        <canvas id="gaugeRain" ref={gaugeRefs.rain} className="max-w-full h-auto"></canvas>
-                                        <p className="mt-3 text-lg font-semibold text-slate-300">Rain</p>
-                                    </div>
-                                    <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
-                                        <canvas id="gaugePressure" ref={gaugeRefs.pressure} className="max-w-full h-auto"></canvas>
-                                        <p className="mt-3 text-lg font-semibold text-slate-300">Pressure</p>
-                                    </div>
-                                    <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
-                                        <canvas id="gaugeWaterLevel" ref={gaugeRefs.waterLevel} className="max-w-full h-auto"></canvas>
-                                        <p className="mt-3 text-lg font-semibold text-slate-300">Water Level</p>
-                            </div>
-                            <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
-                                <canvas id="gaugeSoil" ref={gaugeRefs.soil} className="max-w-full h-auto"></canvas>
-                                <p className="mt-3 text-lg font-semibold text-slate-300">Soil Moisture</p>
-                            </div>
-                        </div>
-                    </article>
-                </section>
                     </>
                 )}
 
                 {/* Placeholder for Maintenance/Sleep Modes */}
                 {mode !== 'Auto' && (
                     <div className="p-16 bg-slate-800 rounded-3xl shadow-2xl border border-slate-700 text-center flex flex-col items-center justify-center min-h-[50vh]">
-                        <svg className={`w-16 h-16 mb-6 ${mode === 'Maintenance' ? 'text-yellow-400 animate-spin' : 'text-gray-500'}`} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 18A8 8 0 1 0 7 19l-4-4"></path><path d="M4 13v-2"></path><path d="M17 19h-2l-4-4"></path></svg>
+                        <RefreshCcwIcon className={`w-16 h-16 mb-6 ${mode === 'Maintenance' ? 'text-yellow-400 animate-spin' : 'text-gray-500'}`} />
                         <h3 className="text-4xl font-extrabold mb-4 text-emerald-400">
                             System Mode: <span className={mode === 'Maintenance' ? 'text-yellow-400' : 'text-gray-400'}>{mode}</span>
                         </h3>
