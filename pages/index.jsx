@@ -56,7 +56,6 @@ const App = () => {
         
         // --- 0b. Manual CDN Script Loading (Injects React, ReactDOM, Chart, Gauge, Tailwind) ---
         const cdnUrls = [
-            // FIX: Injecting React and ReactDOM CDNs to resolve "React or ReactDOM not loaded" errors
             "https://unpkg.com/react@18/umd/react.production.min.js",
             "https://unpkg.com/react-dom@18/umd/react-dom.production.min.js",
             "https://cdnjs.cloudflare.com/ajax/libs/gauge.js/1.3.7/gauge.min.js",
@@ -204,28 +203,28 @@ const App = () => {
             }
         };
 
-        // 1. Rain Gauge
+        // 1. Rain Gauge (Max 50 mm/hr)
         gaugeInstances.current.rain = initGauge(
             rainGaugeRef, 50, 0, liveData.rain, 
             [0, 10, 20, 30, 40, 50],
             [{strokeStyle: "#10b981", min: 0, max: 10}, {strokeStyle: "#f59e0b", min: 10, max: 30}, {strokeStyle: "#ef4444", min: 30, max: 50}]
         );
 
-        // 2. Pressure Gauge
+        // 2. Pressure Gauge (950 to 1050 hPa)
         gaugeInstances.current.pressure = initGauge(
             pressureGaugeRef, 1050, 950, liveData.pressure, 
             [950, 980, 1010, 1040, 1050],
             [{strokeStyle: "#f59e0b", min: 950, max: 980}, {strokeStyle: "#10b981", min: 980, max: 1040}, {strokeStyle: "#f59e0b", min: 1040, max: 1050}]
         );
 
-        // 3. Water Level Gauge
+        // 3. Water Level Gauge (0 to 100%)
         gaugeInstances.current.waterLevel = initGauge(
             waterLevelGaugeRef, 100, 0, liveData.waterLevel, 
             [0, 25, 50, 75, 100],
             [{strokeStyle: "#ef4444", min: 0, max: 30}, {strokeStyle: "#10b981", min: 30, max: 80}, {strokeStyle: "#f59e0b", min: 80, max: 100}]
         );
 
-        // 4. Soil Moisture Gauge
+        // 4. Soil Moisture Gauge (0 to 100%)
         gaugeInstances.current.soil = initGauge(
             soilGaugeRef, 100, 0, liveData.soil, 
             [0, 25, 50, 75, 100],
@@ -318,6 +317,44 @@ const App = () => {
         };
     }, [initializeDashboard, mode, scriptsLoaded]);
 
+    /**
+     * Helper function to map descriptive API strings back to numerical values 
+     * needed by the gauges (0-100%).
+     */
+    const mapDescriptiveValue = (key, value) => {
+        if (typeof value === 'number') return value; // Already a number, return it.
+
+        const normalizedValue = String(value).toLowerCase().trim();
+
+        switch (key) {
+            case 'rain':
+                // Gauge max is 50 mm/hr. 0 is for dry, 5 is light, 35+ is heavy.
+                if (normalizedValue.includes('dry') || normalizedValue.includes('no rain')) return 0.0;
+                // Add more cases here as your API provides them (e.g., 'light rain' -> 5.0)
+                return 0.0; // Default to 0 if unknown rain status
+                
+            case 'waterlevel':
+                // Gauge range is 0-100%. Optimal is 30-80.
+                if (normalizedValue.includes('above normal')) return 85.0; // High level
+                if (normalizedValue.includes('normal') || normalizedValue.includes('optimal')) return 65.0; 
+                if (normalizedValue.includes('low')) return 20.0; // Low level alert
+                // Add more cases here (e.g., 'critical' -> 95.0, 'empty' -> 5.0)
+                return 65.0; // Default to optimal
+                
+            case 'soil':
+                // Gauge range is 0-100%. Optimal is 30-70.
+                if (normalizedValue.includes('dry')) return 20.0; // Dry alert range
+                if (normalizedValue.includes('optimal') || normalizedValue.includes('normal')) return 50.0;
+                if (normalizedValue.includes('wet')) return 80.0; // Wet warning range
+                // Add more cases here
+                return 50.0; // Default to optimal
+                
+            default:
+                return 0.0;
+        }
+    };
+
+
     // --- Data Fetching Logic (Connects to online endpoint, runs every 1s) ---
     const fetchSensorData = useCallback(async () => {
         if (mode !== 'Auto' || !isClient) return;
@@ -327,30 +364,33 @@ const App = () => {
             const response = await fetch(REAL_API_ENDPOINT); 
             
             if (!response.ok) {
-                // Check for HTTP errors (e.g., 404, 500)
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
-            const newData = await response.json();
+            const data = await response.json();
             
-            // Check if the received data has the expected structure
-            if (typeof newData.pressure === 'undefined' || typeof newData.rain === 'undefined') {
-                 throw new Error("Invalid data structure received from API.");
-            }
+            // CRITICAL: Map string values to numerical values for gauges/logic
+            const mappedData = {
+                pressure: parseFloat(data.pressure),
+                // Use mapping helper for descriptive strings
+                rain: mapDescriptiveValue('rain', data.rain),
+                waterLevel: mapDescriptiveValue('waterLevel', data.waterLevel),
+                soil: mapDescriptiveValue('soil', data.soil),
+            };
 
-            // Ensure data types are converted correctly from the JSON strings to numbers
-            setLiveData({
-                pressure: parseFloat(newData.pressure),
-                rain: parseFloat(newData.rain),
-                waterLevel: parseFloat(newData.waterLevel),
-                soil: parseFloat(newData.soil),
-            });
-            setFetchError(null); // Clear any previous errors
+            // Ensure we have valid numbers before updating state
+            if (isNaN(mappedData.pressure)) mappedData.pressure = initialSensorData.pressure;
+            if (isNaN(mappedData.rain)) mappedData.rain = initialSensorData.rain;
+            if (isNaN(mappedData.waterLevel)) mappedData.waterLevel = initialSensorData.waterLevel;
+            if (isNaN(mappedData.soil)) mappedData.soil = initialSensorData.soil;
+            
+            setLiveData(mappedData);
+            setFetchError(null); 
 
         } catch (error) {
             console.error("Failed to fetch live sensor data:", error);
             setFetchError(`Error connecting to online endpoint (${REAL_API_ENDPOINT}). Check console for details.`);
         }
-    }, [isClient, mode]); // Dependencies updated to prevent infinite loops
+    }, [isClient, mode]); 
 
     // Data Update Interval (Runs every 1 second, matching the ESP upload frequency)
     useEffect(() => {
@@ -476,7 +516,7 @@ const App = () => {
                             <article className="card p-5 bg-slate-800 rounded-xl shadow-2xl transition duration-300 hover:shadow-emerald-500/50 hover:scale-[1.02] border border-slate-700 hover:border-emerald-600/70">
                                 <CloudRainIcon className="w-10 h-10 mb-3 text-sky-400 p-2 bg-sky-900/40 rounded-lg" />
                                 <h3 className="text-lg font-semibold mb-1 text-slate-300">Rain Sensor</h3>
-                                <p className="text-3xl font-black mb-1 text-slate-50">{rainStatus.reading}</p>
+                                <p className="text-3xl font-black mb-1 text-slate-50">{liveData.rain.toFixed(1)} mm/hr</p>
                                 <p className={`text-sm ${rainStatus.className}`}>{rainStatus.status}</p>
                             </article>
 
@@ -497,7 +537,7 @@ const App = () => {
                             <article className="card p-5 bg-slate-800 rounded-xl shadow-2xl transition duration-300 hover:shadow-orange-500/50 hover:scale-[1.02] border border-slate-700 hover:border-orange-600/70">
                                 <LeafIcon className="w-10 h-10 mb-3 text-orange-400 p-2 bg-orange-900/40 rounded-lg" />
                                 <h3 className="text-lg font-semibold mb-1 text-slate-300">Soil Moisture</h3>
-                                <p className="text-3xl font-black mb-1 text-slate-50">{soilStatus.reading}</p>
+                                <p className="text-3xl font-black mb-1 text-slate-50">{liveData.soil.toFixed(1)}%</p>
                                 <p className={`text-sm ${soilStatus.className}`}>{soilStatus.status}</p>
                             </article>
                         </section>
