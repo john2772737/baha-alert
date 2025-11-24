@@ -13,7 +13,7 @@ const initialSensorData = {
 const REAL_API_ENDPOINT = 'https://baha-alert.vercel.app/api'; 
 
 // Define timing constant
-const FETCH_INTERVAL_MS = 5000; // 5 seconds
+const FETCH_INTERVAL_MS = 3000; // 5 seconds
 
 // Helper function to get the current formatted time
 const getFormattedTime = () => {
@@ -145,9 +145,19 @@ const App = () => {
     // Water Tank Status (Ultrasonic Categorical Feedback)
     const getWaterTankStatus = (tankStatus) => {
         const normalizedStatus = tankStatus.toLowerCase();
-        if (normalizedStatus.includes('below normal') || normalizedStatus.includes('low')) return { status: 'ALERT: Below Normal!', className: 'text-red-400 font-bold' };
-        if (normalizedStatus.includes('normal')) return { status: 'STATUS: Normal Level', className: 'text-emerald-400 font-bold' };
-        return { status: 'STATUS: Optimal Level', className: 'text-emerald-400 font-bold' };
+        
+        if (normalizedStatus.includes('below normal') || normalizedStatus.includes('low')) 
+            return { status: 'ALERT: Below Normal!', className: 'text-red-400 font-bold' };
+        
+        // --- NEW LOGIC ADDED HERE ---
+        if (normalizedStatus.includes('above normal') || normalizedStatus.includes('high')) 
+            return { status: 'WARNING: Above Normal!', className: 'text-yellow-400 font-bold' };
+        // ----------------------------
+            
+        if (normalizedStatus.includes('normal')) 
+            return { status: 'STATUS: Normal Level', className: 'text-emerald-400 font-bold' };
+
+        return { status: 'STATUS: Unknown Status', className: 'text-slate-400 font-bold' }; // Default fallback
     };
     
     // Soil Status now accepts either a number (%) or a categorical string
