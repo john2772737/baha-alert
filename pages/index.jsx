@@ -43,6 +43,8 @@ const App = () => {
     
     // useRef to hold the ID of the last successfully fetched document for stable comparison
     const lastIdRef = useRef(null); 
+    // NEW REF: Tracks if the Gauges/Chart have been initialized once
+    const isDashboardInitializedRef = useRef(false);
 
     // Refs for the Canvas elements to initialize Gauge/Chart.js
     const rainGaugeRef = useRef(null);
@@ -154,6 +156,11 @@ const App = () => {
         
         // Prevent initialization if not in Auto mode
         if (mode !== 'Auto') return;
+        
+        // ******* NEW CHECK: Prevent redundant initialization *******
+        if (isDashboardInitializedRef.current) {
+            return;
+        }
 
         // CRITICAL: Ensure all canvas elements are rendered and referenced before initializing libraries
         if (!rainGaugeRef.current || !pressureGaugeRef.current || !waterLevelGaugeRef.current || !soilGaugeRef.current || !historyChartRef.current) {
@@ -164,7 +171,8 @@ const App = () => {
         const Gauge = window.Gauge;
         const Chart = window.Chart;
 
-        // Clean up previous instances defensively
+        // Clean up previous chart instance defensively before (re)creating,
+        // but only if it exists from a previous cycle.
         try {
             if (gaugeInstances.current.chart) {
                 gaugeInstances.current.chart.destroy();
@@ -172,10 +180,6 @@ const App = () => {
             }
         } catch(e) { /* ignore cleanup errors */ }
         
-        // Reset all gauge instances
-        Object.keys(gaugeInstances.current).forEach(key => gaugeInstances.current[key] = null);
-
-
         // Base Gauge.js options (Updated colors for dark theme)
         const gaugeOptions = {
             angle: 0.15,
@@ -291,6 +295,9 @@ const App = () => {
                     }
                 }
             });
+            
+            // ******* SET FLAG ON SUCCESSFUL INITIALIZATION *******
+            isDashboardInitializedRef.current = true;
         }
     }, [isClient, scriptsLoaded, liveData.pressure, liveData.rain, liveData.soil, liveData.waterLevel, mode]); 
 
@@ -354,6 +361,37 @@ const App = () => {
         return () => clearInterval(interval);
     }, [fetchSensorData]); 
 
+    // === 2. Initialization/Cleanup Effect ===
+    useEffect(() => {
+        // Only run initialization if scripts are loaded and mode is Auto, and it hasn't run yet
+        if (scriptsLoaded && mode === 'Auto' && !isDashboardInitializedRef.current) {
+             initializeDashboard();
+        } else if (mode !== 'Auto') {
+            // Cleanup if we switch away from Auto
+            isDashboardInitializedRef.current = false;
+            try {
+                 if (gaugeInstances.current.chart) {
+                     gaugeInstances.current.chart.destroy();
+                     gaugeInstances.current.chart = null;
+                 }
+            } catch(e) { /* ignore cleanup errors */ }
+            gaugeInstances.current = {};
+        }
+
+        // Cleanup function for charts/gauges when component unmounts
+        return () => {
+             isDashboardInitializedRef.current = false;
+             try {
+                 if (gaugeInstances.current.chart) {
+                     gaugeInstances.current.chart.destroy();
+                     gaugeInstances.current.chart = null;
+                 }
+            } catch(e) { /* ignore cleanup errors */ }
+            gaugeInstances.current = {};
+        };
+    }, [initializeDashboard, mode, scriptsLoaded]);
+
+
     // Effect to update the Gauge instances whenever liveData changes
     // This is the CRITICAL block that updates the gauges based on the state change
     useEffect(() => {
@@ -369,6 +407,7 @@ const App = () => {
                 } catch (e) {
                     console.error("Error updating gauges:", e);
                     // Force re-initialization if an error occurs during update
+                    isDashboardInitializedRef.current = false; // Reset the flag
                     initializeDashboard(); 
                 }
             });
@@ -471,13 +510,15 @@ const App = () => {
                             <article className="card p-5 bg-slate-800 rounded-xl shadow-2xl transition duration-300 hover:shadow-emerald-500/50 hover:scale-[1.02] border border-slate-700 hover:border-emerald-600/70">
                                 <CloudRainIcon className="w-10 h-10 mb-3 text-sky-400 p-2 bg-sky-900/40 rounded-lg" />
                                 <h3 className="text-lg font-semibold mb-1 text-slate-300">Rain Sensor</h3>
-                                <p className="text-3xl font-black mb-1 text-slate-50">{rainStatus.reading}</p>
+                                {/* UPDATED: Show live numerical value and status */}
+                                <p className="text-3xl font-black mb-1 text-slate-50">{liveData.rain.toFixed(1)} mm/hr</p>
                                 <p className={`text-sm ${rainStatus.className}`}>{rainStatus.status}</p>
                             </article>
 
                             <article className="card p-5 bg-slate-800 rounded-xl shadow-2xl transition duration-300 hover:shadow-purple-500/50 hover:scale-[1.02] border border-slate-700 hover:border-purple-600/70">
                                 <GaugeIcon className="w-10 h-10 mb-3 text-purple-400 p-2 bg-purple-900/40 rounded-lg" />
                                 <h3 className="text-lg font-semibold mb-1 text-slate-300">Barometric Pressure</h3>
+                                {/* This was already correct */}
                                 <p className="text-3xl font-black mb-1 text-slate-50">{liveData.pressure.toFixed(1)} hPa</p>
                                 <p className={`text-sm ${pressureStatus.className}`}>{pressureStatus.status}</p>
                             </article>
@@ -485,6 +526,7 @@ const App = () => {
                             <article className="card p-5 bg-slate-800 rounded-xl shadow-2xl transition duration-300 hover:shadow-sky-500/50 hover:scale-[1.02] border border-slate-700 hover:border-sky-600/70">
                                 <DropletIcon className="w-10 h-10 mb-3 text-sky-400 p-2 bg-sky-900/40 rounded-lg" />
                                 <h3 className="text-lg font-semibold mb-1 text-slate-300">Water Level (Tank)</h3>
+                                {/* This was already correct */}
                                 <p className="text-3xl font-black mb-1 text-slate-50">{liveData.waterLevel.toFixed(1)}%</p>
                                 <p className={`text-sm ${waterStatus.className}`}>{waterStatus.status}</p>
                             </article>
@@ -492,7 +534,8 @@ const App = () => {
                             <article className="card p-5 bg-slate-800 rounded-xl shadow-2xl transition duration-300 hover:shadow-orange-500/50 hover:scale-[1.02] border border-slate-700 hover:border-orange-600/70">
                                 <LeafIcon className="w-10 h-10 mb-3 text-orange-400 p-2 bg-orange-900/40 rounded-lg" />
                                 <h3 className="text-lg font-semibold mb-1 text-slate-300">Soil Moisture</h3>
-                                <p className="text-3xl font-black mb-1 text-slate-50">{soilStatus.reading}</p>
+                                {/* UPDATED: Show live numerical value and status */}
+                                <p className="text-3xl font-black mb-1 text-slate-50">{liveData.soil.toFixed(1)}%</p>
                                 <p className={`text-sm ${soilStatus.className}`}>{soilStatus.status}</p>
                             </article>
                         </section>
