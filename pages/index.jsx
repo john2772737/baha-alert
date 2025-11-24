@@ -18,7 +18,7 @@ export default function Home() {
         console.log('--- Attempting to fetch data from /api/data ---');
         try {
             // NOTE: The API endpoint is relative to the root: /api/data
-            const response = await fetch('/api/data'); 
+            const response = await fetch('/api'); 
             
             if (!response.ok) {
                 throw new Error(`HTTP error! Status: ${response.status}`);
