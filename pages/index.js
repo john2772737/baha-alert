@@ -1,13 +1,10 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Head from 'next/head';
 import dynamic from 'next/dynamic';
-// Import the global CSS file
-import '../styles/weather.css';
+import '../styles/weather.css'; // Assuming this file is available in the styles folder
 
-// Load Gauge and Chart components dynamically, as they rely on the window/DOM
-// We also use SSR: false to ensure they only run on the client side.
-const Gauge = dynamic(() => import('gauge.js'), { ssr: false });
-const Chart = dynamic(() => import('chart.js'), { ssr: false });
+// Load Chart component dynamically (keep Chart.js managed by npm)
+const DynamicChart = dynamic(() => import('chart.js'), { ssr: false });
 
 // --- Initial Data Structure (Matching your ESP32 payload) ---
 const initialSensorData = {
@@ -18,7 +15,7 @@ const initialSensorData = {
     timestamp_client: new Date().toISOString()
 };
 
-// Helper function to get the current formatted time (from your original JS)
+// Helper function to get the current formatted time
 const getFormattedTime = () => {
     return new Date().toLocaleDateString('en-US', {
         weekday: 'long',
@@ -35,7 +32,7 @@ function SensorDashboard() {
     // State to hold the live data
     const [liveData, setLiveData] = useState(initialSensorData);
     const [currentTime, setCurrentTime] = useState(getFormattedTime());
-    const [isDark, setIsDark] = useState(true); // Default to dark mode
+    const [isDark] = useState(true); // Default to dark mode
 
     // Refs for the Canvas elements to initialize Gauge/Chart.js
     const rainGaugeRef = useRef(null);
@@ -47,12 +44,13 @@ function SensorDashboard() {
     // Refs for Gauge instances (to update them later)
     const gaugeInstances = useRef({});
 
-
     // === 0. Theme Handling and Current Time ===
-
     useEffect(() => {
         // Apply initial theme attribute to body
-        document.body.setAttribute('data-theme', 'dark');
+        // Ensure this only runs on the client side
+        if (typeof document !== 'undefined') {
+            document.body.setAttribute('data-theme', 'dark');
+        }
 
         // Time update interval
         const timeInterval = setInterval(() => {
@@ -62,11 +60,11 @@ function SensorDashboard() {
         return () => clearInterval(timeInterval);
     }, []);
 
-    // Effect to run all Gauge/Chart initialization (runs only once on mount)
+    // === 1. Initialization Effect (Runs after DOM is ready) ===
     useEffect(() => {
-        // Check if Gauge is loaded
-        if (!Gauge) return;
-
+        // Check if the component is mounted AND if the CDN libraries are loaded onto the window object
+        if (typeof window === 'undefined' || !window.Gauge || !window.Chart) return;
+        
         // Base Gauge.js options (modified for React)
         const gaugeOptions = {
             angle: 0.15,
@@ -92,6 +90,7 @@ function SensorDashboard() {
                 options.staticLabels.labels = labels;
                 options.staticZones = zones;
 
+                // Use the globally available Gauge constructor (window.Gauge)
                 const gauge = new window.Gauge(ref.current).setOptions(options);
                 gauge.maxValue = max;
                 gauge.setMinValue(min);
@@ -183,37 +182,13 @@ function SensorDashboard() {
                 gaugeInstances.current.chart.destroy();
             }
         };
-    }, [isDark]); // Re-run if theme changes (for dark mode colors)
+    }, [isDark]); 
 
 
-    // === 3. Data Fetching and Mock Data Update ===
-    
-    // Function to fetch real data from your API
-    const fetchRealData = async () => {
-        try {
-            const res = await fetch('/api');
-            const data = await res.json();
-            
-            // Assuming your API returns the latest alert as the first item's payload
-            if (data.success && data.data && data.data.length > 0) {
-                 const latestPayload = data.data[0].payload;
-                 setLiveData(prev => ({
-                    ...prev,
-                    pressure: latestPayload.pressure || prev.pressure,
-                    rain: latestPayload.rain || prev.rain,
-                    waterLevel: latestPayload.waterLevel || prev.waterLevel,
-                    soil: latestPayload.soil || prev.soil,
-                    timestamp_client: latestPayload.timestamp_client || new Date().toISOString()
-                }));
-            }
-        } catch (error) {
-            console.error('Error fetching data from API:', error);
-            // Fallback to mock data or error state here
-        }
-    };
-    
-    // Function to run mock data (from your original JS)
+    // === 2. Data Fetching and Mock Data Update (for testing) ===
+    // Function to run mock data (for testing)
     const updateMockData = () => {
+        // ... (Mock data generation logic here) ...
         const rainChance = Math.random();
         let newRainValue;
         if (rainChance < 0.1) newRainValue = (30 + Math.random() * 20).toFixed(0); // Heavy
@@ -235,18 +210,15 @@ function SensorDashboard() {
 
     // Data Update Interval (Runs every 5 seconds)
     useEffect(() => {
-        // Use fetchRealData() for production with the ESP32
-        // const interval = setInterval(fetchRealData, 5000); 
-        
-        // Use updateMockData() for local testing without the ESP32
+        // Run mock data updates every 5 seconds for testing purposes
         const interval = setInterval(updateMockData, 5000);
-        
-        return () => clearInterval(interval);
+        return () => clearInterval(interval); // Cleanup
     }, []);
 
     // Effect to update the Gauge instances whenever liveData changes
     useEffect(() => {
-        if (gaugeInstances.current.rain) {
+        // Only attempt to set the gauges if they have been initialized AND the global Gauge object exists
+        if (gaugeInstances.current.rain && window.Gauge) { 
             gaugeInstances.current.rain.set(liveData.rain);
             gaugeInstances.current.pressure.set(liveData.pressure);
             gaugeInstances.current.waterLevel.set(liveData.waterLevel);
@@ -255,26 +227,22 @@ function SensorDashboard() {
     }, [liveData]);
 
 
-    // === 4. Helper functions to determine Status and Class Names ===
-
+    // === 3. Helper functions to determine Status and Class Names ===
     const getRainStatus = (rain) => {
         if (rain > 30) return { reading: 'Heavy Rain', status: 'ALERT: Heavy Rainfall!', className: 'status alert' };
         if (rain > 0) return { reading: 'Light Rain', status: 'STATUS: Light Rainfall', className: 'status warning' };
         return { reading: 'No Rain', status: 'STATUS: Clear', className: 'status safe' };
     };
-
     const getPressureStatus = (pressure) => {
         if (pressure < 990) return { status: 'WARNING: Low Pressure!', className: 'status warning' };
         if (pressure > 1030) return { status: 'STATUS: High Pressure', className: 'status safe' };
         return { status: 'STATUS: Normal Pressure', className: 'status safe' };
     };
-
     const getWaterStatus = (level) => {
         if (level > 90) return { status: 'ALERT: Tank Nearing Full!', className: 'status warning' };
         if (level < 30) return { status: 'STATUS: Level Low', className: 'status alert' };
         return { status: 'STATUS: Optimal', className: 'status safe' };
     };
-
     const getSoilStatus = (moisture) => {
         if (moisture < 30) return { reading: 'Dry', status: 'ALERT: Soil is Dry!', className: 'status alert' };
         if (moisture < 70) return { reading: 'Optimal', status: 'STATUS: Soil Moisture Optimal', className: 'status safe' };
@@ -286,12 +254,17 @@ function SensorDashboard() {
     const waterStatus = useMemo(() => getWaterStatus(liveData.waterLevel), [liveData.waterLevel]);
     const soilStatus = useMemo(() => getSoilStatus(liveData.soil), [liveData.soil]);
 
+
     // --- RENDER ---
     return (
         <>
             <Head>
                 <title>Smart Farm Monitor</title>
-                {/* Include Font Awesome and Inter font links */}
+                {/* CRITICAL FIX: Load gauge.js via CDN since it fails npm install 
+                  We keep Chart.js (which is more modern) via npm package.
+                */}
+                <script src="https://cdnjs.cloudflare.com/ajax/libs/gauge.js/1.3.7/gauge.min.js" async defer></script>
+                
                 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
                 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
             </Head>
@@ -308,29 +281,29 @@ function SensorDashboard() {
                         <article className="card">
                             <h3>Rain Sensor</h3>
                             <i className="fas fa-cloud-rain icon" style={{color: 'var(--primary-color)'}}></i>
-                            <p className="reading" id="rain-reading">{rainStatus.reading}</p>
-                            <p className={rainStatus.className} id="rain-status">{rainStatus.status}</p>
+                            <p className="reading">{rainStatus.reading}</p>
+                            <p className={rainStatus.className}>{rainStatus.status}</p>
                         </article>
 
                         <article className="card">
                             <h3>Barometric Pressure</h3>
                             <i className="fas fa-tachometer-alt icon" style={{color: '#6d28d9'}}></i>
-                            <p className="reading" id="pressure-reading">{liveData.pressure} hPa</p>
-                            <p className={pressureStatus.className} id="pressure-status">{pressureStatus.status}</p>
+                            <p className="reading">{liveData.pressure} hPa</p>
+                            <p className={pressureStatus.className}>{pressureStatus.status}</p>
                         </article>
 
                         <article className="card">
-                            <h3>Water Level</h3>
+                            <h3>Water Level(Tank)</h3>
                             <i className="fas fa-water icon" style={{color: '#0e7490'}}></i>
-                            <p className="reading" id="water-reading">Tank: {liveData.waterLevel}%</p>
-                            <p className={waterStatus.className} id="water-status">{waterStatus.status}</p>
+                            <p className="reading">Tank: {liveData.waterLevel}%</p>
+                            <p className={waterStatus.className}>{waterStatus.status}</p>
                         </article>
 
                         <article className="card">
                             <h3>Soil Moisture</h3>
                             <i className="fas fa-seedling icon" style={{color: '#65a30d'}}></i>
-                            <p className="reading" id="soil-reading">{soilStatus.reading}</p>
-                            <p className={soilStatus.className} id="soil-status">{soilStatus.status}</p>
+                            <p className="reading">{soilStatus.reading}</p>
+                            <p className={soilStatus.className}>{soilStatus.status}</p>
                         </article>
                     </section>
 
@@ -341,19 +314,19 @@ function SensorDashboard() {
                             <div className="gauges-container">
                                 <div className="gauge-wrapper">
                                     <canvas id="gaugeRain" ref={rainGaugeRef} width="200" height="100"></canvas>
-                                    <p id="gaugeRain-label">Rain: {liveData.rain} mm/hr</p>
+                                    <p>Rain: {liveData.rain} mm/hr</p>
                                 </div>
                                 <div className="gauge-wrapper">
                                     <canvas id="gaugePressure" ref={pressureGaugeRef} width="200" height="100"></canvas>
-                                    <p id="gaugePressure-label">Pressure: {liveData.pressure} hPa</p>
+                                    <p>Pressure: {liveData.pressure} hPa</p>
                                 </div>
                                 <div className="gauge-wrapper">
                                     <canvas id="gaugeWaterLevel" ref={waterLevelGaugeRef} width="200" height="100"></canvas>
-                                    <p id="gaugeWaterLevel-label">Water Level: {liveData.waterLevel}%</p>
+                                    <p>Water Level: {liveData.waterLevel}%</p>
                                 </div>
                                 <div className="gauge-wrapper">
                                     <canvas id="gaugeSoil" ref={soilGaugeRef} width="200" height="100"></canvas>
-                                    <p id="gaugeSoil-label">Soil Moisture: {liveData.soil}%</p>
+                                    <p>Soil Moisture: {liveData.soil}%</p>
                                 </div>
                             </div>
                         </article>
