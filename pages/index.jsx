@@ -14,6 +14,8 @@ const App = () => {
     
     // Define a short-lived key to reset the new data state, triggering the flash effect
     const NEW_DATA_FLASH_DURATION = 500; // ms
+    // Define the new fetch interval in milliseconds
+    const FETCH_INTERVAL_MS = 5000;
 
     const fetchLatestData = useCallback(async () => {
         // Only set loading state on the first run, not subsequent interval updates
@@ -71,13 +73,13 @@ const App = () => {
         }
     }, [API_URL, latestData]); // latestData is needed here to compare the new data's ID against the current data's ID
 
-    // useEffect to run the fetch function continuously every 1 second
+    // useEffect to run the fetch function continuously every 5 seconds
     useEffect(() => {
         // Run once immediately on mount
         fetchLatestData();
 
-        // Set up the interval for fetching every 1000 milliseconds (1 second)
-        const intervalId = setInterval(fetchLatestData, 3000);
+        // Set up the interval for fetching every 5000 milliseconds (5 seconds)
+        const intervalId = setInterval(fetchLatestData, FETCH_INTERVAL_MS);
 
         // Cleanup function: Clear the interval when the component unmounts
         return () => clearInterval(intervalId);
@@ -148,9 +150,9 @@ const App = () => {
     return (
         <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
             <div className="w-full max-w-xl bg-white p-8 rounded-2xl shadow-xl border border-gray-100">
-                <h1 className="text-3xl font-extrabold text-indigo-700 mb-2">Real-Time API Monitor (1s Refresh)</h1>
+                <h1 className="text-3xl font-extrabold text-indigo-700 mb-2">Real-Time API Monitor (5s Refresh)</h1>
                 <p className="text-gray-600 mb-4">
-                    Continuously fetching the **latest** document every 1 second from: <code className="bg-indigo-100 text-indigo-800 px-1 py-0.5 rounded text-sm">{API_URL}</code>
+                    Continuously fetching the **latest** document every 5 seconds from: <code className="bg-indigo-100 text-indigo-800 px-1 py-0.5 rounded text-sm">{API_URL}</code>
                 </p>
                 <p className="text-sm font-semibold text-red-600 mb-6">
                     Watch the console (F12) for detailed logs of every request. The data box will **flash green** only when a *new* document is recorded.
