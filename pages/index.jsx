@@ -8,7 +8,7 @@ const initialSensorData = {
     soil: 60.0, // %
 };
 
-// Placeholder for your ESP's cloud/online API endpoint
+// Real API Endpoint provided by the user
 const REAL_API_ENDPOINT = 'https://baha-alert.vercel.app/api'; 
 
 // Helper function to get the current formatted time
@@ -54,14 +54,14 @@ const App = () => {
         setIsClient(true);
         setCurrentTime(getFormattedTime());
         
-        // --- 0b. Manual CDN Script Loading (Includes Tailwind for quick fix) ---
+        // --- 0b. Manual CDN Script Loading (Injects React, ReactDOM, Chart, Gauge, Tailwind) ---
         const cdnUrls = [
             // FIX: Injecting React and ReactDOM CDNs to resolve "React or ReactDOM not loaded" errors
             "https://unpkg.com/react@18/umd/react.production.min.js",
             "https://unpkg.com/react-dom@18/umd/react-dom.production.min.js",
             "https://cdnjs.cloudflare.com/ajax/libs/gauge.js/1.3.7/gauge.min.js",
             "https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js",
-            "https://cdn.tailwindcss.com", // Injecting Tailwind CSS via CDN
+            "https://cdn.tailwindcss.com",
         ];
 
         const loadScript = (url) => {
@@ -71,16 +71,13 @@ const App = () => {
                 script.src = url;
                 script.async = true;
                 script.onload = resolve;
-                // For Tailwind, ensure it's loaded before Chart/Gauge for potential canvas styling
                 if (url.includes('tailwindcss')) {
                     document.head.prepend(script);
                 } else {
                     document.head.appendChild(script);
                 }
                 
-                // Special case: Tailwind CDN executes and sets up the styles immediately
                 if (url.includes('tailwindcss')) {
-                     // Resolve immediately after appending Tailwind, though its execution is sync
                      resolve();
                 }
             });
@@ -88,7 +85,6 @@ const App = () => {
 
         Promise.all(cdnUrls.map(loadScript))
             .then(() => {
-                // Final check after loading to ensure globals exist
                 if (window.Gauge && window.Chart) {
                     setScriptsLoaded(true);
                 } else {
@@ -170,6 +166,7 @@ const App = () => {
             }
         } catch(e) { /* ignore cleanup errors */ }
         
+        // Reset all gauge instances
         Object.keys(gaugeInstances.current).forEach(key => gaugeInstances.current[key] = null);
 
 
@@ -325,37 +322,21 @@ const App = () => {
     const fetchSensorData = useCallback(async () => {
         if (mode !== 'Auto' || !isClient) return;
         
-        // --- MOCK FETCH SIMULATING REAL-TIME DATA STREAM from MongoDB API ---
-        const mockFetch = () => {
-             // Function to clamp values within a range
-             const clamp = (val, min, max) => Math.min(Math.max(val, min), max);
-
-             // Simulate small, continuous changes based on current state
-             const data = {
-                // Pressure: clamped between 990 and 1030
-                pressure: clamp(liveData.pressure + (Math.random() - 0.5) * 0.8, 990, 1030).toFixed(1), 
-                // Rain: clamped between 0 and 10 mm
-                rain: clamp(liveData.rain + (Math.random() - 0.5) * 0.4, 0, 10).toFixed(1),
-                // Water Level: clamped between 20% and 95%
-                waterLevel: clamp(liveData.waterLevel + (Math.random() - 0.5) * 1.0, 20, 95).toFixed(1),
-                // Soil: clamped between 20% and 90%
-                soil: clamp(liveData.soil + (Math.random() - 0.5) * 0.9, 20, 90).toFixed(1),
-            };
-            return Promise.resolve({
-                json: () => Promise.resolve(data),
-                ok: true
-            });
-        };
-
         try {
-            // !!! REPLACE mockFetch() with: await fetch(REAL_API_ENDPOINT); for live data !!!
-            const response = await mockFetch(); 
+            // Fetch live data from the user's provided API endpoint
+            const response = await fetch(REAL_API_ENDPOINT); 
             
             if (!response.ok) {
+                // Check for HTTP errors (e.g., 404, 500)
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
             const newData = await response.json();
             
+            // Check if the received data has the expected structure
+            if (typeof newData.pressure === 'undefined' || typeof newData.rain === 'undefined') {
+                 throw new Error("Invalid data structure received from API.");
+            }
+
             // Ensure data types are converted correctly from the JSON strings to numbers
             setLiveData({
                 pressure: parseFloat(newData.pressure),
@@ -369,7 +350,7 @@ const App = () => {
             console.error("Failed to fetch live sensor data:", error);
             setFetchError(`Error connecting to online endpoint (${REAL_API_ENDPOINT}). Check console for details.`);
         }
-    }, [isClient, mode, liveData.pressure, liveData.rain, liveData.waterLevel, liveData.soil]); 
+    }, [isClient, mode]); // Dependencies updated to prevent infinite loops
 
     // Data Update Interval (Runs every 1 second, matching the ESP upload frequency)
     useEffect(() => {
