@@ -1,24 +1,23 @@
 import mongoose from 'mongoose';
 
-// Define the schema for the sensor data payload
-const PayloadSchema = new mongoose.Schema({
-    pressure: { type: Number, required: true },
-    rain: { type: Number, required: true },
-    waterLevel: { type: Number, required: true },
-    soil: { type: Number, required: true },
-    // Use Date type and default to the server's time for reliable sorting
-    receivedAt: { type: Date, default: Date.now }, 
-}, { _id: false }); // No need for an extra ID on the sub-document
+const AlertDataSchema = new mongoose.Schema({
+  // Automatically store the time the API received the data
+  receivedAt: {
+    type: Date,
+    default: Date.now,
+  },
+  // 'payload' holds the JSON object sent directly from the ESP32.
+  // Using Mixed allows it to store different structures (sensor data, config, etc.).
+  payload: {
+    type: mongoose.Schema.Types.Mixed,
+    required: true,
+  },
+}, {
+  // Option to add standard Mongoose timestamps
+  timestamps: true,
+});
 
-// Define the main Alert schema
-const AlertSchema = new mongoose.Schema({
-    payload: {
-        type: PayloadSchema,
-        required: true,
-    },
-    // Mongoose adds 'createdAt' and 'updatedAt' automatically 
-    // if 'timestamps: true' is used, which is good practice.
-}, { timestamps: true });
+// Reuse the model if it's already been compiled to avoid OverwriteModelError
+const AlertData = mongoose.models.AlertData || mongoose.model('AlertData', AlertDataSchema);
 
-// Check if the model already exists to prevent re-creation in Next.js hot reload
-export default mongoose.models.Alert || mongoose.model('Alert', AlertSchema);
+export default AlertData;
