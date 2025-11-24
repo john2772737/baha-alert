@@ -1,5 +1,5 @@
-import dbConnect from '../../lib/dbConnect';
-import Alert from '../../models/Alert';
+import dbConnect from '../lib/dbConnect';
+import Alert from '../models/Alert';
 
 /**
  * Vercel Serverless Function to handle incoming sensor data.
