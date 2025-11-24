@@ -29,39 +29,34 @@ const App = () => {
     const [isClient, setIsClient] = useState(false);
     const [scriptsLoaded, setScriptsLoaded] = useState(false);
     const [fetchError, setFetchError] = useState(null); // State for showing API errors
-    const [isHistoryLoading, setIsHistoryLoading] = useState(false);
     
     // NEW STATE: System mode control
     const [mode, setMode] = useState('Auto');
     const modes = ['Auto', 'Maintenance', 'Sleep'];
 
-    // State to hold the live data, historical data, and current time
+    // State to hold the live data and current time
     const [liveData, setLiveData] = useState(initialSensorData);
-    const [historicalData, setHistoricalData] = useState([]);
     const [currentTime, setCurrentTime] = useState('Loading...'); // Safe initial state for SSR
 
-    // Refs for the Canvas elements to initialize Gauge/Chart.js
+    // Refs for the Canvas elements to initialize Gauge.js
     const rainGaugeRef = useRef(null);
     const pressureGaugeRef = useRef(null);
     const waterLevelGaugeRef = useRef(null);
     const soilGaugeRef = useRef(null);
-    const historyChartRef = useRef(null);
 
-    // Refs for Gauge and Chart instances
+    // Refs for Gauge instances
     const gaugeInstances = useRef({});
 
     // === 0. Client Mount, Script Injection, and Time Handling ===
     useEffect(() => {
-        // --- 0a. Set isClient state ---
         setIsClient(true);
         setCurrentTime(getFormattedTime());
         
-        // --- 0b. Manual CDN Script Loading (Injects React, ReactDOM, Chart, Gauge, Tailwind) ---
+        // --- Manual CDN Script Loading (Injects React, ReactDOM, Gauge, Tailwind) ---
         const cdnUrls = [
             "https://unpkg.com/react@18/umd/react.production.min.js",
             "https://unpkg.com/react-dom@18/umd/react-dom.production.min.js",
             "https://cdnjs.cloudflare.com/ajax/libs/gauge.js/1.3.7/gauge.min.js",
-            "https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js",
             "https://cdn.tailwindcss.com",
         ];
 
@@ -86,14 +81,19 @@ const App = () => {
 
         Promise.all(cdnUrls.map(loadScript))
             .then(() => {
-                if (window.Gauge && window.Chart) {
+                if (window.Gauge) {
                     setScriptsLoaded(true);
                 } else {
-                    console.warn('Chart/Gauge libraries may be missing, but UI styles should load.');
+                    setTimeout(() => {
+                        if (window.Gauge) {
+                            setScriptsLoaded(true);
+                        } else {
+                            console.error('CRITICAL: Gauge.js failed to load.');
+                        }
+                    }, 500); 
                 }
             });
 
-        // Time update interval
         const timeInterval = setInterval(() => {
             setCurrentTime(getFormattedTime());
         }, 10000);
@@ -141,7 +141,6 @@ const App = () => {
         switch (key) {
             case 'rain':
                 if (normalizedValue.includes('dry') || normalizedValue.includes('no rain')) return 0.0;
-                // Since we don't know the full range of strings, we'll map common phrases
                 if (normalizedValue.includes('light')) return 5.0; 
                 if (normalizedValue.includes('heavy')) return 35.0; 
                 return 0.0; 
@@ -163,19 +162,19 @@ const App = () => {
         }
     };
     
-    // === Data Fetching (Live & Historical) ===
-
     // 1. Fetch Live Data (1-second polling)
     const fetchSensorData = useCallback(async () => {
         if (mode !== 'Auto' || !isClient) return;
         
         try {
-            // This is the live data endpoint for the single latest record
+            // Fetch live data from the user's provided API endpoint
             const response = await fetch(REAL_API_ENDPOINT); 
             
             if (!response.ok) {
+                // If the fetch succeeds but the HTTP status code is not 200-299
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
+            
             const data = await response.json();
             
             // Map string values to numerical values
@@ -197,88 +196,39 @@ const App = () => {
 
         } catch (error) {
             console.error("Failed to fetch live sensor data:", error);
-            setFetchError(`Error connecting to live endpoint. Check console for details.`);
+            // If API fails, set an error message.
+            setFetchError(`Error connecting to live endpoint. Check console for details. (Note: API endpoint may be down or restricted)`);
+            
+            // *** OPTIONAL MOCK FALLBACK (Removed for strict API test, re-add if needed for UI demo) ***
+            // const mockData = generateMockLiveData();
+            // setLiveData(mockData);
+            // setFetchError(`API connection failed. Running on Mock Data.`);
         }
     }, [isClient, mode]); 
 
-    // 2. Fetch Historical Data (For Chart)
-    const fetchHistoryData = useCallback(async () => {
-        if (mode !== 'Auto' || !isClient) return;
-        
-        setIsHistoryLoading(true);
-        try {
-            // Calculate 7 days ago date for filtering
-            const sevenDaysAgo = new Date();
-            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-            const startDate = sevenDaysAgo.toISOString();
-            
-            // This is the historical endpoint with filtering parameters
-            const historyEndpoint = `${REAL_API_ENDPOINT}?startDate=${startDate}`;
-
-            const response = await fetch(historyEndpoint);
-            
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            const result = await response.json();
-            
-            // Check if data array exists and is valid
-            if (!result.success || !Array.isArray(result.data)) {
-                throw new Error('Invalid historical data structure received.');
-            }
-            
-            // Map historical data: we need to extract the payload and convert strings to numbers
-            const mappedHistory = result.data.map(item => {
-                const payload = item.payload || {};
-                return {
-                    day: new Date(payload.receivedAt || item.createdAt).toLocaleDateString(),
-                    rain: mapDescriptiveValue('rain', payload.rain),
-                    pressure: parseFloat(payload.pressure) || initialSensorData.pressure,
-                    level: mapDescriptiveValue('waterLevel', payload.waterLevel),
-                    soil: mapDescriptiveValue('soil', payload.soil),
-                };
-            });
-            
-            setHistoricalData(mappedHistory);
-            setFetchError(null);
-
-        } catch (error) {
-            console.error("Failed to fetch historical data:", error);
-            setFetchError(`Error fetching history. API likely returned an error.`);
-        } finally {
-            setIsHistoryLoading(false);
-        }
-    }, [isClient, mode]);
-
-
-    // === 3. Initialization Logic (Gauges and Chart) ===
+    // 2. Dashboard Initialization (Gauges only)
     const initializeDashboard = useCallback(() => {
-        if (!isClient || !scriptsLoaded || typeof window.Gauge === 'undefined' || typeof window.Chart === 'undefined') {
+        if (!isClient || !scriptsLoaded || typeof window.Gauge === 'undefined') {
             return;
         }
         
-        if (mode !== 'Auto' || historicalData.length === 0) return;
+        if (mode !== 'Auto') return; 
 
-        if (!rainGaugeRef.current || !pressureGaugeRef.current || !waterLevelGaugeRef.current || !soilGaugeRef.current || !historyChartRef.current) {
-             console.warn("Canvas elements not yet mounted. Skipping initialization.");
+        // CRITICAL: Ensure all canvas refs are ready before initializing
+        if (!rainGaugeRef.current || !pressureGaugeRef.current || !waterLevelGaugeRef.current || !soilGaugeRef.current) {
              return;
         }
 
         const Gauge = window.Gauge;
-        const Chart = window.Chart;
 
-        // --- Cleanup previous instances ---
-        try {
-            if (gaugeInstances.current.chart) {
-                gaugeInstances.current.chart.destroy();
-                gaugeInstances.current.chart = null;
-            }
-        } catch(e) { /* ignore cleanup errors */ }
-        
-        Object.keys(gaugeInstances.current).forEach(key => gaugeInstances.current[key] = null);
+        // --- Cleanup and Reset previous gauge instances ---
+        Object.keys(gaugeInstances.current).forEach(key => {
+             // Re-initializing directly is safer as Gauge.js doesn't have a clean destroy
+             if (gaugeInstances.current[key]) gaugeInstances.current[key] = null;
+        });
 
 
-        // Base Gauge.js options (using same visual configuration as before)
+        // Base Gauge.js options 
         const gaugeOptions = {
             angle: 0.15, lineWidth: 0.25, radiusScale: 0.9,
             pointer: { length: 0.6, strokeWidth: 0.045, color: '#f3f4f6' }, 
@@ -300,6 +250,7 @@ const App = () => {
                 gauge.set(initial);
                 return gauge;
             }
+            return null;
         };
 
         // Initialize Gauges
@@ -307,112 +258,39 @@ const App = () => {
         gaugeInstances.current.pressure = initGauge(pressureGaugeRef, 1050, 950, liveData.pressure, [950, 980, 1010, 1040, 1050], [{strokeStyle: "#f59e0b", min: 950, max: 980}, {strokeStyle: "#10b981", min: 980, max: 1040}, {strokeStyle: "#f59e0b", min: 1040, max: 1050}]);
         gaugeInstances.current.waterLevel = initGauge(waterLevelGaugeRef, 100, 0, liveData.waterLevel, [0, 25, 50, 75, 100], [{strokeStyle: "#ef4444", min: 0, max: 30}, {strokeStyle: "#10b981", min: 30, max: 80}, {strokeStyle: "#f59e0b", min: 80, max: 100}]);
         gaugeInstances.current.soil = initGauge(soilGaugeRef, 100, 0, liveData.soil, [0, 25, 50, 75, 100], [{strokeStyle: "#ef4444", min: 0, max: 30}, {strokeStyle: "#10b981", min: 30, max: 70}, {strokeStyle: "#f59e0b", min: 70, max: 100}]);
+        
+    }, [isClient, scriptsLoaded, liveData.pressure, liveData.rain, liveData.soil, liveData.waterLevel, mode]); 
 
-        // --- Chart Initialization (Chart.js) using historicalData ---
-        if (historyChartRef.current) {
-            const chartTextColor = '#e2e8f0'; 
-            
-            // Map data for chart
-            const labels = historicalData.map(d => d.day);
-            const rainData = historicalData.map(d => d.rain); 
-            const pressureData = historicalData.map(d => d.pressure);
-            const waterLevelData = historicalData.map(d => d.level);
-            const soilMoistureData = historicalData.map(d => d.soil);
+    // === 3. Primary Effects (Fetching, Initializing, Updating) ===
 
-            gaugeInstances.current.chart = new Chart(historyChartRef.current.getContext('2d'), {
-                type: 'line',
-                data: {
-                    labels,
-                    datasets: [
-                        { label: 'Rain Sensor (mm)', data: rainData, borderColor: 'rgba(59, 130, 246, 1)', backgroundColor: 'rgba(59, 130, 246, 0.1)', fill: false, tension: 0.3, yAxisID: 'yRain', stepped: true, pointRadius: 4, pointHoverRadius: 6 },
-                        { label: 'Barometer Pressure (hPa)', data: pressureData, borderColor: 'rgba(168, 85, 247, 1)', backgroundColor: 'rgba(168, 85, 247, 0.1)', fill: false, tension: 0.3, yAxisID: 'yPressure', pointRadius: 4, pointHoverRadius: 6 },
-                        { label: 'Water Level (%)', data: waterLevelData, borderColor: 'rgba(6, 182, 212, 1)', backgroundColor: 'rgba(6, 182, 212, 0.1)', fill: true, tension: 0.3, yAxisID: 'yLevel', pointRadius: 4, pointHoverRadius: 6 },
-                        { label: 'Soil Moisture (%)', data: soilMoistureData, borderColor: 'rgba(132, 204, 22, 1)', backgroundColor: 'rgba(132, 204, 22, 0.1)', fill: true, tension: 0.3, yAxisID: 'yLevel', pointRadius: 4, pointHoverRadius: 6 }
-                    ]
-                },
-                options: {
-                    responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
-                    scales: {
-                        x: { 
-                            grid: { color: 'rgba(75, 85, 99, 0.3)', borderColor: '#4b5563' }, 
-                            ticks: { color: chartTextColor } 
-                        },
-                        yRain: { type: 'linear', position: 'left', beginAtZero: true, max: 50, grid: { color: 'rgba(75, 85, 99, 0.3)', borderColor: '#4b5563' }, ticks: { callback: (v) => v + ' mm', color: chartTextColor } },
-                        yPressure: { type: 'linear', position: 'right', beginAtZero: false, min: 950, max: 1050, grid: { display: false }, ticks: { callback: (v) => v + ' hPa', color: chartTextColor } },
-                        yLevel: { type: 'linear', position: 'left', beginAtZero: true, max: 100, grid: { display: false }, ticks: { callback: (v) => v + '%', color: chartTextColor } }
-
-                    },
-                    plugins: {
-                        legend: { position: 'top', labels: { color: chartTextColor, usePointStyle: true } },
-                        tooltip: { 
-                            mode: 'index', intersect: false, 
-                            backgroundColor: 'rgba(31, 41, 55, 0.9)', 
-                            titleColor: '#f3f4f6', bodyColor: '#e5e7eb',
-                            callbacks: {
-                                label: (c) => {
-                                    let label = c.dataset.label || '';
-                                    if (label) label += ': ';
-                                    label += c.raw;
-                                    return label;
-                                }
-                            } 
-                        }
-                    }
-                }
-            });
-        }
-    }, [isClient, scriptsLoaded, liveData.pressure, liveData.rain, liveData.soil, liveData.waterLevel, mode, historicalData]); 
-
-    // === 4. Primary Effects (Fetching, Initializing, Updating) ===
-
-    // Effect 4a: Data Polling (1 second interval for live data)
+    // Effect 3a: Data Polling (1 second interval for live data)
     useEffect(() => {
         if (mode !== 'Auto') return;
         const interval = setInterval(fetchSensorData, 1000); 
         return () => clearInterval(interval);
     }, [fetchSensorData, mode]); 
     
-    // Effect 4b: Initial load and mode change handlers (History & Dashboard Init)
+    // Effect 3b: Initialization on mode/script change
     useEffect(() => {
-        // Fetch historical data whenever entering Auto mode or when scripts load
-        if (mode === 'Auto' && scriptsLoaded) {
-            fetchHistoryData();
-        }
-        
-        // This effect manages cleanup and initialization based on mode/data readiness
-        if (scriptsLoaded) {
-            if (mode === 'Auto' && historicalData.length > 0) {
-                // Initialize/Re-initialize dashboard only if history data is ready
-                initializeDashboard();
-            } else if (mode !== 'Auto') {
-                 // Cleanup if we switch away from Auto
-                 try {
-                    if (gaugeInstances.current.chart) {
-                        gaugeInstances.current.chart.destroy();
-                        gaugeInstances.current.chart = null;
-                    }
-                } catch(e) { /* ignore cleanup errors */ }
-                gaugeInstances.current = {};
-            }
+        if (scriptsLoaded && mode === 'Auto') {
+            initializeDashboard();
+        } else if (mode !== 'Auto') {
+             // Cleanup (clear refs) when switching away from Auto
+             gaugeInstances.current = {};
         }
         
         // Final cleanup on unmount
         return () => {
-             try {
-                if (gaugeInstances.current.chart) {
-                    gaugeInstances.current.chart.destroy();
-                    gaugeInstances.current.chart = null;
-                }
-            } catch(e) { /* ignore cleanup errors */ }
             gaugeInstances.current = {};
         };
-    }, [initializeDashboard, mode, scriptsLoaded, historicalData, fetchHistoryData]);
+    }, [initializeDashboard, mode, scriptsLoaded]);
 
-    // Effect 4c: Gauge Update (Runs whenever liveData changes)
+    // Effect 3c: Gauge Update (Runs whenever liveData changes)
     useEffect(() => {
         if (mode === 'Auto' && isClient && scriptsLoaded && window.Gauge && gaugeInstances.current.rain) { 
             requestAnimationFrame(() => {
                 try {
+                    // This is the core update that moves the needles
                     if (gaugeInstances.current.rain) gaugeInstances.current.rain.set(liveData.rain);
                     if (gaugeInstances.current.pressure) gaugeInstances.current.pressure.set(liveData.pressure);
                     if (gaugeInstances.current.waterLevel) gaugeInstances.current.waterLevel.set(liveData.waterLevel);
@@ -450,11 +328,6 @@ const App = () => {
         <div className="min-h-screen bg-slate-900 text-slate-100 p-4 sm:p-10 font-inter dark">
             <style>{`
                 /* Ensure responsive canvas sizes */
-                .chart-container {
-                    position: relative;
-                    height: 55vh;
-                    width: 100%;
-                }
                 .gauges-container {
                     display: grid;
                     grid-template-columns: repeat(2, 1fr);
@@ -469,10 +342,8 @@ const App = () => {
                     .gauges-container {
                         grid-template-columns: repeat(4, 1fr);
                     }
-                    .chart-container {
-                        height: 450px;
-                    }
                 }
+                /* Removed chart-container styling */
             `}</style>
             
             <header className="mb-10 p-5 bg-slate-800 rounded-3xl shadow-2xl flex flex-col md:flex-row justify-between items-center border-b-4 border-emerald-500/50">
@@ -547,7 +418,7 @@ const App = () => {
                             </article>
                         </section>
 
-                        {/* Main Content Section - Gauges & Chart (Dynamic) */}
+                        {/* Main Content Section - Gauges */}
                         <section className="grid grid-cols-1 gap-8 md:grid-cols-1">
                             <article className="card p-6 bg-slate-800 rounded-3xl shadow-2xl border border-slate-700">
                                 <h3 className="text-2xl font-bold mb-6 text-slate-200 border-b border-slate-700 pb-2">Live Sensor Readings (Gauges)</h3>
@@ -568,26 +439,6 @@ const App = () => {
                                         <canvas id="gaugeSoil" ref={soilGaugeRef} className="max-w-full h-auto"></canvas>
                                         <p className="mt-3 text-lg font-semibold text-slate-300">Soil Moisture: <span className="text-orange-400">{liveData.soil.toFixed(1)}%</span></p>
                                     </div>
-                                </div>
-                            </article>
-
-                            <article className="card p-6 bg-slate-800 rounded-3xl shadow-2xl border border-slate-700">
-                                <h3 className="text-2xl font-bold mb-6 text-slate-200 border-b border-slate-700 pb-2">7-Day Historical Trends (Chart)</h3>
-                                <div className="chart-container">
-                                    {isHistoryLoading ? (
-                                        <div className="flex items-center justify-center h-full text-slate-400">
-                                            <RefreshCcwIcon className="w-6 h-6 animate-spin mr-3 text-indigo-400" />
-                                            Fetching 7-day historical data...
-                                        </div>
-                                    ) : (
-                                        historicalData.length > 0 ? (
-                                            <canvas id="historyChart" ref={historyChartRef}></canvas>
-                                        ) : (
-                                            <div className="flex items-center justify-center h-full text-slate-400">
-                                                No historical data found for the last 7 days.
-                                            </div>
-                                        )
-                                    )}
                                 </div>
                             </article>
                         </section>
