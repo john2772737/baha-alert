@@ -334,7 +334,7 @@ const App = () => {
             // ******* SET FLAG ON SUCCESSFUL INITIALIZATION *******
             isDashboardInitializedRef.current = true;
         }
-    }, [isClient, scriptsLoaded, liveData.pressure, liveData.rain, liveData.soil, liveData.waterLevel, mode]); 
+    }, [isClient, scriptsLoaded, liveData.pressure, liveData.rain, liveData.soil, mode]); // Removed liveData.waterLevel
 
     // --- Data Fetching Logic (Connects to online endpoint, runs every 5s) ---
     const fetchSensorData = useCallback(async () => {
@@ -387,17 +387,25 @@ const App = () => {
                     return String(value).trim();
                 };
 
+                const extractedWaterTank = safeParseString(
+                    payload.waterTank || 
+                    payload.ultrasonicStatus || 
+                    payload.water_tank_status || 
+                    payload.level_status, 
+                    prevData.waterTank
+                );
+                
+                // *** DEBUG LOG: Check the exact string received for waterTank ***
+                console.log(`[DEBUG] Extracted Water Tank Value: "${extractedWaterTank}"`);
 
                 return {
                     // Numerical sensors (requires conversion from string)
                     pressure: safeParseFloat(payload.pressure, prevData.pressure),
-                    // waterLevel REMOVED
-                    // waterLevel: safeParseFloat(payload.waterLevel, prevData.waterLevel),
 
                     // Categorical sensors (expected to be strings)
                     rain: safeParseString(payload.rain || payload.Rain, prevData.rain),
                     soil: safeParseString(payload.soil || payload.Soil, prevData.soil), 
-                    waterTank: safeParseString(payload.waterTank || payload.ultrasonicStatus, prevData.waterTank),
+                    waterTank: extractedWaterTank,
                 };
             });
             
@@ -644,7 +652,7 @@ const App = () => {
                 {mode !== 'Auto' && (
                     <div className="p-16 bg-slate-800 rounded-3xl shadow-2xl border border-slate-700 text-center flex flex-col items-center justify-center min-h-[50vh]">
                         <RefreshCcwIcon className={`w-16 h-16 mb-6 ${mode === 'Maintenance' ? 'text-yellow-400 animate-spin' : 'text-gray-500'}`} />
-                        <h3 className="text-4xl font-extrabold mb-4 text-emerald-400">
+                        <h3 className="4xl font-extrabold mb-4 text-emerald-400">
                             System Mode: <span className={mode === 'Maintenance' ? 'text-yellow-400' : 'text-gray-400'}>{mode}</span>
                         </h3>
                         <p className="text-slate-300 text-lg max-w-xl">
