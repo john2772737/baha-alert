@@ -387,7 +387,9 @@ const App = () => {
                     return String(value).trim();
                 };
 
+                // FIX: Added 'payload.waterLevel' to the check list as identified by the console log
                 const extractedWaterTank = safeParseString(
+                    payload.waterLevel || // <-- NOW CHECKS THE KEY FROM YOUR DEBUG LOG
                     payload.waterTank || 
                     payload.ultrasonicStatus || 
                     payload.water_tank_status || 
@@ -536,7 +538,7 @@ const App = () => {
             `}</style>
             
             <header className="mb-10 p-5 bg-slate-800 rounded-3xl shadow-2xl flex flex-col md:flex-row justify-between items-center border-b-4 border-emerald-500/50">
-                <h1 className="text-4xl font-extrabold text-emerald-400 mb-2 md:mb-0 tracking-tight">
+                <h1 className="4xl font-extrabold text-emerald-400 mb-2 md:mb-0 tracking-tight">
                     Smart Farm Monitor
                 </h1>
                 <div className="flex items-center text-md font-medium text-slate-400 bg-slate-900 px-5 py-2.5 rounded-xl shadow-inner border border-slate-700/50">
@@ -619,7 +621,7 @@ const App = () => {
                         {/* Main Content Section - Gauges & Chart (Dynamic) */}
                         <section className="grid grid-cols-1 gap-8 md:grid-cols-1">
                             <article className="card p-6 bg-slate-800 rounded-3xl shadow-2xl border border-slate-700">
-                                <h3 className="text-2xl font-bold mb-6 text-slate-200 border-b border-slate-700 pb-2">Live Sensor Readings (Gauges)</h3>
+                                <h3 className="2xl font-bold mb-6 text-slate-200 border-b border-slate-700 pb-2">Live Sensor Readings (Gauges)</h3>
                                 {/* Changed grid layout to 3 columns (3 gauges remaining) */}
                                 <div className="gauges-container">
                                     <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
@@ -639,7 +641,7 @@ const App = () => {
                             </article>
 
                             <article className="card p-6 bg-slate-800 rounded-3xl shadow-2xl border border-slate-700">
-                                <h3 className="text-2xl font-bold mb-6 text-slate-200 border-b border-slate-700 pb-2">7-Day Historical Trends (Chart)</h3>
+                                <h3 className="2xl font-bold mb-6 text-slate-200 border-b border-slate-700 pb-2">7-Day Historical Trends (Chart)</h3>
                                 <div className="chart-container">
                                     <canvas id="historyChart" ref={historyChartRef}></canvas>
                                 </div>
