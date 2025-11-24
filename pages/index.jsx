@@ -9,7 +9,7 @@ const initialSensorData = {
 };
 
 // Placeholder for your ESP's cloud/online API endpoint
-const REAL_API_ENDPOINT = 'https://api.farmmonitor.cloud/latest-data'; 
+const REAL_API_ENDPOINT = 'https://baha-alert.vercel.app/api'; 
 
 // Helper function to get the current formatted time
 const getFormattedTime = () => {
