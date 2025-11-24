@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import Chart from 'chart.js/auto'; // Using 'chart.js/auto' is a modern way to register controllers
 
 // --- Initial Data Structure ---
 const initialSensorData = {
@@ -58,9 +57,7 @@ const App = () => {
         setCurrentTime(getFormattedTime());
         
         // --- 0b. Manual CDN Script Loading (Injects React, ReactDOM, Chart, Gauge, Tailwind) ---
-        // Note: Tailwind and Gauge.js must be loaded dynamically since we use React via CDN
         const cdnUrls = [
-            // Include React and ReactDOM to ensure they are available
             "https://unpkg.com/react@18/umd/react.production.min.js",
             "https://unpkg.com/react-dom@18/umd/react-dom.production.min.js",
             "https://cdnjs.cloudflare.com/ajax/libs/gauge.js/1.3.7/gauge.min.js",
@@ -75,7 +72,6 @@ const App = () => {
                 script.src = url;
                 script.async = true;
                 script.onload = resolve;
-                // Load Tailwind first
                 if (url.includes('tailwindcss')) {
                     document.head.prepend(script);
                 } else {
@@ -90,18 +86,10 @@ const App = () => {
 
         Promise.all(cdnUrls.map(loadScript))
             .then(() => {
-                // Final check to ensure globals exist
                 if (window.Gauge && window.Chart) {
                     setScriptsLoaded(true);
                 } else {
-                    // Fallback check in case script loading was too fast/slow
-                    setTimeout(() => {
-                        if (window.Gauge && window.Chart) {
-                            setScriptsLoaded(true);
-                        } else {
-                            console.error('CRITICAL: Gauge.js or Chart.js failed to load.');
-                        }
-                    }, 500); 
+                    console.warn('Chart/Gauge libraries may be missing, but UI styles should load.');
                 }
             });
 
@@ -153,6 +141,7 @@ const App = () => {
         switch (key) {
             case 'rain':
                 if (normalizedValue.includes('dry') || normalizedValue.includes('no rain')) return 0.0;
+                // Since we don't know the full range of strings, we'll map common phrases
                 if (normalizedValue.includes('light')) return 5.0; 
                 if (normalizedValue.includes('heavy')) return 35.0; 
                 return 0.0; 
@@ -181,6 +170,7 @@ const App = () => {
         if (mode !== 'Auto' || !isClient) return;
         
         try {
+            // This is the live data endpoint for the single latest record
             const response = await fetch(REAL_API_ENDPOINT); 
             
             if (!response.ok) {
@@ -188,6 +178,7 @@ const App = () => {
             }
             const data = await response.json();
             
+            // Map string values to numerical values
             const mappedData = {
                 pressure: parseFloat(data.pressure),
                 rain: mapDescriptiveValue('rain', data.rain),
@@ -195,6 +186,7 @@ const App = () => {
                 soil: mapDescriptiveValue('soil', data.soil),
             };
 
+            // Basic NaN check
             if (isNaN(mappedData.pressure)) mappedData.pressure = initialSensorData.pressure;
             if (isNaN(mappedData.rain)) mappedData.rain = initialSensorData.rain;
             if (isNaN(mappedData.waterLevel)) mappedData.waterLevel = initialSensorData.waterLevel;
@@ -215,11 +207,12 @@ const App = () => {
         
         setIsHistoryLoading(true);
         try {
+            // Calculate 7 days ago date for filtering
             const sevenDaysAgo = new Date();
             sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
             const startDate = sevenDaysAgo.toISOString();
             
-            // Fetch array of historical records
+            // This is the historical endpoint with filtering parameters
             const historyEndpoint = `${REAL_API_ENDPOINT}?startDate=${startDate}`;
 
             const response = await fetch(historyEndpoint);
@@ -229,25 +222,16 @@ const App = () => {
             }
             const result = await response.json();
             
+            // Check if data array exists and is valid
             if (!result.success || !Array.isArray(result.data)) {
-                // If API returns success=true but data is empty, that's fine.
-                // If structure is wrong, throw error.
-                if (result.data && result.data.length > 0) {
-                     // Proceed if data exists even if success=false (for dev server issues)
-                } else {
-                     setHistoricalData([]);
-                     return; 
-                }
+                throw new Error('Invalid historical data structure received.');
             }
             
-            const rawHistory = result.data || [];
-            
             // Map historical data: we need to extract the payload and convert strings to numbers
-            const mappedHistory = rawHistory.map(item => {
+            const mappedHistory = result.data.map(item => {
                 const payload = item.payload || {};
                 return {
-                    // Use locale time string for better chart labeling
-                    time: new Date(payload.receivedAt || item.createdAt).toLocaleTimeString('en-US', {hour: '2-digit', minute:'2-digit'}),
+                    day: new Date(payload.receivedAt || item.createdAt).toLocaleDateString(),
                     rain: mapDescriptiveValue('rain', payload.rain),
                     pressure: parseFloat(payload.pressure) || initialSensorData.pressure,
                     level: mapDescriptiveValue('waterLevel', payload.waterLevel),
@@ -267,35 +251,31 @@ const App = () => {
     }, [isClient, mode]);
 
 
-    // 3. Dashboard Initialization (Gauges and Chart)
+    // === 3. Initialization Logic (Gauges and Chart) ===
     const initializeDashboard = useCallback(() => {
         if (!isClient || !scriptsLoaded || typeof window.Gauge === 'undefined' || typeof window.Chart === 'undefined') {
             return;
         }
         
-        // Only initialize if in Auto mode AND historical data is available for the chart
-        if (mode !== 'Auto' || historicalData.length === 0) return; 
+        if (mode !== 'Auto' || historicalData.length === 0) return;
 
         if (!rainGaugeRef.current || !pressureGaugeRef.current || !waterLevelGaugeRef.current || !soilGaugeRef.current || !historyChartRef.current) {
+             console.warn("Canvas elements not yet mounted. Skipping initialization.");
              return;
         }
 
         const Gauge = window.Gauge;
         const Chart = window.Chart;
 
-        // --- Cleanup previous chart instance ---
-        if (gaugeInstances.current.chart) {
-            gaugeInstances.current.chart.destroy();
-            gaugeInstances.current.chart = null;
-        }
-        
-        // --- Cleanup previous gauge instances (for reliable re-initialization) ---
-        Object.keys(gaugeInstances.current).forEach(key => {
-            if (gaugeInstances.current[key] && gaugeInstances.current[key].options) {
-                 // Check for Gauge object structure before setting to null
-                 gaugeInstances.current[key] = null;
+        // --- Cleanup previous instances ---
+        try {
+            if (gaugeInstances.current.chart) {
+                gaugeInstances.current.chart.destroy();
+                gaugeInstances.current.chart = null;
             }
-        });
+        } catch(e) { /* ignore cleanup errors */ }
+        
+        Object.keys(gaugeInstances.current).forEach(key => gaugeInstances.current[key] = null);
 
 
         // Base Gauge.js options (using same visual configuration as before)
@@ -333,8 +313,7 @@ const App = () => {
             const chartTextColor = '#e2e8f0'; 
             
             // Map data for chart
-            // For a dense array of 1-second data, we only label every 10th or 60th point
-            const labels = historicalData.map(d => d.time);
+            const labels = historicalData.map(d => d.day);
             const rainData = historicalData.map(d => d.rain); 
             const pressureData = historicalData.map(d => d.pressure);
             const waterLevelData = historicalData.map(d => d.level);
@@ -345,10 +324,10 @@ const App = () => {
                 data: {
                     labels,
                     datasets: [
-                        { label: 'Rain Sensor (mm)', data: rainData, borderColor: 'rgba(59, 130, 246, 1)', backgroundColor: 'rgba(59, 130, 246, 0.1)', fill: false, tension: 0.2, yAxisID: 'yRain', stepped: false, pointRadius: 0, borderWidth: 1.5, cubicInterpolationMode: 'monotone' },
-                        { label: 'Barometer Pressure (hPa)', data: pressureData, borderColor: 'rgba(168, 85, 247, 1)', backgroundColor: 'rgba(168, 85, 247, 0.1)', fill: false, tension: 0.2, yAxisID: 'yPressure', pointRadius: 0, borderWidth: 1.5, cubicInterpolationMode: 'monotone' },
-                        { label: 'Water Level (%)', data: waterLevelData, borderColor: 'rgba(6, 182, 212, 1)', backgroundColor: 'rgba(6, 182, 212, 0.1)', fill: true, tension: 0.2, yAxisID: 'yLevel', pointRadius: 0, borderWidth: 1.5, cubicInterpolationMode: 'monotone' },
-                        { label: 'Soil Moisture (%)', data: soilMoistureData, borderColor: 'rgba(132, 204, 22, 1)', backgroundColor: 'rgba(132, 204, 22, 0.1)', fill: true, tension: 0.2, yAxisID: 'yLevel', pointRadius: 0, borderWidth: 1.5, cubicInterpolationMode: 'monotone' }
+                        { label: 'Rain Sensor (mm)', data: rainData, borderColor: 'rgba(59, 130, 246, 1)', backgroundColor: 'rgba(59, 130, 246, 0.1)', fill: false, tension: 0.3, yAxisID: 'yRain', stepped: true, pointRadius: 4, pointHoverRadius: 6 },
+                        { label: 'Barometer Pressure (hPa)', data: pressureData, borderColor: 'rgba(168, 85, 247, 1)', backgroundColor: 'rgba(168, 85, 247, 0.1)', fill: false, tension: 0.3, yAxisID: 'yPressure', pointRadius: 4, pointHoverRadius: 6 },
+                        { label: 'Water Level (%)', data: waterLevelData, borderColor: 'rgba(6, 182, 212, 1)', backgroundColor: 'rgba(6, 182, 212, 0.1)', fill: true, tension: 0.3, yAxisID: 'yLevel', pointRadius: 4, pointHoverRadius: 6 },
+                        { label: 'Soil Moisture (%)', data: soilMoistureData, borderColor: 'rgba(132, 204, 22, 1)', backgroundColor: 'rgba(132, 204, 22, 0.1)', fill: true, tension: 0.3, yAxisID: 'yLevel', pointRadius: 4, pointHoverRadius: 6 }
                     ]
                 },
                 options: {
@@ -356,12 +335,7 @@ const App = () => {
                     scales: {
                         x: { 
                             grid: { color: 'rgba(75, 85, 99, 0.3)', borderColor: '#4b5563' }, 
-                            ticks: { 
-                                color: chartTextColor,
-                                // Hide most labels to prevent cluttering a 7-day chart with 1-second data
-                                autoSkip: true,
-                                maxTicksLimit: 12
-                            } 
+                            ticks: { color: chartTextColor } 
                         },
                         yRain: { type: 'linear', position: 'left', beginAtZero: true, max: 50, grid: { color: 'rgba(75, 85, 99, 0.3)', borderColor: '#4b5563' }, ticks: { callback: (v) => v + ' mm', color: chartTextColor } },
                         yPressure: { type: 'linear', position: 'right', beginAtZero: false, min: 950, max: 1050, grid: { display: false }, ticks: { callback: (v) => v + ' hPa', color: chartTextColor } },
@@ -375,11 +349,6 @@ const App = () => {
                             backgroundColor: 'rgba(31, 41, 55, 0.9)', 
                             titleColor: '#f3f4f6', bodyColor: '#e5e7eb',
                             callbacks: {
-                                title: (items) => {
-                                    // Show date/time stamp for the tooltip
-                                    const rawTimestamp = historicalData[items[0].dataIndex].time;
-                                    return `Time: ${rawTimestamp}`;
-                                },
                                 label: (c) => {
                                     let label = c.dataset.label || '';
                                     if (label) label += ': ';
