@@ -2,11 +2,14 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 
 // --- Initial Data Structure ---
 const initialSensorData = {
-    pressure: 1012, // hPa
-    rain: 0, // mm/hr
-    waterLevel: 65, // %
-    soil: 60, // %
+    pressure: 1012.0, // hPa
+    rain: 0.0, // mm/hr
+    waterLevel: 65.0, // %
+    soil: 60.0, // %
 };
+
+// Placeholder for your ESP's cloud/online API endpoint
+const REAL_API_ENDPOINT = 'https://api.farmmonitor.cloud/latest-data'; 
 
 // Helper function to get the current formatted time
 const getFormattedTime = () => {
@@ -25,6 +28,7 @@ const App = () => {
     // CRITICAL: isMounted flag is still essential for client-side initialization
     const [isClient, setIsClient] = useState(false);
     const [scriptsLoaded, setScriptsLoaded] = useState(false);
+    const [fetchError, setFetchError] = useState(null); // State for showing API errors
     
     // NEW STATE: System mode control
     const [mode, setMode] = useState('Auto');
@@ -52,6 +56,9 @@ const App = () => {
         
         // --- 0b. Manual CDN Script Loading (Includes Tailwind for quick fix) ---
         const cdnUrls = [
+            // FIX: Injecting React and ReactDOM CDNs to resolve "React or ReactDOM not loaded" errors
+            "https://unpkg.com/react@18/umd/react.production.min.js",
+            "https://unpkg.com/react-dom@18/umd/react-dom.production.min.js",
             "https://cdnjs.cloudflare.com/ajax/libs/gauge.js/1.3.7/gauge.min.js",
             "https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js",
             "https://cdn.tailwindcss.com", // Injecting Tailwind CSS via CDN
@@ -102,21 +109,21 @@ const App = () => {
     const getRainStatus = (rain) => {
         if (rain > 30) return { reading: 'Heavy Rain', status: 'ALERT: Heavy Rainfall!', className: 'text-red-400 font-bold' };
         if (rain > 0) return { reading: 'Light Rain', status: 'STATUS: Light Rainfall', className: 'text-yellow-400 font-bold' };
-        return { reading: 'No Rain', status: 'STATUS: Clear', className: 'text-emerald-400 font-bold' }; // Changed to emerald
+        return { reading: 'No Rain', status: 'STATUS: Clear', className: 'text-emerald-400 font-bold' };
     };
     const getPressureStatus = (pressure) => {
         if (pressure < 990) return { status: 'WARNING: Low Pressure!', className: 'text-red-400 font-bold' };
         if (pressure > 1030) return { status: 'STATUS: High Pressure', className: 'text-yellow-400 font-bold' };
-        return { status: 'STATUS: Normal Pressure', className: 'text-emerald-400 font-bold' }; // Changed to emerald
+        return { status: 'STATUS: Normal Pressure', className: 'text-emerald-400 font-bold' };
     };
     const getWaterStatus = (level) => {
         if (level > 90) return { status: 'ALERT: Tank Nearing Full!', className: 'text-red-400 font-bold' };
         if (level < 30) return { status: 'STATUS: Level Low', className: 'text-yellow-400 font-bold' };
-        return { status: 'STATUS: Optimal', className: 'text-emerald-400 font-bold' }; // Changed to emerald
+        return { status: 'STATUS: Optimal', className: 'text-emerald-400 font-bold' };
     };
     const getSoilStatus = (moisture) => {
         if (moisture < 30) return { reading: 'Dry', status: 'ALERT: Soil is Dry!', className: 'text-red-400 font-bold' };
-        if (moisture < 70) return { reading: 'Optimal', status: 'STATUS: Soil Moisture Optimal', className: 'text-emerald-400 font-bold' }; // Changed to emerald
+        if (moisture < 70) return { reading: 'Optimal', status: 'STATUS: Soil Moisture Optimal', className: 'text-emerald-400 font-bold' };
         return { reading: 'Wet', status: 'WARNING: Soil is Wet!', className: 'text-yellow-400 font-bold' };
     };
 
@@ -314,43 +321,71 @@ const App = () => {
         };
     }, [initializeDashboard, mode, scriptsLoaded]);
 
-    // --- Data Update Logic (Mock Data) ---
-    const updateMockData = () => {
-        if (!isClient) return; // Only run mock data updates on the client
+    // --- Data Fetching Logic (Connects to online endpoint, runs every 1s) ---
+    const fetchSensorData = useCallback(async () => {
+        if (mode !== 'Auto' || !isClient) return;
         
-        // Only mock data updates if we are in Auto mode
-        if (mode !== 'Auto') return;
-        
-        const rainChance = Math.random();
-        let newRainValue;
-        if (rainChance < 0.1) newRainValue = (30 + Math.random() * 20).toFixed(0);
-        else if (rainChance < 0.3) newRainValue = (1 + Math.random() * 9).toFixed(0);
-        else newRainValue = 0;
+        // --- MOCK FETCH SIMULATING REAL-TIME DATA STREAM from MongoDB API ---
+        const mockFetch = () => {
+             // Function to clamp values within a range
+             const clamp = (val, min, max) => Math.min(Math.max(val, min), max);
 
-        const newPressure = (980 + Math.random() * 60).toFixed(0);
-        const newWaterLevel = (20 + Math.random() * 75).toFixed(0);
-        const newSoilMoisture = (10 + Math.random() * 80).toFixed(0);
+             // Simulate small, continuous changes based on current state
+             const data = {
+                // Pressure: clamped between 990 and 1030
+                pressure: clamp(liveData.pressure + (Math.random() - 0.5) * 0.8, 990, 1030).toFixed(1), 
+                // Rain: clamped between 0 and 10 mm
+                rain: clamp(liveData.rain + (Math.random() - 0.5) * 0.4, 0, 10).toFixed(1),
+                // Water Level: clamped between 20% and 95%
+                waterLevel: clamp(liveData.waterLevel + (Math.random() - 0.5) * 1.0, 20, 95).toFixed(1),
+                // Soil: clamped between 20% and 90%
+                soil: clamp(liveData.soil + (Math.random() - 0.5) * 0.9, 20, 90).toFixed(1),
+            };
+            return Promise.resolve({
+                json: () => Promise.resolve(data),
+                ok: true
+            });
+        };
 
-        setLiveData({
-            pressure: parseFloat(newPressure),
-            rain: parseFloat(newRainValue),
-            waterLevel: parseFloat(newWaterLevel),
-            soil: parseFloat(newSoilMoisture),
-        });
-    };
+        try {
+            // !!! REPLACE mockFetch() with: await fetch(REAL_API_ENDPOINT); for live data !!!
+            const response = await mockFetch(); 
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const newData = await response.json();
+            
+            // Ensure data types are converted correctly from the JSON strings to numbers
+            setLiveData({
+                pressure: parseFloat(newData.pressure),
+                rain: parseFloat(newData.rain),
+                waterLevel: parseFloat(newData.waterLevel),
+                soil: parseFloat(newData.soil),
+            });
+            setFetchError(null); // Clear any previous errors
 
-    // Data Update Interval (Runs every 5 seconds)
+        } catch (error) {
+            console.error("Failed to fetch live sensor data:", error);
+            setFetchError(`Error connecting to online endpoint (${REAL_API_ENDPOINT}). Check console for details.`);
+        }
+    }, [isClient, mode, liveData.pressure, liveData.rain, liveData.waterLevel, liveData.soil]); 
+
+    // Data Update Interval (Runs every 1 second, matching the ESP upload frequency)
     useEffect(() => {
-        const interval = setInterval(updateMockData, 5000);
-        return () => clearInterval(interval); // Cleanup
-    }, [isClient, mode]);
+        // Set polling interval to 1000ms (1 second)
+        const interval = setInterval(fetchSensorData, 1000); 
+        return () => clearInterval(interval);
+    }, [fetchSensorData]); 
 
     // Effect to update the Gauge instances whenever liveData changes
+    // This is the CRITICAL block that updates the gauges based on the state change
     useEffect(() => {
         // Only attempt to set the gauges if they have been initialized AND scripts are ready AND on client AND in Auto mode
         if (mode === 'Auto' && isClient && scriptsLoaded && window.Gauge && gaugeInstances.current.rain) { 
             requestAnimationFrame(() => {
                 try {
+                    // Update the gauges with the new liveData values
                     if (gaugeInstances.current.rain) gaugeInstances.current.rain.set(liveData.rain);
                     if (gaugeInstances.current.pressure) gaugeInstances.current.pressure.set(liveData.pressure);
                     if (gaugeInstances.current.waterLevel) gaugeInstances.current.waterLevel.set(liveData.waterLevel);
@@ -447,6 +482,14 @@ const App = () => {
                 {/* Conditional Content based on Mode */}
                 {mode === 'Auto' && (
                     <>
+                        {/* Error Message Display */}
+                        {fetchError && (
+                            <div className="p-4 bg-red-800/50 text-red-300 rounded-xl border border-red-700 font-semibold flex items-center justify-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 mr-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                                {fetchError}
+                            </div>
+                        )}
+
                         {/* Status Grid Section (Dynamic Data) */}
                         <section className="grid grid-cols-2 lg:grid-cols-4 gap-6">
                             <article className="card p-5 bg-slate-800 rounded-xl shadow-2xl transition duration-300 hover:shadow-emerald-500/50 hover:scale-[1.02] border border-slate-700 hover:border-emerald-600/70">
@@ -459,14 +502,14 @@ const App = () => {
                             <article className="card p-5 bg-slate-800 rounded-xl shadow-2xl transition duration-300 hover:shadow-purple-500/50 hover:scale-[1.02] border border-slate-700 hover:border-purple-600/70">
                                 <GaugeIcon className="w-10 h-10 mb-3 text-purple-400 p-2 bg-purple-900/40 rounded-lg" />
                                 <h3 className="text-lg font-semibold mb-1 text-slate-300">Barometric Pressure</h3>
-                                <p className="text-3xl font-black mb-1 text-slate-50">{liveData.pressure} hPa</p>
+                                <p className="text-3xl font-black mb-1 text-slate-50">{liveData.pressure.toFixed(1)} hPa</p>
                                 <p className={`text-sm ${pressureStatus.className}`}>{pressureStatus.status}</p>
                             </article>
 
                             <article className="card p-5 bg-slate-800 rounded-xl shadow-2xl transition duration-300 hover:shadow-sky-500/50 hover:scale-[1.02] border border-slate-700 hover:border-sky-600/70">
                                 <DropletIcon className="w-10 h-10 mb-3 text-sky-400 p-2 bg-sky-900/40 rounded-lg" />
                                 <h3 className="text-lg font-semibold mb-1 text-slate-300">Water Level (Tank)</h3>
-                                <p className="text-3xl font-black mb-1 text-slate-50">{liveData.waterLevel}%</p>
+                                <p className="text-3xl font-black mb-1 text-slate-50">{liveData.waterLevel.toFixed(1)}%</p>
                                 <p className={`text-sm ${waterStatus.className}`}>{waterStatus.status}</p>
                             </article>
 
@@ -485,19 +528,19 @@ const App = () => {
                                 <div className="gauges-container">
                                     <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
                                         <canvas id="gaugeRain" ref={rainGaugeRef} className="max-w-full h-auto"></canvas>
-                                        <p className="mt-3 text-lg font-semibold text-slate-300">Rain: <span className="text-sky-400">{liveData.rain} mm/hr</span></p>
+                                        <p className="mt-3 text-lg font-semibold text-slate-300">Rain: <span className="text-sky-400">{liveData.rain.toFixed(1)} mm/hr</span></p>
                                     </div>
                                     <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
                                         <canvas id="gaugePressure" ref={pressureGaugeRef} className="max-w-full h-auto"></canvas>
-                                        <p className="mt-3 text-lg font-semibold text-slate-300">Pressure: <span className="text-purple-400">{liveData.pressure} hPa</span></p>
+                                        <p className="mt-3 text-lg font-semibold text-slate-300">Pressure: <span className="text-purple-400">{liveData.pressure.toFixed(1)} hPa</span></p>
                                     </div>
                                     <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
                                         <canvas id="gaugeWaterLevel" ref={waterLevelGaugeRef} className="max-w-full h-auto"></canvas>
-                                        <p className="mt-3 text-lg font-semibold text-slate-300">Water Level: <span className="text-sky-400">{liveData.waterLevel}%</span></p>
+                                        <p className="mt-3 text-lg font-semibold text-slate-300">Water Level: <span className="text-sky-400">{liveData.waterLevel.toFixed(1)}%</span></p>
                                     </div>
                                     <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
                                         <canvas id="gaugeSoil" ref={soilGaugeRef} className="max-w-full h-auto"></canvas>
-                                        <p className="mt-3 text-lg font-semibold text-slate-300">Soil Moisture: <span className="text-orange-400">{liveData.soil}%</span></p>
+                                        <p className="mt-3 text-lg font-semibold text-slate-300">Soil Moisture: <span className="text-orange-400">{liveData.soil.toFixed(1)}%</span></p>
                                     </div>
                                 </div>
                             </article>
