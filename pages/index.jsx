@@ -7,7 +7,16 @@ const App = () => {
         rain: 5, // mm/hr
         waterLevel: 75, // %
         soil: 55, // %
-        currentTime: "Monday, November 24, 2025, 02:40 PM"
+        currentTime: "Monday, November 24, 2025, 02:40 PM",
+        history: [
+            { day: 'Sun', rain: 0, pressure: 1018, level: 70, soil: 68 },
+            { day: 'Mon', rain: 1, pressure: 1012, level: 65, soil: 60 },
+            { day: 'Tue', rain: 0, pressure: 1008, level: 68, soil: 55 },
+            { day: 'Wed', rain: 20, pressure: 1015, level: 70, soil: 65 },
+            { day: 'Thu', rain: 5, pressure: 1010, level: 62, soil: 70 },
+            { day: 'Fri', rain: 0, pressure: 995, level: 75, soil: 80 },
+            { day: 'Sat', rain: 0, pressure: 1000, level: 80, soil: 75 },
+        ]
     };
 
     // Helper functions removed, replaced with hardcoded status and classes
@@ -125,10 +134,30 @@ const App = () => {
                     </article>
 
                     <article className="card p-6 bg-gray-800 rounded-xl shadow-2xl">
-                        <h3 className="text-2xl font-bold mb-4 text-gray-200">7-Day Historical Trends Placeholder</h3>
-                        <div className="chart-container">
-                            {/* Static Canvas element for Chart */}
-                            <canvas id="historyChart" className="bg-gray-700 rounded-lg"></canvas>
+                        <h3 className="text-2xl font-bold mb-4 text-gray-200">7-Day Historical Trends (Data Table)</h3>
+                        <div className="overflow-x-auto">
+                            <table className="min-w-full divide-y divide-gray-700 rounded-lg overflow-hidden">
+                                <thead className="bg-gray-700">
+                                    <tr>
+                                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Day</th>
+                                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Rain (mm)</th>
+                                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Pressure (hPa)</th>
+                                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Water Level (%)</th>
+                                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Soil Moisture (%)</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-700 bg-gray-800">
+                                    {hardcodedData.history.map((dayData, index) => (
+                                        <tr key={index} className="hover:bg-gray-700 transition duration-150">
+                                            <td className="px-4 py-2 whitespace-nowrap text-sm font-medium text-gray-300">{dayData.day}</td>
+                                            <td className={`px-4 py-2 whitespace-nowrap text-sm ${dayData.rain > 15 ? 'text-red-400 font-bold' : dayData.rain > 0 ? 'text-yellow-400' : 'text-emerald-400'}`}>{dayData.rain}</td>
+                                            <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-300">{dayData.pressure}</td>
+                                            <td className={`px-4 py-2 whitespace-nowrap text-sm ${dayData.level < 30 ? 'text-red-400 font-bold' : 'text-gray-300'}`}>{dayData.level}</td>
+                                            <td className={`px-4 py-2 whitespace-nowrap text-sm ${dayData.soil < 30 ? 'text-red-400 font-bold' : 'text-gray-300'}`}>{dayData.soil}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
                         </div>
                     </article>
                 </section>
