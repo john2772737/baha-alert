@@ -1,40 +1,40 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 
 // The main application component for testing the API endpoint
 const App = () => {
-    // State variables to hold the fetched data, loading status, and any errors
+    // State variables
     const [latestData, setLatestData] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
-    // New state to manage the visual flash when new data arrives
     const [newDataAvailable, setNewDataAvailable] = useState(false);
+    
+    // useRef to hold the ID of the last successfully fetched document.
+    // This stabilizes the fetch function's dependencies.
+    const lastIdRef = useRef(null); 
     
     // The API endpoint URL to test
     const API_URL = 'https://baha-alert.vercel.app/api';
     
-    // Define a short-lived key to reset the new data state, triggering the flash effect
+    // Define timing constants
     const NEW_DATA_FLASH_DURATION = 500; // ms
-    // Define the new fetch interval in milliseconds
-    const FETCH_INTERVAL_MS = 5000;
+    const FETCH_INTERVAL_MS = 5000; // 5 seconds
 
+    // fetchLatestData is now stable because it has no external dependencies (only API_URL)
     const fetchLatestData = useCallback(async () => {
         // Only set loading state on the first run, not subsequent interval updates
-        if (!latestData) setLoading(true); 
+        if (!lastIdRef.current) setLoading(true); 
         setError(null);
         
-        console.log(`--- Starting GET request to ${API_URL} ---`);
+        console.log(`[${new Date().toLocaleTimeString()}] --- Starting GET request (Interval: ${FETCH_INTERVAL_MS / 1000}s) ---`);
 
         try {
-            // 1. Make the GET request
             const response = await fetch(API_URL);
 
-            // 2. Check for non-OK HTTP status
             if (!response.ok) {
                 const errorDetails = await response.json().catch(() => ({}));
                 throw new Error(`HTTP error! Status: ${response.status}. Message: ${errorDetails.message || 'Unknown server error.'}`);
             }
 
-            // 3. Parse the JSON body
             const result = await response.json();
 
             // 4. Log the successful result to the console (as requested)
@@ -43,17 +43,19 @@ const App = () => {
 
             // 5. Update state
             if (result.success && result.data) {
+                const newRecordId = result.data._id;
                 // IMPORTANT: Check if the fetched document is actually NEW (different ID)
-                const isNewRecord = !latestData || (latestData._id !== result.data._id);
+                const isNewRecord = lastIdRef.current !== newRecordId;
                 
                 if (isNewRecord) {
-                    // Only trigger the visual flash if the record is distinct
+                    // Update the reference with the new ID
+                    lastIdRef.current = newRecordId;
+                    
+                    // Trigger the visual flash
                     setNewDataAvailable(true);
-                    // Use a timeout to turn the flash off after the defined duration
                     setTimeout(() => setNewDataAvailable(false), NEW_DATA_FLASH_DURATION);
                 }
                 
-                // Always update the data, even if the ID is the same (to refresh the time display)
                 setLatestData(result.data);
 
             } else {
@@ -62,26 +64,24 @@ const App = () => {
             }
 
         } catch (err) {
-            // 6. Log the error to the console
             console.error('❌ API Test Failed:', err.message);
-            // 7. Update error state
             setError(err.message);
         } finally {
-            // 8. Always set loading to false when the request completes
             setLoading(false);
             console.log('--- GET Request Finished ---');
         }
-    }, [API_URL, latestData]); // latestData is needed here to compare the new data's ID against the current data's ID
+    }, [API_URL]); // Dependencies are now minimal and stable
 
     // useEffect to run the fetch function continuously every 5 seconds
     useEffect(() => {
         // Run once immediately on mount
         fetchLatestData();
 
-        // Set up the interval for fetching every 5000 milliseconds (5 seconds)
+        // Set up the stable interval for fetching every 5000 milliseconds (5 seconds)
         const intervalId = setInterval(fetchLatestData, FETCH_INTERVAL_MS);
 
         // Cleanup function: Clear the interval when the component unmounts
+        // This runs only once when the component is removed, guaranteeing the interval stability.
         return () => clearInterval(intervalId);
     }, [fetchLatestData]); 
 
@@ -155,7 +155,7 @@ const App = () => {
                     Continuously fetching the **latest** document every 5 seconds from: <code className="bg-indigo-100 text-indigo-800 px-1 py-0.5 rounded text-sm">{API_URL}</code>
                 </p>
                 <p className="text-sm font-semibold text-red-600 mb-6">
-                    Watch the console (F12) for detailed logs of every request. The data box will **flash green** only when a *new* document is recorded.
+                    Watch the console (F12) for detailed logs of every request, which will now accurately appear every 5 seconds. The data box will **flash green** only when a *new* document is recorded.
                 </p>
 
                 <div id="data-display">
