@@ -118,9 +118,11 @@ const App = () => {
     };
     
     const getSoilStatus = (percent) => {
-        if (percent < 30) return { reading: 'Dry', status: 'STATUS: Low Moisture', className: 'text-red-400 font-bold' };
+        // Adjusted thresholds to catch 911 (approx 11%) as Damp/Low instead of Dry
+        if (percent < 10) return { reading: 'Dry', status: 'STATUS: Low Moisture', className: 'text-red-400 font-bold' };
+        if (percent >= 10 && percent < 30) return { reading: 'Low', status: 'STATUS: Slightly Damp', className: 'text-yellow-400 font-bold' };
         if (percent >= 30 && percent < 80) return { reading: 'Moist', status: 'STATUS: Normal', className: 'text-emerald-400 font-bold' };
-        return { reading: 'Saturated', status: 'STATUS: High Moisture', className: 'text-yellow-400 font-bold' };
+        return { reading: 'Saturated', status: 'STATUS: High Moisture', className: 'text-emerald-400 font-bold' }; // changed color to emerald for high moisture (usually good for weather monitoring context)
     };
     
     const getWaterTankStatus = (percent, distance) => {
