@@ -228,19 +228,64 @@ const App = () => {
                 data: {
                     labels: labels,
                     datasets: [
-                        { label: 'Rain Wetness (%)', data: rainData, borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.1)', fill: true, tension: 0.3, yAxisID: 'yPercent' },
-                        { label: 'Soil Moisture (%)', data: soilData, borderColor: '#84cc16', backgroundColor: 'rgba(132, 204, 22, 0.1)', fill: false, tension: 0.3, yAxisID: 'yPercent' },
-                        { label: 'Pressure (hPa)', data: pressureData, borderColor: '#a855f7', backgroundColor: 'transparent', fill: false, tension: 0.3, yAxisID: 'yPressure' }
+                        { 
+                            label: 'Rain Wetness (%)', 
+                            data: rainData, 
+                            borderColor: '#3b82f6', 
+                            backgroundColor: 'rgba(59, 130, 246, 0.1)', 
+                            fill: true, 
+                            tension: 0.3, 
+                            yAxisID: 'yPercent',
+                            pointRadius: 5,
+                            pointHoverRadius: 7
+                        },
+                        { 
+                            label: 'Soil Moisture (%)', 
+                            data: soilData, 
+                            borderColor: '#84cc16', 
+                            backgroundColor: 'rgba(132, 204, 22, 0.1)', 
+                            fill: false, 
+                            tension: 0.3, 
+                            yAxisID: 'yPercent',
+                            pointRadius: 5,
+                            pointHoverRadius: 7
+                        },
+                        { 
+                            label: 'Pressure (hPa)', 
+                            data: pressureData, 
+                            borderColor: '#a855f7', 
+                            backgroundColor: 'transparent', 
+                            fill: false, 
+                            tension: 0.3, 
+                            yAxisID: 'yPressure',
+                            pointRadius: 5,
+                            pointHoverRadius: 7
+                        }
                     ]
                 },
                 options: {
                     responsive: true, maintainAspectRatio: false,
+                    // Combine all data points for a specific index (day) into one tooltip
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
                     scales: {
                         x: { grid: { color: '#374151' }, ticks: { color: chartTextColor } },
                         yPercent: { type: 'linear', position: 'left', min: 0, max: 100, ticks: { callback: v => v + '%', color: chartTextColor } },
                         yPressure: { type: 'linear', position: 'right', min: 950, max: 1050, grid: { display: false }, ticks: { callback: v => v + ' hPa', color: chartTextColor } }
                     },
-                    plugins: { legend: { labels: { color: chartTextColor } } }
+                    plugins: { 
+                        legend: { labels: { color: chartTextColor } },
+                        tooltip: {
+                             backgroundColor: 'rgba(17, 24, 39, 0.95)', 
+                             titleColor: '#10b981',
+                             bodyColor: '#f3f4f6',
+                             borderColor: '#374151',
+                             borderWidth: 1,
+                             padding: 10
+                        }
+                    }
                 }
             });
             isDashboardInitializedRef.current = true;
