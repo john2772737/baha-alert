@@ -318,7 +318,8 @@ const App = () => {
             const payload = result.data.payload;
             const newId = result.data._id;
 
-            if (lastIdRef.current !== newId) {
+            // Only log if data is new or mode changes
+            if (lastIdRef.current !== newId || liveData.deviceMode !== payload.mode) {
                 lastIdRef.current = newId;
                 console.log("New Data:", payload);
             }
@@ -336,7 +337,7 @@ const App = () => {
             console.error("Fetch error:", error);
             setFetchError(`Connection Error`);
         }
-    }, [isClient, mode]);
+    }, [isClient, mode, liveData.deviceMode]);
 
     // === Data Fetching: History ===
     const fetchHistoryData = useCallback(async () => {
@@ -434,6 +435,9 @@ const App = () => {
     const RefreshCcwIcon = (p) => (<svg {...p} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 18A8 8 0 1 0 7 19l-4-4"></path><path d="M4 13v-2"></path><path d="M17 19h-2l-4-4"></path></svg>);
     const BoxIcon = (p) => (<svg {...p} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><path d="M3.27 6.3L12 11.5l8.73-5.2"></path><path d="M12 22.78V11.5"></path></svg>);
     const CpuIcon = (p) => (<svg {...p} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect><rect x="9" y="9" width="6" height="6"></rect><line x1="9" y1="1" x2="9" y2="4"></line><line x1="15" y1="1" x2="15" y2="4"></line><line x1="9" y1="20" x2="9" y2="23"></line><line x1="15" y1="20" x2="15" y2="23"></line><line x1="20" y1="9" x2="23" y2="9"></line><line x1="20" y1="14" x2="23" y2="14"></line><line x1="1" y1="9" x2="4" y2="9"></line><line x1="1" y1="14" x2="4" y2="14"></line></svg>);
+    // Icon for SLEEP mode
+    const MoonIcon = (p) => (<svg {...p} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path></svg>);
+
 
     if (!isClient || !scriptsLoaded) return <div className="flex justify-center items-center h-screen bg-slate-900 text-emerald-400 font-inter"><RefreshCcwIcon className="animate-spin w-8 h-8 mr-2" /> Initializing...</div>;
 
@@ -449,10 +453,11 @@ const App = () => {
             <header className="mb-8 p-5 bg-slate-800 rounded-3xl shadow-lg border-b-4 border-emerald-500/50 flex flex-col md:flex-row justify-between items-center">
                 <div className="flex flex-col">
                     <h1 className="text-3xl font-extrabold text-emerald-400 mb-2 md:mb-0">Smart Weather Station</h1>
-                    {/* Device Mode Display */}
-                    <div className="flex items-center text-xs text-slate-400 mt-1">
-                        <CpuIcon className="w-3 h-3 mr-1" />
-                        DEVICE MODE: <span className="text-emerald-300 ml-1 font-mono">{liveData.deviceMode}</span>
+                    
+                    {/* DEVICE MODE DISPLAY - Always visible regardless of UI mode */}
+                    <div className="flex items-center text-xs text-slate-400 mt-1 bg-slate-900 px-2 py-1 rounded-md border border-slate-700 w-fit">
+                        <CpuIcon className="w-3 h-3 mr-1 text-yellow-400" />
+                        DEVICE MODE: <span className="text-emerald-300 ml-1 font-mono font-bold">{liveData.deviceMode}</span>
                     </div>
                 </div>
                 <div className="flex items-center text-slate-400 bg-slate-900 px-4 py-2 rounded-xl border border-slate-700 mt-4 md:mt-0">
@@ -462,6 +467,7 @@ const App = () => {
             </header>
 
             <main className="space-y-8">
+                {/* UI Mode Selector */}
                 <div className="flex bg-slate-800 p-1.5 rounded-xl border border-slate-700">
                     {modes.map(m => (
                         <button key={m} onClick={() => setMode(m)} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${mode === m ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-700'}`}>{m}</button>
@@ -541,11 +547,33 @@ const App = () => {
                     </>
                 )}
 
+                {/* Displays actual device mode when UI is not on 'Auto' */}
                 {mode !== 'Auto' && (
                     <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center">
-                        <RefreshCcwIcon className={`w-12 h-12 mb-4 ${mode === 'Maintenance' ? 'text-yellow-400 animate-spin' : 'text-slate-600'}`} />
-                        <h3 className="text-2xl font-bold text-slate-200 mb-2">{mode} Mode Active</h3>
-                        <p className="text-slate-400 max-w-md">System monitoring is paused. Switch to Auto to resume.</p>
+                        {/* Icon based on actual device mode */}
+                        {liveData.deviceMode === 'SLEEP' ? (
+                            <MoonIcon className="w-12 h-12 mb-4 text-indigo-400" />
+                        ) : liveData.deviceMode === 'MAINTENANCE' ? (
+                            <RefreshCcwIcon className="w-12 h-12 mb-4 text-yellow-400 animate-spin" />
+                        ) : (
+                            <CpuIcon className="w-12 h-12 mb-4 text-slate-500" />
+                        )}
+                        
+                        {/* Title based on actual device mode */}
+                        <h3 className="text-2xl font-bold text-slate-200 mb-2">Device Status: {liveData.deviceMode}</h3>
+                        
+                        {/* Description based on actual device mode */}
+                        <p className="text-slate-400 max-w-md">
+                            {liveData.deviceMode === 'SLEEP' 
+                                ? "The sensor board is in deep sleep to conserve power. Monitoring will resume upon wake-up or button press."
+                                : liveData.deviceMode === 'MAINTENANCE'
+                                ? "The sensor board is running diagnostics/calibration. Data is being logged locally but not uploaded to the cloud."
+                                : "The system is currently running in AUTO mode, but the dashboard is hidden. Switch UI mode to Auto to view live data."
+                            }
+                        </p>
+                        <button onClick={() => setMode('Auto')} className="mt-6 px-6 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg shadow-md transition-colors">
+                            View Auto Dashboard
+                        </button>
                     </div>
                 )}
             </main>
