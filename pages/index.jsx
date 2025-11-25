@@ -248,31 +248,50 @@ const App = () => {
         let pressureData = [];
         let soilData = [];
         let waterData = [];
+        // Arrays to hold original RAW values for tooltips
+        let rawRainValues = [];
+        let rawPressureValues = [];
+        let rawWaterValues = [];
 
         if (historyData && historyData.length > 0) {
-            // 🌟 UPDATE CHART: Processing 7-Day Average Data
             labels = historyData.map(item => {
-                // item._id is the date string (YYYY-MM-DD) from the API aggregation
                 const date = new Date(item._id);
                 return date.toLocaleDateString('en-US', { weekday: 'short' });
             });
-            rainData = historyData.map(item => item.avgRain || 0);
-            pressureData = historyData.map(item => item.avgPressure || 0);
-            // Convert raw soil average to percentage
+
+            // 🌟 NORMALIZE DATA FOR UNIFIED GRAPH (0-100 Scale)
+            
+            // Rain: Raw 0-1023. Display relative "wetness" or just raw scaled. 
+            // Using raw scaled: (val / 1023 * 100)
+            rainData = historyData.map(item => {
+                rawRainValues.push(item.avgRain || 0);
+                return ((item.avgRain || 0) / 1023.0) * 100;
+            });
+
+            // Pressure: 950-1050. Normalize: (val - 950) to fit 0-100 range approx
+            pressureData = historyData.map(item => {
+                rawPressureValues.push(item.avgPressure || 0);
+                return (item.avgPressure - 950) > 0 ? (item.avgPressure - 950) : 0;
+            });
+
+            // Soil: Already % derived from raw.
             soilData = historyData.map(item => Math.round(100 - ((item.avgSoil || 0) / 1023.0 * 100)));
-            // 🌟 NEW: Process Water Distance
-            waterData = historyData.map(item => item.avgWaterDistance || 0);
+
+            // Water: 0-50cm. Fullness %.
+            waterData = historyData.map(item => {
+                rawWaterValues.push(item.avgWaterDistance || 0);
+                const percent = 100.0 - ((item.avgWaterDistance || 0) / 50.0) * 100.0;
+                return Math.min(100, Math.max(0, percent));
+            });
+
         } else {
-            // Placeholder if data is empty
             labels = ['No Data'];
         }
 
-        // Destroy previous chart instance to prevent layering
         if (chartInstance.current) {
             chartInstance.current.destroy();
         }
 
-        // Create New Chart
         const ctx = historyChartRef.current.getContext('2d');
         const chartTextColor = '#e2e8f0';
 
@@ -281,28 +300,76 @@ const App = () => {
             data: {
                 labels: labels,
                 datasets: [
-                    { label: 'Avg Rain (Raw)', data: rainData, borderColor: 'rgba(59, 130, 246, 1)', backgroundColor: 'rgba(59, 130, 246, 0.1)', tension: 0.3, yAxisID: 'yRain' },
-                    { label: 'Avg Pressure (hPa)', data: pressureData, borderColor: 'rgba(168, 85, 247, 1)', backgroundColor: 'rgba(168, 85, 247, 0.1)', tension: 0.3, yAxisID: 'yPressure' },
-                    { label: 'Avg Soil Moisture (%)', data: soilData, borderColor: 'rgba(132, 204, 22, 1)', backgroundColor: 'rgba(132, 204, 22, 0.1)', fill: true, tension: 0.3, yAxisID: 'yLevel' },
-                    // 🌟 NEW DATASET: Water Level
-                    { label: 'Avg Water Level (cm)', data: waterData, borderColor: 'rgba(6, 182, 212, 1)', backgroundColor: 'rgba(6, 182, 212, 0.1)', tension: 0.3, yAxisID: 'yWater' }
+                    // 🌟 Unified Scale Datasets (All Normalized 0-100)
+                    { 
+                        label: 'Rain', 
+                        data: rainData, 
+                        borderColor: 'rgba(59, 130, 246, 1)', backgroundColor: 'rgba(59, 130, 246, 0.1)', 
+                        tension: 0.3, pointRadius: 5, // 🌟 Points visible
+                        rawValues: rawRainValues // Custom prop for tooltip
+                    },
+                    { 
+                        label: 'Pressure', 
+                        data: pressureData, 
+                        borderColor: 'rgba(168, 85, 247, 1)', backgroundColor: 'rgba(168, 85, 247, 0.1)', 
+                        tension: 0.3, pointRadius: 5,
+                        rawValues: rawPressureValues
+                    },
+                    { 
+                        label: 'Soil Moist.', 
+                        data: soilData, 
+                        borderColor: 'rgba(132, 204, 22, 1)', backgroundColor: 'rgba(132, 204, 22, 0.1)', 
+                        fill: true, tension: 0.3, pointRadius: 5 
+                    },
+                    { 
+                        label: 'Water Lvl', 
+                        data: waterData, 
+                        borderColor: 'rgba(6, 182, 212, 1)', backgroundColor: 'rgba(6, 182, 212, 0.1)', 
+                        tension: 0.3, pointRadius: 5,
+                        rawValues: rawWaterValues
+                    }
                 ]
             },
             options: {
                 responsive: true, maintainAspectRatio: false,
                 scales: {
                     x: { grid: { color: 'rgba(75, 85, 99, 0.3)' }, ticks: { color: chartTextColor } },
-                    yRain: { type: 'linear', position: 'left', beginAtZero: true, title: {display:true, text:'Rain (Raw)', color: chartTextColor}, grid: { color: 'rgba(75, 85, 99, 0.3)' }, ticks: { color: chartTextColor } },
-                    yPressure: { type: 'linear', position: 'right', min: 950, max: 1050, grid: { display: false }, ticks: { color: chartTextColor } },
-                    yLevel: { type: 'linear', position: 'left', min: 0, max: 100, grid: { display: false }, ticks: { callback: (v) => v + '%', color: chartTextColor } },
-                    // 🌟 NEW SCALE: yWater
-                    yWater: { type: 'linear', position: 'right', min: 0, suggestedMax: 50, grid: { display: false }, ticks: { callback: (v) => v + ' cm', color: chartTextColor } }
+                    // 🌟 SINGLE UNIFIED Y-AXIS
+                    y: { 
+                        type: 'linear', position: 'left', min: 0, max: 100, 
+                        grid: { color: 'rgba(75, 85, 99, 0.3)' }, 
+                        ticks: { color: chartTextColor, callback: (v) => v + '%' },
+                        title: { display: true, text: 'Normalized Scale (%)', color: chartTextColor }
+                    }
                 },
-                plugins: { legend: { labels: { color: chartTextColor } } }
+                plugins: { 
+                    legend: { labels: { color: chartTextColor } },
+                    tooltip: {
+                        callbacks: {
+                            // 🌟 CUSTOM TOOLTIP: Show original values
+                            label: function(context) {
+                                const label = context.dataset.label || '';
+                                const rawValArray = context.dataset.rawValues;
+                                let val = context.raw; // Normalized value by default
+
+                                if (label === 'Pressure' && rawValArray) {
+                                    return `${label}: ${rawValArray[context.dataIndex].toFixed(1)} hPa`;
+                                }
+                                if (label === 'Rain' && rawValArray) {
+                                    return `${label}: ${rawValArray[context.dataIndex]} (Raw)`;
+                                }
+                                if (label === 'Water Lvl' && rawValArray) {
+                                    return `${label}: ${rawValArray[context.dataIndex].toFixed(1)} cm`;
+                                }
+                                return `${label}: ${Math.round(val)}%`;
+                            }
+                        }
+                    }
+                }
             }
         });
 
-    }, [isClient, scriptsLoaded, mode, historyData]); // 🌟 Dependency includes historyData
+    }, [isClient, scriptsLoaded, mode, historyData]); 
 
 
     // --- ICONS ---
@@ -377,6 +444,13 @@ const App = () => {
                         
                         <section className="grid grid-cols-1 gap-8 md:grid-cols-1">
                             <article className="card p-6 bg-slate-800 rounded-3xl shadow-2xl border border-slate-700">
+                                <h3 className="text-2xl font-bold mb-6 text-slate-200 border-b border-slate-700 pb-2">7-Day Historical Trends (Chart)</h3>
+                                <div className="chart-container">
+                                    <canvas id="historyChart" ref={historyChartRef}></canvas>
+                                </div>
+                            </article>
+
+                            <article className="card p-6 bg-slate-800 rounded-3xl shadow-2xl border border-slate-700">
                                 <h3 className="text-2xl font-bold mb-6 text-slate-200 border-b border-slate-700 pb-2">Live Sensor Readings (Gauges)</h3>
                                 <div className="gauges-container">
                                     <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
@@ -407,13 +481,6 @@ const App = () => {
                                             <span className="text-xl text-orange-400 font-bold">{liveData.soilRaw}</span>
                                         </p>
                                     </div>
-                                </div>
-                            </article>
-
-                            <article className="card p-6 bg-slate-800 rounded-3xl shadow-2xl border border-slate-700">
-                                <h3 className="text-2xl font-bold mb-6 text-slate-200 border-b border-slate-700 pb-2">7-Day Historical Trends (Chart)</h3>
-                                <div className="chart-container">
-                                    <canvas id="historyChart" ref={historyChartRef}></canvas>
                                 </div>
                             </article>
                         </section>
