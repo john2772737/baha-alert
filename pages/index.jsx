@@ -234,10 +234,10 @@ const App = () => {
                             borderColor: '#3b82f6', 
                             backgroundColor: 'rgba(59, 130, 246, 0.1)', 
                             fill: true, 
-                            tension: 0.3, 
+                            tension: 0.4, // Increased tension for curve
                             yAxisID: 'yPercent',
-                            pointRadius: 5,
-                            pointHoverRadius: 7
+                            pointRadius: 6, // Increased radius for visibility
+                            pointHoverRadius: 8
                         },
                         { 
                             label: 'Soil Moisture (%)', 
@@ -245,10 +245,10 @@ const App = () => {
                             borderColor: '#84cc16', 
                             backgroundColor: 'rgba(132, 204, 22, 0.1)', 
                             fill: false, 
-                            tension: 0.3, 
+                            tension: 0.4, // Increased tension for curve
                             yAxisID: 'yPercent',
-                            pointRadius: 5,
-                            pointHoverRadius: 7
+                            pointRadius: 6, // Increased radius for visibility
+                            pointHoverRadius: 8
                         },
                         { 
                             label: 'Pressure (hPa)', 
@@ -256,10 +256,10 @@ const App = () => {
                             borderColor: '#a855f7', 
                             backgroundColor: 'transparent', 
                             fill: false, 
-                            tension: 0.3, 
+                            tension: 0.4, // Increased tension for curve
                             yAxisID: 'yPressure',
-                            pointRadius: 5,
-                            pointHoverRadius: 7
+                            pointRadius: 6, // Increased radius for visibility
+                            pointHoverRadius: 8
                         }
                     ]
                 },
