@@ -1,111 +1,62 @@
 import dbConnect from '../lib/dbConnect';
-import Alert from '../models/Alert'; // Ensure this model is correctly defined
+import Alert from '../models/Alert';
 
 export default async function handler(req, res) {
-  // 1. Connect to the database for all operations
   await dbConnect();
 
-  // --- 💾 Handle POST Request (SAVE to DB) ---
+  // --- 💾 POST: Save Data ---
   if (req.method === 'POST') {
-    if (!req.body) {
-      return res.status(400).json({ success: false, message: 'No data payload provided.' });
-    }
+    if (!req.body) return res.status(400).json({ success: false, message: 'No data payload.' });
 
     try {
-      const newAlert = await Alert.create({
-        payload: req.body,
-      });
-
-      return res.status(201).json({
-        success: true,
-        message: 'Data logged successfully.',
-        documentId: newAlert._id,
-      });
-
+      const newAlert = await Alert.create({ payload: req.body });
+      return res.status(201).json({ success: true, message: 'Logged.', documentId: newAlert._id });
     } catch (error) {
-      console.error('Database save failed:', error);
-
-      return res.status(500).json({
-        success: false,
-        message: 'Internal Server Error while logging data.',
-        error: error.message
-      });
+      return res.status(500).json({ success: false, error: error.message });
     }
 
-  // --- 🔍 Handle GET Request (FETCH ONLY THE LATEST or AGGREGATE AVERAGE) ---
+  // --- 🔍 GET: Fetch Data ---
   } else if (req.method === 'GET') {
     try {
-        // Check for a specific query parameter to request aggregation
-        if (req.query.aggregate === 'true') {
+        // 1. 📅 HISTORY MODE: Get 7-Day Daily Averages
+        if (req.query.history === 'true') {
+            const sevenDaysAgo = new Date();
+            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-            // IMPORTANT: Adjust '$payload.temperature' and '$payload.humidity'
-            // to match the actual paths of the numerical fields you want to average
-            const averageData = await Alert.aggregate([
+            const historyData = await Alert.aggregate([
+                { 
+                    // Filter for documents from the last 7 days
+                    $match: { createdAt: { $gte: sevenDaysAgo } } 
+                },
                 {
-                    // 1. Group all documents into a single group
+                    // Group by Date (YYYY-MM-DD)
                     $group: {
-                        _id: null, 
-                        // Example Averages:
-                        avgTemperature: { $avg: '$payload.temperature' },
-                        avgHumidity: { $avg: '$payload.humidity' },
-                        // Add more fields to average here...
+                        _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
+                        avgPressure: { $avg: "$payload.pressure" },
+                        // Note: Ensure these match your DB payload keys (rain, soil, etc.)
+                        avgRain: { $avg: "$payload.rain" }, 
+                        avgSoil: { $avg: "$payload.soil" },
+                        avgWaterDistance: { $avg: "$payload.waterDistanceCM" }
                     }
                 },
-                // 2. Remove the _id field and select only the necessary fields
-                {
-                    $project: {
-                        _id: 0,
-                        avgTemperature: 1,
-                        avgHumidity: 1,
-                    }
-                }
+                { $sort: { _id: 1 } } // Sort by date ascending (Oldest to Newest)
             ]);
 
-            // MongoDB aggregation returns an array
-            if (averageData.length === 0) {
-                 return res.status(404).json({ success: false, message: 'No data found to aggregate.' });
-            }
-
-            return res.status(200).json({
-                success: true,
-                type: 'aggregate',
-                data: averageData[0] // Return the single result object
-            });
-
-        } else {
-            // --- Default GET Logic: Fetch Only the Latest Alert ---
-            const latestAlert = await Alert.findOne({})
-                // Sort by creation date in descending order (-1) to get the newest
-                .sort({ createdAt: -1 }) 
-                .exec();
-
-            // Check if a document was actually found
-            if (!latestAlert) {
-                return res.status(404).json({ success: false, message: 'No data found.' });
-            }
-
-            // Return the single latest document
-            return res.status(200).json({
-                success: true,
-                type: 'latest',
-                data: latestAlert
-            });
+            return res.status(200).json({ success: true, data: historyData });
+        }
+        
+       
+        else {
+            const latestAlert = await Alert.findOne({}).sort({ createdAt: -1 }).exec();
+            if (!latestAlert) return res.status(404).json({ success: false, message: 'No data found.' });
+            return res.status(200).json({ success: true, data: latestAlert });
         }
 
     } catch (error) {
-      console.error('Database fetch/aggregation failed:', error);
-
-      // Return a 500 status on database error
-      return res.status(500).json({
-        success: false,
-        message: 'Internal Server Error while fetching data.',
-        error: error.message
-      });
+      console.error('Database Error:', error);
+      return res.status(500).json({ success: false, error: error.message });
     }
-
-  // --- ❌ Handle Other Methods (e.g., PUT, DELETE) ---
   } else {
-    // If the request method is not POST or GET, return 405 Method Not Allowed
     return res.status(405).json({ success: false, message: 'Method not allowed.' });
   }
 }
