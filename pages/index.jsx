@@ -57,6 +57,7 @@ const App = () => {
     const modes = ['Auto', 'Maintenance', 'Sleep'];
 
     const [liveData, setLiveData] = useState(initialSensorData);
+    const [historyData, setHistoryData] = useState([]); // State for graph data
     const [currentTime, setCurrentTime] = useState('Loading...');
     
     // Refs
@@ -118,15 +119,13 @@ const App = () => {
     };
     
     const getSoilStatus = (percent) => {
-        // Adjusted thresholds to catch 911 (approx 11%) as Damp/Low instead of Dry
         if (percent < 10) return { reading: 'Dry', status: 'STATUS: Low Moisture', className: 'text-red-400 font-bold' };
         if (percent >= 10 && percent < 30) return { reading: 'Low', status: 'STATUS: Slightly Damp', className: 'text-yellow-400 font-bold' };
         if (percent >= 30 && percent < 80) return { reading: 'Moist', status: 'STATUS: Normal', className: 'text-emerald-400 font-bold' };
-        return { reading: 'Saturated', status: 'STATUS: High Moisture', className: 'text-emerald-400 font-bold' }; // changed color to emerald for high moisture (usually good for weather monitoring context)
+        return { reading: 'Saturated', status: 'STATUS: High Moisture', className: 'text-emerald-400 font-bold' };
     };
     
     const getWaterTankStatus = (percent, distance) => {
-        // Specific check for Error code (999 or very high distance)
         if (distance >= 400) {
             return { reading: 'Error', status: 'SENSOR ERROR', className: 'text-red-500 font-black animate-pulse' };
         }
@@ -144,21 +143,9 @@ const App = () => {
     
     const rainStatus = useMemo(() => getRainStatus(rainPercent), [rainPercent]);
     const soilStatus = useMemo(() => getSoilStatus(soilPercent), [soilPercent]);
-    // Pass raw distance to status function for error checking
     const waterTankStatus = useMemo(() => getWaterTankStatus(waterPercent, liveData.waterDistanceCM), [waterPercent, liveData.waterDistanceCM]);
     const pressureStatus = useMemo(() => getPressureStatus(liveData.pressure), [liveData.pressure]);
 
-    // Hardcoded History
-    const hardcodedHistory = [
-        { day: 'Sun', rain: 0, pressure: 1018, soil: 68 },
-        { day: 'Mon', rain: 10, pressure: 1012, soil: 60 },
-        { day: 'Tue', rain: 0, pressure: 1008, soil: 55 },
-        { day: 'Wed', rain: 45, pressure: 1015, soil: 65 },
-        { day: 'Thu', rain: 15, pressure: 1010, soil: 70 },
-        { day: 'Fri', rain: 0, pressure: 995, soil: 80 },
-        { day: 'Sat', rain: 0, pressure: 1000, soil: 75 },
-    ];
-    
     // === Dashboard Initialization ===
     const initializeDashboard = useCallback(() => {
         if (!isClient || !scriptsLoaded || typeof window.Gauge === 'undefined' || typeof window.Chart === 'undefined') return;
@@ -180,7 +167,7 @@ const App = () => {
             pointer: { length: 0.6, strokeWidth: 0.045, color: '#f3f4f6' }, 
             staticLabels: { font: "12px sans-serif", labels: [], color: '#9ca3af' },
             staticZones: [],
-            limitMax: true, limitMin: true, highDpiSupport: true, // limitMax true for percentages
+            limitMax: true, limitMin: true, highDpiSupport: true,
             strokeColor: '#374151',
             generateGradient: true,
         };
@@ -226,17 +213,24 @@ const App = () => {
             [{strokeStyle: "#ef4444", min: 0, max: 30}, {strokeStyle: "#10b981", min: 30, max: 70}, {strokeStyle: "#f59e0b", min: 70, max: 100}]
         );
 
-        // Chart Init
+        // Chart Init with DYNAMIC HISTORY
         if (historyChartRef.current) {
             const chartTextColor = '#e2e8f0'; 
+            
+            // Default to empty arrays if no history yet
+            const labels = historyData.length > 0 ? historyData.map(d => d.day) : ['No Data'];
+            const rainData = historyData.length > 0 ? historyData.map(d => d.rain) : [0];
+            const soilData = historyData.length > 0 ? historyData.map(d => d.soil) : [0];
+            const pressureData = historyData.length > 0 ? historyData.map(d => d.pressure) : [0];
+
             gaugeInstances.current.chart = new Chart(historyChartRef.current.getContext('2d'), {
                 type: 'line',
                 data: {
-                    labels: hardcodedHistory.map(d => d.day),
+                    labels: labels,
                     datasets: [
-                        { label: 'Rain Wetness (%)', data: hardcodedHistory.map(d => d.rain), borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.1)', fill: true, tension: 0.3, yAxisID: 'yPercent' },
-                        { label: 'Soil Moisture (%)', data: hardcodedHistory.map(d => d.soil), borderColor: '#84cc16', backgroundColor: 'rgba(132, 204, 22, 0.1)', fill: false, tension: 0.3, yAxisID: 'yPercent' },
-                        { label: 'Pressure (hPa)', data: hardcodedHistory.map(d => d.pressure), borderColor: '#a855f7', backgroundColor: 'transparent', fill: false, tension: 0.3, yAxisID: 'yPressure' }
+                        { label: 'Rain Wetness (%)', data: rainData, borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.1)', fill: true, tension: 0.3, yAxisID: 'yPercent' },
+                        { label: 'Soil Moisture (%)', data: soilData, borderColor: '#84cc16', backgroundColor: 'rgba(132, 204, 22, 0.1)', fill: false, tension: 0.3, yAxisID: 'yPercent' },
+                        { label: 'Pressure (hPa)', data: pressureData, borderColor: '#a855f7', backgroundColor: 'transparent', fill: false, tension: 0.3, yAxisID: 'yPressure' }
                     ]
                 },
                 options: {
@@ -251,9 +245,9 @@ const App = () => {
             });
             isDashboardInitializedRef.current = true;
         }
-    }, [isClient, scriptsLoaded, mode, liveData.pressure, rainPercent, soilPercent, waterPercent]);
+    }, [isClient, scriptsLoaded, mode, liveData.pressure, rainPercent, soilPercent, waterPercent, historyData]);
 
-    // === Data Fetching ===
+    // === Data Fetching: Live ===
     const fetchSensorData = useCallback(async () => {
         if (mode !== 'Auto' || !isClient) return;
         
@@ -274,11 +268,10 @@ const App = () => {
 
             setLiveData(prev => ({
                 pressure: parseFloat(payload.pressure) || prev.pressure,
-                // STRICT MAPPING: lowercase keys based on user sample
                 rainRaw: parseInt(payload.rain, 10) || prev.rainRaw,
                 soilRaw: parseInt(payload.soil, 10) || prev.soilRaw,
                 waterDistanceCM: parseFloat(payload.waterDistanceCM) || prev.waterDistanceCM,
-                deviceMode: payload.mode || prev.deviceMode // Capture hardware mode
+                deviceMode: payload.mode || prev.deviceMode 
             }));
             
             setFetchError(null); 
@@ -288,11 +281,49 @@ const App = () => {
         }
     }, [isClient, mode]);
 
+    // === Data Fetching: History ===
+    const fetchHistoryData = useCallback(async () => {
+        if (mode !== 'Auto' || !isClient) return;
+        
+        try {
+            const response = await fetch(`${REAL_API_ENDPOINT}?history=true`);
+            if (!response.ok) throw new Error("History fetch failed");
+            const result = await response.json();
+            
+            if (result.success && Array.isArray(result.data)) {
+                console.log("History Data Received:", result.data);
+                // Process raw averages into proper graph data
+                const processed = result.data.map(item => {
+                    // item._id is "YYYY-MM-DD"
+                    const dateObj = new Date(item._id);
+                    const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' }); 
+                    
+                    return {
+                        day: dayName,
+                        // Use the SAME mapping logic as live data to get percentages
+                        rain: STATE_MAPPINGS.rain(item.avgRain),
+                        soil: STATE_MAPPINGS.soil(item.avgSoil),
+                        pressure: item.avgPressure
+                    };
+                });
+                setHistoryData(processed);
+            }
+        } catch (e) {
+            console.error("History Error:", e);
+        }
+    }, [isClient, mode]);
+
+    // Loop for Live Data
     useEffect(() => {
         fetchSensorData();
         const interval = setInterval(fetchSensorData, FETCH_INTERVAL_MS); 
         return () => clearInterval(interval);
     }, [fetchSensorData]); 
+
+    // Initial Fetch for History
+    useEffect(() => {
+        fetchHistoryData();
+    }, [fetchHistoryData]);
 
     // === Live Update Logic ===
     useEffect(() => {
