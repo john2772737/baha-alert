@@ -10,7 +10,7 @@ const initialSensorData = {
 };
 
 const REAL_API_ENDPOINT = 'https://baha-alert.vercel.app/api'; 
-const FETCH_INTERVAL_MS = 5000;
+const FETCH_INTERVAL_MS = 1000;
 
 // Helper for formatted time
 const getFormattedTime = () => {
