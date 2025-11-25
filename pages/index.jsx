@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 
 // --- CONFIGURATION ---
 const REAL_API_ENDPOINT = 'https://baha-alert.vercel.app/api'; 
-const FETCH_INTERVAL_MS = 5000; // 5 seconds
+const FETCH_INTERVAL_MS = 5000; 
 
 // --- INITIAL DATA ---
 const initialSensorData = {
@@ -20,22 +20,21 @@ const getFormattedTime = () => {
     });
 };
 
-// --- HELPER: Mappings for Gauge Needles (Visual Only) ---
+// --- HELPER: Mappings (Raw Data -> 0-100 Scale) ---
 const STATE_MAPPINGS = {
     rain: (rainRaw) => {
-        // Invert: 1023 (Dry) -> 0, 0 (Wet) -> 50
-        const mapped = 50 - (rainRaw / 1023.0 * 50); 
-        return Math.min(50, Math.max(0, mapped));
+        // 1023 (Dry) -> 0%, 0 (Wet) -> 100%
+        // Formula: 100 - (raw / 1023 * 100)
+        const val = 100 - (rainRaw / 1023.0 * 100);
+        return Math.min(100, Math.max(0, val));
     },
     soil: (soilRaw) => {
-        // Invert: 1023 (Dry) -> 0, 0 (Wet) -> 100
-        const mapped = 100 - (soilRaw / 1023.0 * 100);
-        return Math.min(100, Math.max(0, mapped));
+        // 1023 (Dry) -> 0%, 0 (Wet) -> 100%
+        const val = 100 - (soilRaw / 1023.0 * 100);
+        return Math.min(100, Math.max(0, val));
     },
     waterLevel: (distanceCM) => {
-        // 🌟 LOGIC: Distance Near (Low #) = Level High (High %)
-        // 0cm distance = 100% Full
-        // 50cm distance = 0% Full
+        // 50cm (Empty) -> 0%, 0cm (Full) -> 100%
         const percentageFull = 100.0 - (distanceCM / 50.0) * 100.0;
         return Math.min(100, Math.max(0, percentageFull));
     }
@@ -45,17 +44,13 @@ const App = () => {
     const [isClient, setIsClient] = useState(false);
     const [scriptsLoaded, setScriptsLoaded] = useState(false);
     const [fetchError, setFetchError] = useState(null); 
-    
-    // System Modes
     const [mode, setMode] = useState('Auto');
     const modes = ['Auto', 'Maintenance', 'Sleep'];
 
-    // Data State
     const [liveData, setLiveData] = useState(initialSensorData);
     const [currentTime, setCurrentTime] = useState('Loading...');
     const [historyData, setHistoryData] = useState([]); 
     
-    // Refs
     const lastIdRef = useRef(null); 
     const rainGaugeRef = useRef(null);
     const pressureGaugeRef = useRef(null);
@@ -63,11 +58,10 @@ const App = () => {
     const waterGaugeRef = useRef(null); 
     const historyChartRef = useRef(null);
     
-    // Instance Refs
     const gaugeInstances = useRef({});
     const chartInstance = useRef(null);
 
-    // --- 1. SETUP & SCRIPTS ---
+    // --- 1. SETUP ---
     useEffect(() => {
         setIsClient(true);
         setCurrentTime(getFormattedTime());
@@ -99,25 +93,28 @@ const App = () => {
         return () => clearInterval(timeInterval);
     }, []);
 
-    // --- 2. STATUS LOGIC ---
+    // --- 2. STATUS LOGIC (Top Cards Text) ---
     const getRainStatus = (rainRaw) => {
-        if (rainRaw > 900) return { reading: 'Dry / No Rain', status: 'STATUS: Clear', className: 'text-emerald-400 font-bold' };
-        if (rainRaw > 700) return { reading: 'Drizzling', status: 'STATUS: Light Rain', className: 'text-yellow-400 font-bold' };
-        if (rainRaw > 400) return { reading: 'Raining', status: 'ALERT: Moderate Rain', className: 'text-orange-400 font-bold' };
-        return { reading: 'Storm / Heavy', status: 'ALERT: Heavy Rain!', className: 'text-red-500 font-bold animate-pulse' };
+        if (rainRaw > 900) return { status: 'STATUS: Clear', className: 'text-emerald-400 font-bold' };
+        if (rainRaw > 700) return { status: 'STATUS: Light Rain', className: 'text-yellow-400 font-bold' };
+        if (rainRaw > 400) return { status: 'ALERT: Moderate Rain', className: 'text-orange-400 font-bold' };
+        return { status: 'ALERT: Heavy Rain!', className: 'text-red-500 font-bold animate-pulse' };
     };
     
     const getSoilStatus = (soilRaw) => {
-        if (soilRaw >= 800) return { reading: 'Very Dry', status: 'ALERT: Water Needed!', className: 'text-red-400 font-bold' };
-        if (soilRaw >= 400) return { reading: 'Moist (Optimal)', status: 'STATUS: Soil Good', className: 'text-emerald-400 font-bold' };
-        return { reading: 'Wet / Saturated', status: 'WARNING: Too Wet', className: 'text-yellow-400 font-bold' };
+        if (soilRaw >= 800) return { status: 'ALERT: Water Needed!', className: 'text-red-400 font-bold' };
+        if (soilRaw >= 400) return { status: 'STATUS: Soil Good', className: 'text-emerald-400 font-bold' };
+        return { status: 'WARNING: Too Wet', className: 'text-yellow-400 font-bold' };
     };
     
+    // 🌟 UPDATED WATER LOGIC
     const getWaterLevelStatus = (distanceCM) => {
-        // 🌟 LOGIC: Small Distance = High Level
-        if (distanceCM <= 15) return { reading: 'High Level', status: 'STATUS: Tank Full', className: 'text-emerald-400 font-bold' };
-        if (distanceCM <= 35) return { reading: 'Normal Level', status: 'STATUS: Optimal', className: 'text-cyan-400 font-bold' };
-        return { reading: 'Low Level', status: 'ALERT: Refill Tank!', className: 'text-red-400 font-bold' };
+        // Distance SMALL (<10) = Water HIGH -> "Above Normal"
+        if (distanceCM <= 10) return { reading: 'Above Normal', status: 'STATUS: High / Full', className: 'text-emerald-400 font-bold' };
+        // Distance MID (10-35) = Water MID -> "Normal"
+        if (distanceCM <= 35) return { reading: 'Normal', status: 'STATUS: Optimal', className: 'text-cyan-400 font-bold' };
+        // Distance LARGE (>35) = Water LOW -> "Below Normal"
+        return { reading: 'Below Normal', status: 'ALERT: Refill Tank!', className: 'text-red-400 font-bold' };
     };
     
     const getPressureStatus = (pressure) => {
@@ -131,7 +128,7 @@ const App = () => {
     const soilStatus = useMemo(() => getSoilStatus(liveData.soilRaw), [liveData.soilRaw]);
     const waterStatus = useMemo(() => getWaterLevelStatus(liveData.waterDistanceCM), [liveData.waterDistanceCM]);
 
-    // --- 3. DATA FETCHING ---
+    // --- 3. FETCHING ---
     const fetchSensorData = useCallback(async () => {
         if (mode !== 'Auto' || !isClient) return;
         try {
@@ -160,10 +157,7 @@ const App = () => {
             const response = await fetch(`${REAL_API_ENDPOINT}?history=true`);
             if (!response.ok) throw new Error("Failed to fetch history");
             const result = await response.json();
-            
-            if (result.success && Array.isArray(result.data)) {
-                setHistoryData(result.data);
-            }
+            if (result.success && Array.isArray(result.data)) setHistoryData(result.data);
         } catch (error) {
             console.error("History Error:", error);
         }
@@ -180,8 +174,7 @@ const App = () => {
         };
     }, [fetchSensorData, fetchHistoryData]); 
 
-
-    // --- 4. GAUGES INITIALIZATION ---
+    // --- 4. GAUGES ---
     useEffect(() => {
         if (!isClient || !scriptsLoaded || mode !== 'Auto') return;
         if (!rainGaugeRef.current || !pressureGaugeRef.current || !soilGaugeRef.current || !waterGaugeRef.current) return;
@@ -209,16 +202,15 @@ const App = () => {
         };
 
         if (!gaugeInstances.current.rain) {
-            gaugeInstances.current.rain = createGauge(rainGaugeRef, 50, 0, [0, 25, 50], [{strokeStyle: "#10b981", min: 0, max: 15}, {strokeStyle: "#f59e0b", min: 15, max: 35}, {strokeStyle: "#ef4444", min: 35, max: 50}]);
+            // Rain: Updated to 0-100 Scale
+            gaugeInstances.current.rain = createGauge(rainGaugeRef, 100, 0, [0, 50, 100], [{strokeStyle: "#10b981", min: 0, max: 20}, {strokeStyle: "#f59e0b", min: 20, max: 50}, {strokeStyle: "#ef4444", min: 50, max: 100}]);
+            
             gaugeInstances.current.pressure = createGauge(pressureGaugeRef, 1050, 950, [950, 1000, 1050], [{strokeStyle: "#f59e0b", min: 950, max: 980}, {strokeStyle: "#10b981", min: 980, max: 1040}, {strokeStyle: "#f59e0b", min: 1040, max: 1050}]);
             
-            // Water Gauge: Green = High % (Near Distance), Red = Low % (Far Distance)
-            gaugeInstances.current.water = createGauge(waterGaugeRef, 100, 0, [0, 50, 100], [
-                {strokeStyle: "#ef4444", min: 0, max: 30},   // Low Level (Red)
-                {strokeStyle: "#f59e0b", min: 30, max: 70},  // Mid Level (Orange)
-                {strokeStyle: "#10b981", min: 70, max: 100}  // High Level (Green)
-            ]);
+            // Water: Updated Colors for Logic (Green=High, Red=Low)
+            gaugeInstances.current.water = createGauge(waterGaugeRef, 100, 0, [0, 50, 100], [{strokeStyle: "#ef4444", min: 0, max: 30}, {strokeStyle: "#f59e0b", min: 30, max: 70}, {strokeStyle: "#10b981", min: 70, max: 100}]);
             
+            // Soil: 0-100 Scale
             gaugeInstances.current.soil = createGauge(soilGaugeRef, 100, 0, [0, 50, 100], [{strokeStyle: "#ef4444", min: 0, max: 30}, {strokeStyle: "#10b981", min: 30, max: 70}, {strokeStyle: "#f59e0b", min: 70, max: 100}]);
         }
 
@@ -229,8 +221,7 @@ const App = () => {
 
     }, [isClient, scriptsLoaded, mode, liveData]);
 
-
-    // --- 5. CHART LOGIC ---
+    // --- 5. CHART ---
     useEffect(() => {
         if (!isClient || !scriptsLoaded || mode !== 'Auto') return;
         if (!historyChartRef.current || typeof window.Chart === 'undefined') return;
@@ -239,15 +230,15 @@ const App = () => {
         const ctx = historyChartRef.current.getContext('2d');
         const chartTextColor = '#e2e8f0';
 
-        let labels = [];
-        let rainData = [], pressureData = [], soilData = [], waterData = [];
+        let labels = [], rainData = [], pressureData = [], soilData = [], waterData = [];
 
         if (historyData && historyData.length > 0) {
             labels = historyData.map(item => new Date(item._id).toLocaleDateString('en-US', { weekday: 'short' }));
             rainData = historyData.map(item => item.avgRain || 0);
             pressureData = historyData.map(item => item.avgPressure || 0);
+            // Soil Percentage
             soilData = historyData.map(item => Math.round(100 - ((item.avgSoil || 0) / 1023.0 * 100)));
-            // Chart Water Logic: Small Distance -> High %
+            // Water Percentage
             waterData = historyData.map(item => {
                 const dist = item.avgWaterDistance || 50; 
                 const pct = 100 - (dist / 50.0 * 100); 
@@ -331,6 +322,7 @@ const App = () => {
                     <>
                         {fetchError && <div className="p-4 bg-red-800/50 text-red-300 rounded-xl border border-red-700 font-semibold flex items-center justify-center">{fetchError}</div>}
 
+                        {/* STATUS CARDS */}
                         <section className="grid grid-cols-2 lg:grid-cols-4 gap-6">
                             <article className="card p-5 bg-slate-800 rounded-xl shadow-2xl border border-slate-700 hover:border-emerald-600/70 h-full">
                                 <CloudRainIcon className="w-10 h-10 mb-3 text-sky-400 p-2 bg-sky-900/40 rounded-lg" />
@@ -362,12 +354,14 @@ const App = () => {
                             <article className="card p-6 bg-slate-800 rounded-3xl shadow-2xl border border-slate-700">
                                 <h3 className="text-2xl font-bold mb-6 text-slate-200 border-b border-slate-700 pb-2">Live Sensor Readings</h3>
                                 <div className="gauges-container">
-                                    {/* Rain Gauge */}
+                                    {/* Rain Gauge: Shows Percentage */}
                                     <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
                                         <canvas id="gaugeRain" ref={rainGaugeRef} className="max-w-full h-auto"></canvas>
                                         <p className="mt-3 text-lg font-semibold text-slate-300 gauge-text">
                                             <span className="text-sm text-slate-400">Rain Sensor</span>
-                                            <span className={`text-xl ${rainStatus.className}`}>{rainStatus.reading}</span>
+                                            <span className={`text-xl ${rainStatus.className}`}>
+                                                {STATE_MAPPINGS.rain(liveData.rainRaw).toFixed(0)}%
+                                            </span>
                                         </p>
                                     </div>
                                     {/* Pressure Gauge */}
@@ -378,20 +372,22 @@ const App = () => {
                                             <span className="text-xl text-purple-400 font-bold">{liveData.pressure.toFixed(1)} hPa</span>
                                         </p>
                                     </div>
-                                    {/* Water Gauge */}
+                                    {/* Water Gauge: Updated Status Text */}
                                     <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
                                         <canvas id="gaugeWaterTank" ref={waterGaugeRef} className="max-w-full h-auto"></canvas>
                                         <p className="mt-3 text-lg font-semibold text-slate-300 gauge-text">
                                             <span className="text-sm text-slate-400">Water Level</span>
-                                            <span className="text-xl text-cyan-400 font-bold">{STATE_MAPPINGS.waterLevel(liveData.waterDistanceCM).toFixed(0)}%</span>
+                                            <span className={`text-xl ${waterStatus.className}`}>{waterStatus.reading}</span>
                                         </p>
                                     </div>
-                                    {/* Soil Gauge */}
+                                    {/* Soil Gauge: Shows Percentage */}
                                     <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
                                         <canvas id="gaugeSoil" ref={soilGaugeRef} className="max-w-full h-auto"></canvas>
                                         <p className="mt-3 text-lg font-semibold text-slate-300 gauge-text">
                                             <span className="text-sm text-slate-400">Soil Moisture</span>
-                                            <span className={`text-xl ${soilStatus.className}`}>{soilStatus.reading}</span>
+                                            <span className={`text-xl ${soilStatus.className}`}>
+                                                {STATE_MAPPINGS.soil(liveData.soilRaw).toFixed(0)}%
+                                            </span>
                                         </p>
                                     </div>
                                 </div>
