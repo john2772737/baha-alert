@@ -250,24 +250,19 @@ const App = () => {
         let waterData = [];
 
         if (historyData && historyData.length > 0) {
-            // 🌟 UPDATE CHART: Processing 7-Day Average Data
             labels = historyData.map(item => {
-                // item._id is the date string (YYYY-MM-DD) from the API aggregation
                 const date = new Date(item._id);
                 return date.toLocaleDateString('en-US', { weekday: 'short' });
             });
             rainData = historyData.map(item => item.avgRain || 0);
             pressureData = historyData.map(item => item.avgPressure || 0);
-            // Convert raw soil average to percentage
             soilData = historyData.map(item => Math.round(100 - ((item.avgSoil || 0) / 1023.0 * 100)));
-            // 🌟 NEW: Process Water Distance
             waterData = historyData.map(item => item.avgWaterDistance || 0);
         } else {
-            // Placeholder if data is empty
             labels = ['No Data'];
         }
 
-        // Destroy previous chart instance to prevent layering
+        // Destroy previous chart instance
         if (chartInstance.current) {
             chartInstance.current.destroy();
         }
@@ -281,30 +276,105 @@ const App = () => {
             data: {
                 labels: labels,
                 datasets: [
-                    { label: 'Avg Rain (Raw)', data: rainData, borderColor: 'rgba(59, 130, 246, 1)', backgroundColor: 'rgba(59, 130, 246, 0.1)', tension: 0.3, yAxisID: 'yRain' },
-                    { label: 'Avg Pressure (hPa)', data: pressureData, borderColor: 'rgba(168, 85, 247, 1)', backgroundColor: 'rgba(168, 85, 247, 0.1)', tension: 0.3, yAxisID: 'yPressure' },
-                    { label: 'Avg Soil Moisture (%)', data: soilData, borderColor: 'rgba(132, 204, 22, 1)', backgroundColor: 'rgba(132, 204, 22, 0.1)', fill: true, tension: 0.3, yAxisID: 'yLevel' },
-                    // 🌟 NEW DATASET: Water Level
-                    { label: 'Avg Water Level (cm)', data: waterData, borderColor: 'rgba(6, 182, 212, 1)', backgroundColor: 'rgba(6, 182, 212, 0.1)', tension: 0.3, yAxisID: 'yWater' }
+                    { 
+                        label: 'Avg Rain', 
+                        data: rainData, 
+                        borderColor: 'rgba(59, 130, 246, 1)', 
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)', 
+                        tension: 0.3, 
+                        yAxisID: 'yRain',
+                        pointRadius: 4, // Make points visible
+                        pointHoverRadius: 6
+                    },
+                    { 
+                        label: 'Avg Pressure', 
+                        data: pressureData, 
+                        borderColor: 'rgba(168, 85, 247, 1)', 
+                        backgroundColor: 'rgba(168, 85, 247, 0.1)', 
+                        tension: 0.3, 
+                        yAxisID: 'yPressure',
+                        pointRadius: 4,
+                        pointHoverRadius: 6
+                    },
+                    { 
+                        label: 'Avg Soil', 
+                        data: soilData, 
+                        borderColor: 'rgba(132, 204, 22, 1)', 
+                        backgroundColor: 'rgba(132, 204, 22, 0.1)', 
+                        fill: true, 
+                        tension: 0.3, 
+                        yAxisID: 'yLevel',
+                        pointRadius: 4,
+                        pointHoverRadius: 6
+                    },
+                    { 
+                        label: 'Avg Water', 
+                        data: waterData, 
+                        borderColor: 'rgba(6, 182, 212, 1)', 
+                        backgroundColor: 'rgba(6, 182, 212, 0.1)', 
+                        tension: 0.3, 
+                        yAxisID: 'yWater',
+                        pointRadius: 4,
+                        pointHoverRadius: 6
+                    }
                 ]
             },
             options: {
-                responsive: true, maintainAspectRatio: false,
-                scales: {
-                    x: { grid: { color: 'rgba(75, 85, 99, 0.3)' }, ticks: { color: chartTextColor } },
-                    yRain: { type: 'linear', position: 'left', beginAtZero: true, title: {display:true, text:'Rain (Raw)', color: chartTextColor}, grid: { color: 'rgba(75, 85, 99, 0.3)' }, ticks: { color: chartTextColor } },
-                    yPressure: { type: 'linear', position: 'right', min: 950, max: 1050, grid: { display: false }, ticks: { color: chartTextColor } },
-                    yLevel: { type: 'linear', position: 'left', min: 0, max: 100, grid: { display: false }, ticks: { callback: (v) => v + '%', color: chartTextColor } },
-                    // 🌟 NEW SCALE: yWater
-                    yWater: { type: 'linear', position: 'right', min: 0, suggestedMax: 50, grid: { display: false }, ticks: { callback: (v) => v + ' cm', color: chartTextColor } }
+                responsive: true, 
+                maintainAspectRatio: false,
+                // 🌟 NEW: This combines the points on hover
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
                 },
-                plugins: { legend: { labels: { color: chartTextColor } } }
+                scales: {
+                    x: { 
+                        grid: { color: 'rgba(75, 85, 99, 0.3)' }, 
+                        ticks: { color: chartTextColor } 
+                    },
+                    yRain: { 
+                        type: 'linear', 
+                        position: 'left', 
+                        beginAtZero: true, 
+                        grid: { color: 'rgba(75, 85, 99, 0.3)' }, 
+                        ticks: { color: chartTextColor, display: false } // Hide ticks to reduce clutter
+                    },
+                    yPressure: { 
+                        type: 'linear', 
+                        position: 'right', 
+                        min: 950, 
+                        max: 1050, 
+                        grid: { display: false }, 
+                        ticks: { color: chartTextColor, display: false } 
+                    },
+                    yLevel: { 
+                        type: 'linear', 
+                        position: 'left', 
+                        min: 0, 
+                        max: 100, 
+                        grid: { display: false }, 
+                        ticks: { callback: (v) => v + '%', color: chartTextColor } 
+                    },
+                    yWater: { 
+                        type: 'linear', 
+                        position: 'right', 
+                        min: 0, 
+                        suggestedMax: 50, 
+                        grid: { display: false }, 
+                        ticks: { callback: (v) => v + 'cm', color: chartTextColor } 
+                    }
+                },
+                plugins: { 
+                    legend: { labels: { color: chartTextColor } },
+                    tooltip: {
+                        mode: 'index', // Ensures tooltip shows all sensors for that day
+                        intersect: false
+                    }
+                }
             }
         });
 
-    }, [isClient, scriptsLoaded, mode, historyData]); // 🌟 Dependency includes historyData
-
-
+    }, [isClient, scriptsLoaded, mode, historyData]);
     // --- ICONS ---
     const ClockIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>);
     const CloudRainIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"></path><path d="M16 20v-3"></path><path d="M8 20v-3"></path><path d="M12 18v-3"></path></svg>);
