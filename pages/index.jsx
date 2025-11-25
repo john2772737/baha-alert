@@ -353,7 +353,7 @@ const App = () => {
                         min: 0, 
                         max: 100, 
                         grid: { display: false }, 
-                        ticks: { callback: (v) => v + '%', color: chartTextColor } 
+                        ticks: { callback: (v) => v + '%', color: chartTextColor }  
                     },
                     yWater: { 
                         type: 'linear', 
