@@ -444,14 +444,24 @@ const App = () => {
         if (mode === 'Auto' && isClient && scriptsLoaded && window.Gauge && gaugeInstances.current.rain) { 
             requestAnimationFrame(() => {
                 try {
+                    console.log("[GAUGE UPDATE] Applying new data:", liveData);
+
                     // 🌟 UPDATE GAUGES: Use STATE_MAPPINGS with the RAW numerical data
                     if (gaugeInstances.current.rain) gaugeInstances.current.rain.set(STATE_MAPPINGS.rain(liveData.rainRaw));
-                    if (gaugeInstances.current.pressure) gaugeInstances.current.pressure.set(liveData.pressure);
+                    
+                    // Pressure Stability Check: Only update if the reading is valid (> 100 hPa)
+                    if (gaugeInstances.current.pressure && liveData.pressure > 100) {
+                        gaugeInstances.current.pressure.set(liveData.pressure);
+                    } else if (gaugeInstances.current.pressure) {
+                         console.warn("[GAUGE UPDATE] Skipping pressure update due to invalid reading:", liveData.pressure);
+                    }
+
                     if (gaugeInstances.current.waterTank) gaugeInstances.current.waterTank.set(STATE_MAPPINGS.waterTank(liveData.waterDistanceCM));
                     if (gaugeInstances.current.soil) gaugeInstances.current.soil.set(STATE_MAPPINGS.soil(liveData.soilRaw));
                 } catch (e) {
-                    console.error("Error updating gauges:", e);
+                    console.error("Critical Error updating gauges, forcing re-initialization:", e);
                     isDashboardInitializedRef.current = false; 
+                    // Re-call initialization, which will re-run with the latest liveData
                     initializeDashboard(); 
                 }
             });
@@ -569,9 +579,12 @@ const App = () => {
                             {/* Water Tank Status (Numerical Ultrasonic Distance) - Card 3 */}
                             <article className="card p-5 bg-slate-800 rounded-xl shadow-2xl transition duration-300 hover:shadow-cyan-500/50 hover:scale-[1.02] border border-slate-700 hover:border-cyan-600/70">
                                 <BoxIcon className="w-10 h-10 mb-3 text-cyan-400 p-2 bg-cyan-900/40 rounded-lg" />
-                                <h3 className="text-lg font-semibold mb-1 text-slate-300">Water Tank Distance</h3>
-                                <p className="text-3xl font-black mb-1 text-slate-50">{liveData.waterDistanceCM.toFixed(1)} cm</p>
-                                <p className={`text-sm ${waterTankStatus.className}`}>{waterTankStatus.status}</p>
+                                <h3 className="text-lg font-semibold mb-1 text-slate-300">Water Tank Level</h3>
+                                <p className="text-3xl font-black mb-1 text-slate-50">{waterTankStatus.reading}</p>
+                                <p className={`text-sm ${waterTankStatus.className}`}>
+                                    {waterTankStatus.status}
+                                    <span className="text-slate-400 ml-2">({liveData.waterDistanceCM.toFixed(1)} cm)</span>
+                                </p>
                             </article>
 
                             <article className="card p-5 bg-slate-800 rounded-xl shadow-2xl transition duration-300 hover:shadow-orange-500/50 hover:scale-[1.02] border border-slate-700 hover:border-orange-600/70">
