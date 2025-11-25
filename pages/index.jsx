@@ -154,13 +154,15 @@ const App = () => {
         const aboveNormalThreshold = 10; 
         const belowNormalThreshold = 25; 
 
+        // Correctly implements: distance <= 10 → Above Normal
         if (distanceCM <= aboveNormalThreshold) {
             return { reading: 'Above Normal', status: 'WARNING: Potential Overflow!', className: 'text-yellow-400 font-bold' };
         } 
+        // Correctly implements: distance > 10 && distance <= 25 → Normal
         if (distanceCM > aboveNormalThreshold && distanceCM <= belowNormalThreshold) {
             return { reading: 'Normal', status: 'STATUS: Level Optimal', className: 'text-emerald-400 font-bold' };
         } 
-        // distanceCM > belowNormalThreshold
+        // Correctly implements: distance > 25 → Below Normal
         return { reading: 'Below Normal', status: 'ALERT: Tank is Low!', className: 'text-red-400 font-bold' };
     };
     
@@ -589,7 +591,8 @@ const App = () => {
                             {/* Water Tank Status (Numerical Ultrasonic Distance) - Card 3 */}
                             <article className="card p-5 bg-slate-800 rounded-xl shadow-2xl transition duration-300 hover:shadow-cyan-500/50 hover:scale-[1.02] border border-slate-700 hover:border-cyan-600/70 h-full">
                                 <BoxIcon className="w-10 h-10 mb-3 text-cyan-400 p-2 bg-cyan-900/40 rounded-lg" />
-                                <h3 className="text-lg font-semibold mb-1 text-slate-300">Water Tank Level</h3>
+                                {/* 🌟 CHANGE: Renamed header from Water Tank Level to Water Level */}
+                                <h3 className="text-lg font-semibold mb-1 text-slate-300">Water Level</h3>
                                 <p className="text-3xl font-black mb-1 text-slate-50">{waterTankStatus.reading}</p>
                                 {/* 🌟 FIX 2: Removed raw cm distance */}
                                 <p className={`text-sm ${waterTankStatus.className}`}>
