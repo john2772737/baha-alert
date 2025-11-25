@@ -109,18 +109,18 @@ const App = () => {
         return () => clearInterval(timeInterval);
     }, []);
 
-    // === Status Logic ===
+    // === Status Logic (UPDATED FOR WEATHER STATION THEME) ===
     const getRainStatus = (percent) => {
-        if (percent < 10) return { reading: 'Dry', status: 'STATUS: Clear', className: 'text-emerald-400 font-bold' };
+        if (percent < 10) return { reading: 'No Rain', status: 'STATUS: Clear', className: 'text-emerald-400 font-bold' };
         if (percent >= 10 && percent < 40) return { reading: 'Light Rain', status: 'STATUS: Drizzling', className: 'text-yellow-400 font-bold' };
         if (percent >= 40 && percent < 70) return { reading: 'Moderate Rain', status: 'STATUS: Raining', className: 'text-orange-400 font-bold' };
-        return { reading: 'Heavy Rain', status: 'ALERT: Storm!', className: 'text-red-400 font-bold' };
+        return { reading: 'Heavy Rain', status: 'ALERT: Storm Conditions', className: 'text-red-400 font-bold' };
     };
     
     const getSoilStatus = (percent) => {
-        if (percent < 30) return { reading: 'Dry', status: 'ALERT: Needs Water!', className: 'text-red-400 font-bold' };
-        if (percent >= 30 && percent < 80) return { reading: 'Moist', status: 'STATUS: Optimal', className: 'text-emerald-400 font-bold' };
-        return { reading: 'Wet', status: 'WARNING: Saturated', className: 'text-yellow-400 font-bold' };
+        if (percent < 30) return { reading: 'Dry', status: 'STATUS: Low Moisture', className: 'text-red-400 font-bold' };
+        if (percent >= 30 && percent < 80) return { reading: 'Moist', status: 'STATUS: Normal', className: 'text-emerald-400 font-bold' };
+        return { reading: 'Saturated', status: 'STATUS: High Moisture', className: 'text-yellow-400 font-bold' };
     };
     
     const getWaterTankStatus = (percent, distance) => {
@@ -129,9 +129,9 @@ const App = () => {
             return { reading: 'Error', status: 'SENSOR ERROR', className: 'text-red-500 font-black animate-pulse' };
         }
         
-        if (percent > 90) return { reading: 'Full', status: 'WARNING: Overflow Risk', className: 'text-yellow-400 font-bold' };
-        if (percent >= 40) return { reading: 'Normal', status: 'STATUS: Adequate', className: 'text-emerald-400 font-bold' };
-        return { reading: 'Low', status: 'ALERT: Refill Needed', className: 'text-red-400 font-bold' };
+        if (percent > 90) return { reading: 'High', status: 'STATUS: High Capacity', className: 'text-yellow-400 font-bold' };
+        if (percent >= 40) return { reading: 'Normal', status: 'STATUS: Stable Level', className: 'text-emerald-400 font-bold' };
+        return { reading: 'Low', status: 'STATUS: Low Reserves', className: 'text-red-400 font-bold' };
     };
     
     const getPressureStatus = (pressure) => {
@@ -344,7 +344,7 @@ const App = () => {
             
             <header className="mb-8 p-5 bg-slate-800 rounded-3xl shadow-lg border-b-4 border-emerald-500/50 flex flex-col md:flex-row justify-between items-center">
                 <div className="flex flex-col">
-                    <h1 className="text-3xl font-extrabold text-emerald-400 mb-2 md:mb-0">Smart Farm Monitor</h1>
+                    <h1 className="text-3xl font-extrabold text-emerald-400 mb-2 md:mb-0">Smart Weather Station</h1>
                     {/* Device Mode Display */}
                     <div className="flex items-center text-xs text-slate-400 mt-1">
                         <CpuIcon className="w-3 h-3 mr-1" />
