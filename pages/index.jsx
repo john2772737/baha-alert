@@ -522,6 +522,17 @@ const App = () => {
                         height: 450px;
                     }
                 }
+                /* Custom styles to ensure gauge text alignment and size */
+                .gauge-text {
+                    font-size: 1rem; /* Consistent text size */
+                    min-height: 2.5rem; /* Ensure consistent height for text container */
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    justify-content: flex-start; /* Align text to the top within its area */
+                    text-align: center;
+                    padding-top: 0.5rem; /* Small padding from the gauge */
+                }
             `}</style>
             
             <header className="mb-10 p-5 bg-slate-800 rounded-3xl shadow-2xl flex flex-col md:flex-row justify-between items-center border-b-4 border-emerald-500/50">
@@ -579,7 +590,7 @@ const App = () => {
                             <article className="card p-5 bg-slate-800 rounded-xl shadow-2xl transition duration-300 hover:shadow-purple-500/50 hover:scale-[1.02] border border-slate-700 hover:border-purple-600/70 h-full">
                                 <GaugeIcon className="w-10 h-10 mb-3 text-purple-400 p-2 bg-purple-900/40 rounded-lg" />
                                 <h3 className="text-lg font-semibold mb-1 text-slate-300">Barometric Pressure</h3>
-                                {/* 🌟 FIX 1: Prominently show Status message instead of value */}
+                                {/* Prominently show Status message */}
                                 <p className={`text-3xl font-black mb-1 ${pressureStatus.className}`}>
                                     {pressureStatus.status.split(': ')[1] || pressureStatus.status}
                                 </p>
@@ -588,13 +599,13 @@ const App = () => {
                                 </p>
                             </article>
                             
-                            {/* Water Tank Status (Numerical Ultrasonic Distance) - Card 3 */}
+                            {/* Water Level Status - Card 3 */}
                             <article className="card p-5 bg-slate-800 rounded-xl shadow-2xl transition duration-300 hover:shadow-cyan-500/50 hover:scale-[1.02] border border-slate-700 hover:border-cyan-600/70 h-full">
                                 <BoxIcon className="w-10 h-10 mb-3 text-cyan-400 p-2 bg-cyan-900/40 rounded-lg" />
-                                {/* 🌟 CHANGE: Renamed header from Water Tank Level to Water Level */}
+                                {/* 🌟 FIX: Renamed header to Water Level */}
                                 <h3 className="text-lg font-semibold mb-1 text-slate-300">Water Level</h3>
                                 <p className="text-3xl font-black mb-1 text-slate-50">{waterTankStatus.reading}</p>
-                                {/* 🌟 FIX 2: Removed raw cm distance */}
+                                {/* Removed raw cm distance */}
                                 <p className={`text-sm ${waterTankStatus.className}`}>
                                     {waterTankStatus.status}
                                 </p>
@@ -618,36 +629,36 @@ const App = () => {
                                     {/* Rain Gauge with Raw Data */}
                                     <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
                                         <canvas id="gaugeRain" ref={rainGaugeRef} className="max-w-full h-auto"></canvas>
-                                        <p className="mt-3 text-lg font-semibold text-slate-300">
-                                            {/* 🌟 FIX: Show sensor name + raw value */}
-                                            Rain Sensor: <span className="text-sky-400">{liveData.rainRaw}</span> 
+                                        <p className="mt-3 text-lg font-semibold text-slate-300 gauge-text">
+                                            <span className="text-sm text-slate-400">Rain Sensor</span>
+                                            <span className="text-xl text-sky-400 font-bold">{liveData.rainRaw}</span>
                                         </p>
                                     </div>
                                     
                                     {/* Pressure Gauge */}
                                     <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
                                         <canvas id="gaugePressure" ref={pressureGaugeRef} className="max-w-full h-auto"></canvas>
-                                        <p className="mt-3 text-lg font-semibold text-slate-300">
-                                            {/* 🌟 FIX: Show sensor name + raw value */}
-                                            Barometric Pressure: <span className="text-purple-400">{liveData.pressure.toFixed(1)} hPa</span>
+                                        <p className="mt-3 text-lg font-semibold text-slate-300 gauge-text">
+                                            <span className="text-sm text-slate-400">Barometric Pressure</span>
+                                            <span className="text-xl text-purple-400 font-bold">{liveData.pressure.toFixed(1)} hPa</span>
                                         </p>
                                     </div>
                                     
                                     {/* Water Tank Gauge with Raw Distance */}
                                     <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
                                         <canvas id="gaugeWaterTank" ref={waterTankGaugeRef} className="max-w-full h-auto"></canvas>
-                                        <p className="mt-3 text-lg font-semibold text-slate-300">
-                                            {/* 🌟 FIX: Show sensor name + raw value */}
-                                            Ultrasonic Sensor: <span className="text-cyan-400">{liveData.waterDistanceCM.toFixed(1)} cm</span>
+                                        <p className="mt-3 text-lg font-semibold text-slate-300 gauge-text">
+                                            <span className="text-sm text-slate-400">Ultrasonic Sensor</span>
+                                            <span className="text-xl text-cyan-400 font-bold">{liveData.waterDistanceCM.toFixed(1)} cm</span>
                                         </p>
                                     </div>
                                     
                                     {/* Soil Moisture Gauge with Raw Data */}
                                     <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
                                         <canvas id="gaugeSoil" ref={soilGaugeRef} className="max-w-full h-auto"></canvas>
-                                        <p className="mt-3 text-lg font-semibold text-slate-300">
-                                            {/* 🌟 FIX: Show sensor name + raw value */}
-                                            Soil Moisture Sensor: <span className="text-orange-400">{liveData.soilRaw}</span>
+                                        <p className="mt-3 text-lg font-semibold text-slate-300 gauge-text">
+                                            <span className="text-sm text-slate-400">Soil Moisture Sensor</span>
+                                            <span className="text-xl text-orange-400 font-bold">{liveData.soilRaw}</span>
                                         </p>
                                     </div>
                                 </div>
@@ -667,7 +678,7 @@ const App = () => {
                 {mode !== 'Auto' && (
                     <div className="p-16 bg-slate-800 rounded-3xl shadow-2xl border border-slate-700 text-center flex flex-col items-center justify-center min-h-[50vh]">
                         <RefreshCcwIcon className={`w-16 h-16 mb-6 ${mode === 'Maintenance' ? 'text-yellow-400 animate-spin' : 'text-gray-500'}`} />
-                        <h3 className="4xl font-extrabold mb-4 text-emerald-400">
+                        <h3 className="text-4xl font-extrabold mb-4 text-emerald-400">
                             System Mode: <span className={mode === 'Maintenance' ? 'text-yellow-400' : 'text-gray-400'}>{mode}</span>
                         </h3>
                         <p className="text-slate-300 text-lg max-w-xl">
