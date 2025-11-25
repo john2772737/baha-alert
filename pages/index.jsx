@@ -198,10 +198,7 @@ const App = () => {
         
         if (mode !== 'Auto') return;
         
-        if (isDashboardInitializedRef.current) {
-            return;
-        }
-
+        // CRITICAL: Ensure refs are ready before DOM manipulation
         if (!rainGaugeRef.current || !pressureGaugeRef.current || !soilGaugeRef.current || !waterTankGaugeRef.current || !historyChartRef.current) {
              console.warn("Canvas elements not yet mounted for Auto mode. Skipping gauge/chart initialization.");
              return; 
@@ -406,69 +403,78 @@ const App = () => {
 
     // Data Update Interval (Runs every 5 second)
     useEffect(() => {
+        // Run fetch immediately on mount/mode switch, and then every interval
         fetchSensorData();
         const interval = setInterval(fetchSensorData, FETCH_INTERVAL_MS); 
         return () => clearInterval(interval);
     }, [fetchSensorData]); 
 
-    // === 2. Initialization/Cleanup Effect (Unchanged) ===
-    useEffect(() => {
-        if (scriptsLoaded && mode === 'Auto' && !isDashboardInitializedRef.current) {
-             initializeDashboard();
-        } else if (mode !== 'Auto') {
-            isDashboardInitializedRef.current = false;
-            try {
-                 if (gaugeInstances.current.chart) {
-                     gaugeInstances.current.chart.destroy();
-                     gaugeInstances.current.chart = null;
-                 }
-            } catch(e) { /* ignore cleanup errors */ }
-            gaugeInstances.current = {};
-        }
 
-        return () => {
-             isDashboardInitializedRef.current = false;
-             try {
-                 if (gaugeInstances.current.chart) {
-                     gaugeInstances.current.chart.destroy();
-                     gaugeInstances.current.chart = null;
-                 }
-            } catch(e) { /* ignore cleanup errors */ }
-            gaugeInstances.current = {};
-        };
-    }, [initializeDashboard, mode, scriptsLoaded]);
+    // ---------------------------------------------------------------------
+    // 🌟 FIX: Consolidated Initialization, Update, and Cleanup Logic 🌟
+    // ---------------------------------------------------------------------
 
-
-    // Effect to update the Gauge instances whenever liveData (RAW) changes
-    useEffect(() => {
-        if (mode === 'Auto' && isClient && scriptsLoaded && window.Gauge && gaugeInstances.current.rain) { 
-            requestAnimationFrame(() => {
+    const checkAndInitializeOrUpdate = useCallback(() => {
+        // 1. Cleanup or Skip if not in Auto Mode / Not ready
+        if (!isClient || !scriptsLoaded || mode !== 'Auto') {
+            if (isDashboardInitializedRef.current) {
+                // Perform necessary cleanup of external libraries
                 try {
-                    console.log("[GAUGE UPDATE] Applying new data:", liveData);
-
-                    // 🌟 UPDATE GAUGES: Use STATE_MAPPINGS with the RAW numerical data
-                    if (gaugeInstances.current.rain) gaugeInstances.current.rain.set(STATE_MAPPINGS.rain(liveData.rainRaw));
-                    
-                    // Pressure Stability Check: Only update if the reading is valid (> 100 hPa)
-                    if (gaugeInstances.current.pressure && liveData.pressure > 100) {
-                        gaugeInstances.current.pressure.set(liveData.pressure);
-                    } else if (gaugeInstances.current.pressure) {
-                         console.warn("[GAUGE UPDATE] Skipping pressure update due to invalid reading:", liveData.pressure);
-                    }
-
-                    if (gaugeInstances.current.waterTank) gaugeInstances.current.waterTank.set(STATE_MAPPINGS.waterTank(liveData.waterDistanceCM));
-                    if (gaugeInstances.current.soil) gaugeInstances.current.soil.set(STATE_MAPPINGS.soil(liveData.soilRaw));
-                } catch (e) {
-                    console.error("Critical Error updating gauges, forcing re-initialization:", e);
-                    isDashboardInitializedRef.current = false; 
-                    // Re-call initialization, which will re-run with the latest liveData
-                    initializeDashboard(); 
-                }
-            });
+                    if (gaugeInstances.current.chart) gaugeInstances.current.chart.destroy();
+                } catch(e) { /* ignore cleanup errors */ }
+                gaugeInstances.current = {};
+                isDashboardInitializedRef.current = false;
+            }
+            return;
         }
-    }, [liveData, scriptsLoaded, isClient, mode, initializeDashboard]);
 
-    
+        // 2. Initialization Phase
+        if (!isDashboardInitializedRef.current) {
+            // Initialization is complex, but we call the function that handles it.
+            // initializeDashboard() implicitly relies on liveData (via deps), 
+            // so we must ensure it runs before we try updating.
+            initializeDashboard(); 
+            return; // Wait for the next tick for potential update
+        } 
+        
+        // 3. Update Phase (Only run if initialized)
+        requestAnimationFrame(() => {
+            try {
+                // Check if references are valid before updating
+                if (!gaugeInstances.current.rain) {
+                    throw new Error("Gauge references lost during update.");
+                }
+
+                console.log("[GAUGE UPDATE] Applying new data:", liveData);
+
+                if (gaugeInstances.current.rain) gaugeInstances.current.rain.set(STATE_MAPPINGS.rain(liveData.rainRaw));
+                
+                // Pressure Stability Check: Only update if the reading is valid (> 100 hPa)
+                if (gaugeInstances.current.pressure && liveData.pressure > 100) {
+                    gaugeInstances.current.pressure.set(liveData.pressure);
+                } else if (gaugeInstances.current.pressure) {
+                     console.warn("[GAUGE UPDATE] Skipping pressure update due to invalid reading:", liveData.pressure);
+                }
+
+                if (gaugeInstances.current.waterTank) gaugeInstances.current.waterTank.set(STATE_MAPPINGS.waterTank(liveData.waterDistanceCM));
+                if (gaugeInstances.current.soil) gaugeInstances.current.soil.set(STATE_MAPPINGS.soil(liveData.soilRaw));
+            } catch (e) {
+                console.error("Critical Error updating gauges, forcing re-initialization:", e);
+                isDashboardInitializedRef.current = false; 
+                // Force a re-initialization on the next run of this function
+                // This resolves cases where Gauge.js fails internally mid-session
+            }
+        });
+
+    }, [isClient, scriptsLoaded, mode, liveData, initializeDashboard]);
+
+
+    // Single Effect to manage the visualization lifecycle
+    useEffect(() => {
+        checkAndInitializeOrUpdate();
+    }, [checkAndInitializeOrUpdate]);
+
+
     // --- SVG ICON COMPONENTS (Unchanged) ---
     const ClockIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>);
     const CloudRainIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"></path><path d="M16 20v-3"></path><path d="M8 20v-3"></path><path d="M12 18v-3"></path></svg>);
@@ -562,7 +568,8 @@ const App = () => {
                         <section className="grid grid-cols-2 lg:grid-cols-4 gap-6">
                             <article className="card p-5 bg-slate-800 rounded-xl shadow-2xl transition duration-300 hover:shadow-emerald-500/50 hover:scale-[1.02] border border-slate-700 hover:border-emerald-600/70">
                                 <CloudRainIcon className="w-10 h-10 mb-3 text-sky-400 p-2 bg-sky-900/40 rounded-lg" />
-                                <h3 className="text-lg font-semibold mb-1 text-slate-300">Rain Sensor (Raw: {liveData.rainRaw})</h3>
+                                {/* 🌟 FIX 1: Removed Raw value from title */}
+                                <h3 className="text-lg font-semibold mb-1 text-slate-300">Rain Sensor</h3>
                                 <p className="text-3xl font-black mb-1 text-slate-50">
                                     {rainStatus.reading}
                                 </p>
@@ -582,14 +589,15 @@ const App = () => {
                                 <h3 className="text-lg font-semibold mb-1 text-slate-300">Water Tank Level</h3>
                                 <p className="text-3xl font-black mb-1 text-slate-50">{waterTankStatus.reading}</p>
                                 <p className={`text-sm ${waterTankStatus.className}`}>
+                                    {/* 🌟 FIX 3: Removed raw cm distance */}
                                     {waterTankStatus.status}
-                                    <span className="text-slate-400 ml-2">({liveData.waterDistanceCM.toFixed(1)} cm)</span>
                                 </p>
                             </article>
 
                             <article className="card p-5 bg-slate-800 rounded-xl shadow-2xl transition duration-300 hover:shadow-orange-500/50 hover:scale-[1.02] border border-slate-700 hover:border-orange-600/70">
                                 <LeafIcon className="w-10 h-10 mb-3 text-orange-400 p-2 bg-orange-900/40 rounded-lg" />
-                                <h3 className="text-lg font-semibold mb-1 text-slate-300">Soil Moisture (Raw: {liveData.soilRaw})</h3>
+                                {/* 🌟 FIX 2: Removed Raw value from title */}
+                                <h3 className="text-lg font-semibold mb-1 text-slate-300">Soil Moisture</h3>
                                 <p className="text-3xl font-black mb-1 text-slate-50">
                                     {soilStatus.reading}
                                 </p>
@@ -602,6 +610,7 @@ const App = () => {
                             <article className="card p-6 bg-slate-800 rounded-3xl shadow-2xl border border-slate-700">
                                 <h3 className="text-2xl font-bold mb-6 text-slate-200 border-b border-slate-700 pb-2">Live Sensor Readings (Gauges)</h3>
                                 <div className="gauges-container">
+                                    {/* Rain Gauge with Raw Data */}
                                     <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
                                         <canvas id="gaugeRain" ref={rainGaugeRef} className="max-w-full h-auto"></canvas>
                                         <p className="mt-3 text-lg font-semibold text-slate-300">
@@ -610,10 +619,14 @@ const App = () => {
                                             <span className="text-sm text-slate-400">(Raw: {liveData.rainRaw})</span>
                                         </p>
                                     </div>
+                                    
+                                    {/* Pressure Gauge */}
                                     <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
                                         <canvas id="gaugePressure" ref={pressureGaugeRef} className="max-w-full h-auto"></canvas>
                                         <p className="mt-3 text-lg font-semibold text-slate-300">Pressure: <span className="text-purple-400">{liveData.pressure.toFixed(1)} hPa</span></p>
                                     </div>
+                                    
+                                    {/* Water Tank Gauge with Raw Distance */}
                                     <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
                                         <canvas id="gaugeWaterTank" ref={waterTankGaugeRef} className="max-w-full h-auto"></canvas>
                                         <p className="mt-3 text-lg font-semibold text-slate-300">
@@ -622,6 +635,8 @@ const App = () => {
                                             <span className="text-sm text-slate-400">({liveData.waterDistanceCM.toFixed(1)} cm distance)</span>
                                         </p>
                                     </div>
+                                    
+                                    {/* Soil Moisture Gauge with Raw Data */}
                                     <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
                                         <canvas id="gaugeSoil" ref={soilGaugeRef} className="max-w-full h-auto"></canvas>
                                         <p className="mt-3 text-lg font-semibold text-slate-300">
