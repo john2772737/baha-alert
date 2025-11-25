@@ -221,6 +221,7 @@ const App = () => {
             const labels = historyData.length > 0 ? historyData.map(d => d.day) : ['No Data'];
             const rainData = historyData.length > 0 ? historyData.map(d => d.rain) : [0];
             const soilData = historyData.length > 0 ? historyData.map(d => d.soil) : [0];
+            const waterData = historyData.length > 0 ? historyData.map(d => d.water) : [0];
             const pressureData = historyData.length > 0 ? historyData.map(d => d.pressure) : [0];
 
             gaugeInstances.current.chart = new Chart(historyChartRef.current.getContext('2d'), {
@@ -234,9 +235,9 @@ const App = () => {
                             borderColor: '#3b82f6', 
                             backgroundColor: 'rgba(59, 130, 246, 0.1)', 
                             fill: true, 
-                            tension: 0.4, // Increased tension for curve
+                            tension: 0.4, 
                             yAxisID: 'yPercent',
-                            pointRadius: 6, // Increased radius for visibility
+                            pointRadius: 6,
                             pointHoverRadius: 8
                         },
                         { 
@@ -245,9 +246,20 @@ const App = () => {
                             borderColor: '#84cc16', 
                             backgroundColor: 'rgba(132, 204, 22, 0.1)', 
                             fill: false, 
-                            tension: 0.4, // Increased tension for curve
+                            tension: 0.4, 
                             yAxisID: 'yPercent',
-                            pointRadius: 6, // Increased radius for visibility
+                            pointRadius: 6,
+                            pointHoverRadius: 8
+                        },
+                        { 
+                            label: 'Water Level (%)', 
+                            data: waterData, 
+                            borderColor: '#06b6d4', // Cyan for Water
+                            backgroundColor: 'rgba(6, 182, 212, 0.1)',
+                            fill: false, 
+                            tension: 0.4, 
+                            yAxisID: 'yPercent',
+                            pointRadius: 6,
                             pointHoverRadius: 8
                         },
                         { 
@@ -256,9 +268,9 @@ const App = () => {
                             borderColor: '#a855f7', 
                             backgroundColor: 'transparent', 
                             fill: false, 
-                            tension: 0.4, // Increased tension for curve
+                            tension: 0.4, 
                             yAxisID: 'yPressure',
-                            pointRadius: 6, // Increased radius for visibility
+                            pointRadius: 6,
                             pointHoverRadius: 8
                         }
                     ]
@@ -338,18 +350,16 @@ const App = () => {
             if (result.success && Array.isArray(result.data)) {
                 console.log("History Data Received:", result.data);
                 
-                // Directly map the API result without client-side slicing
-                // TRUSTING API: result.data contains exactly what should be displayed
-                
                 const processed = result.data.map(item => {
                     const dateObj = new Date(item._id);
                     const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' }); 
                     
                     return {
                         day: dayName,
-                        // Mapping Average Raw Values from API to Percentages for Graph
                         rain: STATE_MAPPINGS.rain(item.avgRain),
                         soil: STATE_MAPPINGS.soil(item.avgSoil),
+                        // Calculate percentage for Water Level from distance
+                        water: STATE_MAPPINGS.waterTank(item.avgWaterDistance),
                         pressure: item.avgPressure
                     };
                 });
@@ -409,7 +419,9 @@ const App = () => {
             chart.data.labels = historyData.map(d => d.day);
             chart.data.datasets[0].data = historyData.map(d => d.rain);
             chart.data.datasets[1].data = historyData.map(d => d.soil);
-            chart.data.datasets[2].data = historyData.map(d => d.pressure);
+            // Ensure dataset indices match initialization order
+            if(chart.data.datasets[2]) chart.data.datasets[2].data = historyData.map(d => d.water); 
+            if(chart.data.datasets[3]) chart.data.datasets[3].data = historyData.map(d => d.pressure);
             chart.update();
         }
     }, [historyData]);
