@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 
-// --- Initial Data Structure ---
+// --- Initial Data Structure (Now tracks RAW numerical inputs) ---
 const initialSensorData = {
-    pressure: 1012.0, // hPa (numeric)
-    rain: 'No Rain', // categorical string
-    soil: 'Optimal', // categorical string
-    waterTank: 'Normal' // Ultrasonic status categorical string
+    pressure: 1012.0,       // hPa (numeric)
+    rainRaw: 1023,          // Analog value (1023 = dry)
+    soilRaw: 500,           // Analog value (0 = wet, 1023 = dry)
+    waterDistanceCM: 50.0   // Ultrasonic distance (cm)
 };
 
 // Real API Endpoint provided by the user
@@ -27,67 +27,61 @@ const getFormattedTime = () => {
 };
 
 // **********************************************
-// * MAPPING FOR CATEGORICAL GAUGES (String to Number) *
+// * MAPPING FOR GAUGE VALUES (Numerical Input -> Gauge Percentage) *
 // **********************************************
 const STATE_MAPPINGS = {
-    rain: (status) => {
-        const normalized = status.toLowerCase();
-        if (normalized.includes('heavy') || normalized.includes('wet')) return 45;
-        if (normalized.includes('moderate')) return 35;
-        if (normalized.includes('light') || normalized.includes('few drops')) return 15;
-        return 5; // Default to low end for 'No Rain' / 'Dry'
+    // Rain: Maps 1023 (Dry/Safe) -> 0% gauge value to 0 (Wet/Alert) -> 50% gauge value (Max is 50 for this gauge)
+    rain: (rainRaw) => {
+        // Maps 0-1023 to 50-0 (High number = less rain, Low number = more rain)
+        const mapped = 50 - (rainRaw / 1023.0 * 50); 
+        return Math.min(50, Math.max(0, mapped));
     },
-    soil: (status) => {
-        const normalized = status.toLowerCase();
-        if (normalized.includes('dry')) return 20;
-        if (normalized.includes('wet')) return 80;
-        return 50; // Default to optimal
+    // Soil: Maps 1023 (Dry/Alert) -> 0% gauge value to 0 (Wet/Warning) -> 100% gauge value
+    soil: (soilRaw) => {
+        // Treat 1023 as 0% moisture and 0 as 100% moisture
+        const mapped = 100 - (soilRaw / 1023.0 * 100);
+        return Math.min(100, Math.max(0, mapped));
     },
-    waterTank: (status) => {
-        const normalized = status.toLowerCase();
-        if (normalized.includes('below normal') || normalized.includes('low')) return 25;
-        if (normalized.includes('above normal') || normalized.includes('high')) return 75;
-        return 50; // Default to normal/optimal
+    // Water Tank: Maps distance (cm) to percentage fullness (0-100%).
+    // Assuming max relevant distance (empty tank) is 50cm.
+    waterTank: (distanceCM) => {
+        const maxDistance = 50.0;
+        // Percentage full = 100 - (distance / maxDistance * 100)
+        const percentageFull = 100.0 - (distanceCM / maxDistance) * 100.0;
+        
+        return Math.min(100, Math.max(0, percentageFull));
     }
 };
 
 // --- Main App Component (Dynamic Structure) ---
 const App = () => {
-    // CRITICAL: isMounted flag is still essential for client-side initialization
     const [isClient, setIsClient] = useState(false);
     const [scriptsLoaded, setScriptsLoaded] = useState(false);
-    const [fetchError, setFetchError] = useState(null); // State for showing API errors
+    const [fetchError, setFetchError] = useState(null); 
     
     // NEW STATE: System mode control
     const [mode, setMode] = useState('Auto');
     const modes = ['Auto', 'Maintenance', 'Sleep'];
 
-    // State to hold the live data and time
+    // State to hold the live RAW data 
     const [liveData, setLiveData] = useState(initialSensorData);
-    const [currentTime, setCurrentTime] = useState('Loading...'); // Safe initial state for SSR
+    const [currentTime, setCurrentTime] = useState('Loading...');
     
-    // useRef to hold the ID of the last successfully fetched document for stable comparison
+    // Refs for the Canvas elements and Gauge/Chart instances
     const lastIdRef = useRef(null); 
-    // NEW REF: Tracks if the Gauges/Chart have been initialized once
     const isDashboardInitializedRef = useRef(false);
-
-    // Refs for the Canvas elements to initialize Gauge/Chart.js
     const rainGaugeRef = useRef(null);
     const pressureGaugeRef = useRef(null);
     const soilGaugeRef = useRef(null);
-    const waterTankGaugeRef = useRef(null); // <-- RESTORED REF
+    const waterTankGaugeRef = useRef(null); 
     const historyChartRef = useRef(null);
-
-    // Refs for Gauge and Chart instances
     const gaugeInstances = useRef({});
 
-    // === 0. Client Mount, Script Injection, and Time Handling ===
+    // === 0. Client Mount, Script Injection, and Time Handling (Unchanged) ===
     useEffect(() => {
-        // --- 0a. Set isClient state ---
         setIsClient(true);
         setCurrentTime(getFormattedTime());
         
-        // --- 0b. Manual CDN Script Loading (Injects React, ReactDOM, Chart, Gauge, Tailwind) ---
         const cdnUrls = [
             "https://unpkg.com/react@18/umd/react.production.min.js",
             "https://unpkg.com/react-dom@18/umd/react-dom.production.min.js",
@@ -119,12 +113,9 @@ const App = () => {
             .then(() => {
                 if (window.Gauge && window.Chart) {
                     setScriptsLoaded(true);
-                } else {
-                    console.warn('Chart/Gauge libraries may be missing, but UI styles should load.');
                 }
             });
 
-        // Time update interval
         const timeInterval = setInterval(() => {
             setCurrentTime(getFormattedTime());
         }, 10000);
@@ -133,62 +124,59 @@ const App = () => {
         
     }, []);
 
-    // --- Status Calculation Functions ---
+    // --- Status Calculation Functions (NEW LOGIC) ---
 
-    // Now accepts categorical string and returns status object
-    const getRainStatus = (rain) => {
-        if (typeof rain === 'string') {
-            const normalizedRain = rain.toLowerCase();
-            if (normalizedRain.includes('heavy') || normalizedRain.includes('wet')) return { reading: 'Heavy Rain', status: 'ALERT: Heavy Rainfall!', className: 'text-red-400 font-bold' };
-            if (normalizedRain.includes('moderate')) return { reading: 'Moderate Rain', status: 'STATUS: Moderate Rainfall', className: 'text-yellow-400 font-bold' };
-            if (normalizedRain.includes('light') || normalizedRain.includes('few drops')) return { reading: 'Light Rain', status: 'STATUS: Light Rainfall', className: 'text-yellow-400 font-bold' };
-            if (normalizedRain.includes('dry') || normalizedRain.includes('no rain')) return { reading: 'No Rain', status: 'STATUS: Clear', className: 'text-emerald-400 font-bold' };
-            return { reading: rain, status: 'STATUS: Unknown Rain Level', className: 'text-slate-400 font-bold' };
+    // 🌟 NEW LOGIC: Rain Sensor (Raw Analog Value)
+    const getRainStatus = (rainRaw) => {
+        if (rainRaw >= 600) {
+            return { reading: 'Completely Dry (No Rain)', status: 'STATUS: Clear', className: 'text-emerald-400 font-bold' };
+        } 
+        if (rainRaw >= 400 && rainRaw < 600) {
+            return { reading: 'Light Rain / Few Drops', status: 'STATUS: Light Rainfall', className: 'text-yellow-400 font-bold' };
+        } 
+        if (rainRaw >= 200 && rainRaw < 400) {
+            return { reading: 'Moderate Rain', status: 'STATUS: Moderate Rainfall', className: 'text-orange-400 font-bold' };
         }
-        // Fallback for numerical input (should not happen with current API)
-        return { reading: `${rain.toFixed(1)} mm/hr`, status: 'STATUS: Fallback Value', className: 'text-slate-400 font-bold' };
+        // rainRaw < 200
+        return { reading: 'Heavy Rain / Wet', status: 'ALERT: Heavy Rainfall!', className: 'text-red-400 font-bold' };
     };
     
-    // Barometric Pressure (Numeric-based)
+    // 🌟 NEW LOGIC: Soil Moisture (Raw Analog Value)
+    const getSoilStatus = (soilRaw) => {
+        if (soilRaw > 600) {
+            return { reading: 'Dry', status: 'ALERT: Soil is Dry!', className: 'text-red-400 font-bold' };
+        } 
+        // soilRaw <= 600
+        return { reading: 'Wet', status: 'WARNING: Soil is Wet!', className: 'text-yellow-400 font-bold' };
+    };
+    
+    // 🌟 NEW LOGIC: Water Tank (Distance in CM)
+    const getWaterTankStatus = (distanceCM) => {
+        const aboveNormalThreshold = 10; 
+        const belowNormalThreshold = 25; 
+
+        if (distanceCM <= aboveNormalThreshold) {
+            return { reading: 'Above Normal', status: 'WARNING: Potential Overflow!', className: 'text-yellow-400 font-bold' };
+        } 
+        if (distanceCM > aboveNormalThreshold && distanceCM <= belowNormalThreshold) {
+            return { reading: 'Normal', status: 'STATUS: Level Optimal', className: 'text-emerald-400 font-bold' };
+        } 
+        // distanceCM > belowNormalThreshold
+        return { reading: 'Below Normal', status: 'ALERT: Tank is Low!', className: 'text-red-400 font-bold' };
+    };
+    
+    // Barometric Pressure (Numeric-based - Unchanged)
     const getPressureStatus = (pressure) => {
         if (pressure < 990) return { status: 'WARNING: Low Pressure!', className: 'text-red-400 font-bold' };
         if (pressure > 1030) return { status: 'STATUS: High Pressure', className: 'text-yellow-400 font-bold' };
         return { status: 'STATUS: Normal Pressure', className: 'text-emerald-400 font-bold' };
     };
-
-    // Water Tank Status (Ultrasonic Categorical Feedback)
-    const getWaterTankStatus = (tankStatus) => {
-        const normalizedStatus = tankStatus.toLowerCase();
-        
-        if (normalizedStatus.includes('below normal') || normalizedStatus.includes('low')) 
-            return { reading: 'Below Normal', status: 'ALERT: Below Normal!', className: 'text-red-400 font-bold' };
-        
-        if (normalizedStatus.includes('above normal') || normalizedStatus.includes('high')) 
-            return { reading: 'Above Normal', status: 'WARNING: Above Normal!', className: 'text-yellow-400 font-bold' };
-            
-        if (normalizedStatus.includes('normal')) 
-            return { reading: 'Normal', status: 'STATUS: Level Optimal', className: 'text-emerald-400 font-bold' };
-
-        return { reading: tankStatus, status: 'STATUS: Unknown Status', className: 'text-slate-400 font-bold' }; // Default fallback
-    };
     
-    // Soil Status now accepts categorical string
-    const getSoilStatus = (moisture) => {
-        if (typeof moisture === 'string') {
-            const normalizedMoisture = moisture.toLowerCase();
-            if (normalizedMoisture.includes('dry')) return { reading: 'Dry', status: 'ALERT: Soil is Dry!', className: 'text-red-400 font-bold' };
-            if (normalizedMoisture.includes('wet')) return { reading: 'Wet', status: 'WARNING: Soil is Wet!', className: 'text-yellow-400 font-bold' };
-            return { reading: moisture, status: 'STATUS: Moisture Optimal', className: 'text-emerald-400 font-bold' };
-        }
-        // Fallback for numerical input
-        return { reading: `${moisture.toFixed(1)}%`, status: 'STATUS: Fallback Value', className: 'text-slate-400 font-bold' };
-    };
-    
-    // Recalculate statuses whenever liveData changes
-    const rainStatus = useMemo(() => getRainStatus(liveData.rain), [liveData.rain]);
+    // Recalculate statuses whenever liveData (RAW values) changes
+    const rainStatus = useMemo(() => getRainStatus(liveData.rainRaw), [liveData.rainRaw]);
     const pressureStatus = useMemo(() => getPressureStatus(liveData.pressure), [liveData.pressure]);
-    const soilStatus = useMemo(() => getSoilStatus(liveData.soil), [liveData.soil]);
-    const waterTankStatus = useMemo(() => getWaterTankStatus(liveData.waterTank), [liveData.waterTank]);
+    const soilStatus = useMemo(() => getSoilStatus(liveData.soilRaw), [liveData.soilRaw]);
+    const waterTankStatus = useMemo(() => getWaterTankStatus(liveData.waterDistanceCM), [liveData.waterDistanceCM]);
 
 
     // Hardcoded historical data (kept for the chart sample)
@@ -204,23 +192,19 @@ const App = () => {
     
     // === 1. Initialization Logic (Guarded by isClient and scriptsLoaded) ===
     const initializeDashboard = useCallback(() => {
-        // Only run if we are client-side and libraries are loaded
         if (!isClient || !scriptsLoaded || typeof window.Gauge === 'undefined' || typeof window.Chart === 'undefined') {
             return;
         }
         
-        // Prevent initialization if not in Auto mode
         if (mode !== 'Auto') return;
         
-        // ******* CHECK: Prevent redundant initialization *******
         if (isDashboardInitializedRef.current) {
             return;
         }
 
-        // CRITICAL: Ensure all canvas elements are rendered and referenced before initializing libraries
         if (!rainGaugeRef.current || !pressureGaugeRef.current || !soilGaugeRef.current || !waterTankGaugeRef.current || !historyChartRef.current) {
              console.warn("Canvas elements not yet mounted for Auto mode. Skipping gauge/chart initialization.");
-             return; // Safely exit if refs are not ready
+             return; 
         }
 
         const Gauge = window.Gauge;
@@ -245,7 +229,6 @@ const App = () => {
             limitMax: false, limitMin: false, highDpiSupport: true,
             strokeColor: '#374151',
             generateGradient: true,
-            // Gradient stops for visual appeal: Emerald for optimal
             gradientStop: [
                 ['#10b981', 0.25], 
                 ['#f59e0b', 0.5], 
@@ -254,29 +237,30 @@ const App = () => {
         };
 
         // --- Gauge Initialization Logic ---
-        const initGauge = (ref, max, min, initial, labels, zones) => {
+        const initGauge = (ref, max, min, initialValue, labels, zones) => {
             if (ref.current) {
                 const options = JSON.parse(JSON.stringify(gaugeOptions));
                 options.staticLabels.labels = labels;
                 options.staticZones = zones;
                 
-                // For categorical gauges, use the mapped numerical state for initialization
-                const numericInitial = typeof initial === 'number' ? initial : 
-                                       (ref === rainGaugeRef ? STATE_MAPPINGS.rain(liveData.rain) :
-                                        ref === waterTankGaugeRef ? STATE_MAPPINGS.waterTank(liveData.waterTank) :
-                                        ref === soilGaugeRef ? STATE_MAPPINGS.soil(liveData.soil) : 0);
-
                 const gauge = new Gauge(ref.current).setOptions(options);
                 gauge.maxValue = max;
                 gauge.setMinValue(min);
+                
+                // 🌟 GAUGE INIT: Use the mapped numerical state for initialization
+                let numericInitial = initialValue;
+                if (ref === rainGaugeRef) numericInitial = STATE_MAPPINGS.rain(liveData.rainRaw);
+                else if (ref === waterTankGaugeRef) numericInitial = STATE_MAPPINGS.waterTank(liveData.waterDistanceCM);
+                else if (ref === soilGaugeRef) numericInitial = STATE_MAPPINGS.soil(liveData.soilRaw);
+                
                 gauge.set(numericInitial);
                 return gauge;
             }
         };
         
-        // 1. Rain Gauge (Categorical)
+        // 1. Rain Gauge (Max 50 for mapping)
         gaugeInstances.current.rain = initGauge(
-            rainGaugeRef, 50, 0, liveData.rain, // Initial data is string, will be mapped
+            rainGaugeRef, 50, 0, liveData.rainRaw, 
             [0, 10, 20, 30, 40, 50],
             [{strokeStyle: "#10b981", min: 0, max: 10}, {strokeStyle: "#f59e0b", min: 10, max: 30}, {strokeStyle: "#ef4444", min: 30, max: 50}]
         );
@@ -288,16 +272,16 @@ const App = () => {
             [{strokeStyle: "#f59e0b", min: 950, max: 980}, {strokeStyle: "#10b981", min: 980, max: 1040}, {strokeStyle: "#f59e0b", min: 1040, max: 1050}]
         );
 
-        // 3. Water Tank Gauge (Categorical)
+        // 3. Water Tank Gauge (Max 100 for percentage full)
         gaugeInstances.current.waterTank = initGauge(
-            waterTankGaugeRef, 100, 0, liveData.waterTank, // Initial data is string, will be mapped
+            waterTankGaugeRef, 100, 0, liveData.waterDistanceCM, 
             [0, 25, 50, 75, 100],
-            [{strokeStyle: "#ef4444", min: 0, max: 35}, {strokeStyle: "#10b981", min: 35, max: 65}, {strokeStyle: "#f59e0b", min: 65, max: 100}] // Adjusted zones for 3 states
+            [{strokeStyle: "#ef4444", min: 0, max: 35}, {strokeStyle: "#10b981", min: 35, max: 65}, {strokeStyle: "#f59e0b", min: 65, max: 100}] 
         );
 
-        // 4. Soil Moisture Gauge (Categorical)
+        // 4. Soil Moisture Gauge (Max 100 for percentage moisture)
         gaugeInstances.current.soil = initGauge(
-            soilGaugeRef, 100, 0, liveData.soil, // Initial data is string, will be mapped
+            soilGaugeRef, 100, 0, liveData.soilRaw,
             [0, 25, 50, 75, 100],
             [{strokeStyle: "#ef4444", min: 0, max: 30}, {strokeStyle: "#10b981", min: 30, max: 70}, {strokeStyle: "#f59e0b", min: 70, max: 100}]
         );
@@ -354,10 +338,9 @@ const App = () => {
                 }
             });
             
-            // ******* SET FLAG ON SUCCESSFUL INITIALIZATION *******
             isDashboardInitializedRef.current = true;
         }
-    }, [isClient, scriptsLoaded, liveData.pressure, liveData.rain, liveData.soil, liveData.waterTank, mode]); // Added liveData.waterTank to deps
+    }, [isClient, scriptsLoaded, liveData.pressure, liveData.rainRaw, liveData.soilRaw, liveData.waterDistanceCM, mode]); // Added raw data dependencies
 
     // --- Data Fetching Logic (Connects to online endpoint, runs every 5s) ---
     const fetchSensorData = useCallback(async () => {
@@ -397,31 +380,19 @@ const App = () => {
                     return isNaN(parsed) ? fallback : parsed;
                 };
 
-                const safeParseString = (value, fallback) => {
-                    if (value === undefined || value === null) return fallback;
-                    return String(value).trim();
+                const safeParseInt = (value, fallback) => {
+                    if (value === undefined || value === null || value === "") return fallback;
+                    const parsed = parseInt(value, 10);
+                    return isNaN(parsed) ? fallback : parsed;
                 };
 
-                // FIX: Consolidated keys for Water Tank Status
-                const extractedWaterTank = safeParseString(
-                    payload.waterLevel || 
-                    payload.waterTank || 
-                    payload.ultrasonicStatus || 
-                    payload.water_tank_status || 
-                    payload.level_status, 
-                    prevData.waterTank
-                );
-                
-                console.log(`[DEBUG] Extracted Water Tank Value: "${extractedWaterTank}"`);
-
+                // 🌟 NEW LOGIC: Reading raw numerical values from the payload
                 return {
-                    // Numerical sensors
                     pressure: safeParseFloat(payload.pressure, prevData.pressure),
-
-                    // Categorical sensors
-                    rain: safeParseString(payload.rain || payload.Rain, prevData.rain),
-                    soil: safeParseString(payload.soil || payload.Soil, prevData.soil), 
-                    waterTank: extractedWaterTank,
+                    // Keys from Arduino: rain, soil, waterDistanceCM
+                    rainRaw: safeParseInt(payload.rain, prevData.rainRaw),
+                    soilRaw: safeParseInt(payload.soil, prevData.soilRaw), 
+                    waterDistanceCM: safeParseFloat(payload.waterDistanceCM, prevData.waterDistanceCM),
                 };
             });
             
@@ -440,7 +411,7 @@ const App = () => {
         return () => clearInterval(interval);
     }, [fetchSensorData]); 
 
-    // === 2. Initialization/Cleanup Effect ===
+    // === 2. Initialization/Cleanup Effect (Unchanged) ===
     useEffect(() => {
         if (scriptsLoaded && mode === 'Auto' && !isDashboardInitializedRef.current) {
              initializeDashboard();
@@ -468,16 +439,16 @@ const App = () => {
     }, [initializeDashboard, mode, scriptsLoaded]);
 
 
-    // Effect to update the Gauge instances whenever liveData changes
+    // Effect to update the Gauge instances whenever liveData (RAW) changes
     useEffect(() => {
         if (mode === 'Auto' && isClient && scriptsLoaded && window.Gauge && gaugeInstances.current.rain) { 
             requestAnimationFrame(() => {
                 try {
-                    // UPDATE GAUGES USING NUMERICAL MAPPING FOR CATEGORICAL SENSORS
-                    if (gaugeInstances.current.rain) gaugeInstances.current.rain.set(STATE_MAPPINGS.rain(liveData.rain));
+                    // 🌟 UPDATE GAUGES: Use STATE_MAPPINGS with the RAW numerical data
+                    if (gaugeInstances.current.rain) gaugeInstances.current.rain.set(STATE_MAPPINGS.rain(liveData.rainRaw));
                     if (gaugeInstances.current.pressure) gaugeInstances.current.pressure.set(liveData.pressure);
-                    if (gaugeInstances.current.waterTank) gaugeInstances.current.waterTank.set(STATE_MAPPINGS.waterTank(liveData.waterTank));
-                    if (gaugeInstances.current.soil) gaugeInstances.current.soil.set(STATE_MAPPINGS.soil(liveData.soil));
+                    if (gaugeInstances.current.waterTank) gaugeInstances.current.waterTank.set(STATE_MAPPINGS.waterTank(liveData.waterDistanceCM));
+                    if (gaugeInstances.current.soil) gaugeInstances.current.soil.set(STATE_MAPPINGS.soil(liveData.soilRaw));
                 } catch (e) {
                     console.error("Error updating gauges:", e);
                     isDashboardInitializedRef.current = false; 
@@ -488,13 +459,12 @@ const App = () => {
     }, [liveData, scriptsLoaded, isClient, mode, initializeDashboard]);
 
     
-    // --- SVG ICON COMPONENTS ---
+    // --- SVG ICON COMPONENTS (Unchanged) ---
     const ClockIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>);
     const CloudRainIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"></path><path d="M16 20v-3"></path><path d="M8 20v-3"></path><path d="M12 18v-3"></path></svg>);
     const GaugeIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19c-3.3 0-6-2.7-6-6s2.7-6 6-6 6 2.7 6 6-2.7 6-6 6z"></path><path d="M9 13l3 3 3-3"></path></svg>);
     const LeafIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 20A10 10 0 0 0 2 11c0-4 4-4 8-8 3 0 4 3 4 5 0 2-3 5-3 5l-1 1 1 1c1.5 1.5 3.5 1.5 5 0l1-1c3 0 5 3 5 5 0 3-4 5-8 5z"></path></svg>);
     const RefreshCcwIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 18A8 8 0 1 0 7 19l-4-4"></path><path d="M4 13v-2"></path><path d="M17 19h-2l-4-4"></path></svg>);
-    // Icon for Water Tank Status
     const BoxIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><path d="M3.27 6.3L12 11.5l8.73-5.2"></path><path d="M12 22.78V11.5"></path></svg>);
 
 
@@ -582,7 +552,7 @@ const App = () => {
                         <section className="grid grid-cols-2 lg:grid-cols-4 gap-6">
                             <article className="card p-5 bg-slate-800 rounded-xl shadow-2xl transition duration-300 hover:shadow-emerald-500/50 hover:scale-[1.02] border border-slate-700 hover:border-emerald-600/70">
                                 <CloudRainIcon className="w-10 h-10 mb-3 text-sky-400 p-2 bg-sky-900/40 rounded-lg" />
-                                <h3 className="text-lg font-semibold mb-1 text-slate-300">Rain Sensor</h3>
+                                <h3 className="text-lg font-semibold mb-1 text-slate-300">Rain Sensor (Raw: {liveData.rainRaw})</h3>
                                 <p className="text-3xl font-black mb-1 text-slate-50">
                                     {rainStatus.reading}
                                 </p>
@@ -596,17 +566,17 @@ const App = () => {
                                 <p className={`text-sm ${pressureStatus.className}`}>{pressureStatus.status}</p>
                             </article>
                             
-                            {/* Water Tank Status (Categorical Ultrasonic) - Card 3 */}
+                            {/* Water Tank Status (Numerical Ultrasonic Distance) - Card 3 */}
                             <article className="card p-5 bg-slate-800 rounded-xl shadow-2xl transition duration-300 hover:shadow-cyan-500/50 hover:scale-[1.02] border border-slate-700 hover:border-cyan-600/70">
                                 <BoxIcon className="w-10 h-10 mb-3 text-cyan-400 p-2 bg-cyan-900/40 rounded-lg" />
-                                <h3 className="text-lg font-semibold mb-1 text-slate-300">Water Tank Status</h3>
-                                <p className="text-3xl font-black mb-1 text-slate-50">{waterTankStatus.reading}</p>
+                                <h3 className="text-lg font-semibold mb-1 text-slate-300">Water Tank Distance</h3>
+                                <p className="text-3xl font-black mb-1 text-slate-50">{liveData.waterDistanceCM.toFixed(1)} cm</p>
                                 <p className={`text-sm ${waterTankStatus.className}`}>{waterTankStatus.status}</p>
                             </article>
 
                             <article className="card p-5 bg-slate-800 rounded-xl shadow-2xl transition duration-300 hover:shadow-orange-500/50 hover:scale-[1.02] border border-slate-700 hover:border-orange-600/70">
                                 <LeafIcon className="w-10 h-10 mb-3 text-orange-400 p-2 bg-orange-900/40 rounded-lg" />
-                                <h3 className="text-lg font-semibold mb-1 text-slate-300">Soil Moisture</h3>
+                                <h3 className="text-lg font-semibold mb-1 text-slate-300">Soil Moisture (Raw: {liveData.soilRaw})</h3>
                                 <p className="text-3xl font-black mb-1 text-slate-50">
                                     {soilStatus.reading}
                                 </p>
@@ -621,7 +591,7 @@ const App = () => {
                                 <div className="gauges-container">
                                     <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
                                         <canvas id="gaugeRain" ref={rainGaugeRef} className="max-w-full h-auto"></canvas>
-                                        <p className="mt-3 text-lg font-semibold text-slate-300">Rain: <span className="text-sky-400">{rainStatus.reading}</span></p>
+                                        <p className="mt-3 text-lg font-semibold text-slate-300">Rain Status: <span className="text-sky-400">{rainStatus.reading}</span></p>
                                     </div>
                                     <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
                                         <canvas id="gaugePressure" ref={pressureGaugeRef} className="max-w-full h-auto"></canvas>

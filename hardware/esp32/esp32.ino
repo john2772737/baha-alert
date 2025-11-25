@@ -17,12 +17,13 @@ String password = "";
 
 // Global Variables for upload timing
 unsigned long lastUploadTime = 0;
-// Enforce a minimum delay of 60 seconds (1 minute) between database uploads
+// Enforce a minimum delay of 1.5 seconds between database uploads
 const long uploadInterval = 1500; 
 
 // --- 🛠️ SETUP ---
 
 void setup() {
+    // Start Serial Monitor for debugging
     Serial.begin(115200);
 
     // Initialize Serial2 (GPIO 16/17) for communication with the main Arduino/sensor board
@@ -88,14 +89,31 @@ void uploadToDatabase(String jsonPayload) {
 void loop() {
     // Check for incoming data from the Arduino on Serial2
     if (Serial2.available()) {
+        // 🌟 Add a small delay to ensure the entire line is received
+        delay(5); 
+        
         String incomingData = Serial2.readStringUntil('\n');
         incomingData.trim();
 
         if (incomingData.length() > 0) {
+            
+            // 🌟 ROBUSTNESS FIX: Filter out leading junk characters 🌟
+            int firstBraceIndex = incomingData.indexOf('{');
+            if (firstBraceIndex > 0) {
+                // Junk characters found before '{', trim them off
+                incomingData = incomingData.substring(firstBraceIndex);
+            } else if (firstBraceIndex == -1) {
+                // No starting brace found, this line is likely corrupt or junk
+                Serial.println("[FILTER] Rejected data (No starting '{'): " + incomingData);
+                return; // Exit loop iteration early
+            }
+            // -------------------------------------------------------------
+
             Serial.print("Raw Incoming Data: ");
             Serial.println(incomingData);
 
-            StaticJsonDocument<512> doc;
+            // 512 is generally enough for the current payload structure
+            StaticJsonDocument<512> doc; 
             DeserializationError error = deserializeJson(doc, incomingData);
 
             if (!error) {
@@ -119,12 +137,19 @@ void loop() {
                     if (millis() - lastUploadTime >= uploadInterval) {
                         
                         if (doc["mode"] == "AUTO") {
-                            Serial.println("--- DECODED SENSOR DATA ---");
-                            Serial.printf("Pressure: %.2f hPa\n", doc["pressure"].as<float>());
-                            Serial.println("Rain: " + doc["rain"].as<String>());
-                            Serial.println("Water: " + doc["waterLevel"].as<String>());
-                            Serial.println("Soil: " + doc["soil"].as<String>());
-                            Serial.println("---------------------------");
+                            // 🌟 Reading numerical values using new field names
+                            float pressure = doc["pressure"].as<float>();
+                            int rainRaw = doc["rain"].as<int>();
+                            int soilRaw = doc["soil"].as<int>();
+                            float waterDist = doc["waterDistanceCM"].as<float>();
+
+                            Serial.println("--- DECODED NUMERICAL SENSOR DATA ---");
+                            Serial.printf("Pressure: %.2f hPa\n", pressure);
+                            Serial.printf("Rain (Raw): %d\n", rainRaw);
+                            Serial.printf("Soil (Raw): %d\n", soilRaw);
+                            Serial.printf("Water Dist: %.1f cm\n", waterDist);
+                            Serial.println("-------------------------------------");
+                            
                         } else if (doc["mode"] == "SLEEP") {
                             Serial.println("System is entering SLEEP mode.");
                         }
@@ -146,7 +171,7 @@ void loop() {
             } else {
                 Serial.print("JSON Deserialization Error: ");
                 Serial.println(error.c_str());
-                Serial.println("Check the data format sent by the main Arduino!");
+                Serial.println("Check the data format sent by the main Arduino! (or corrupted data was filtered)");
             }
         }
     }
@@ -156,17 +181,14 @@ void loop() {
     if (millis() - lastCheck > 5000) {
         lastCheck = millis();
         
-        Serial.print("[WIFI] Current Status: ");
-        Serial.println(WiFi.status()); // Print the actual status code
-        
         // Only try to reconnect if not connected and we have valid SSID stored
         if (WiFi.status() != WL_CONNECTED && ssid != "") {
             Serial.println("[WIFI] Status: Attempting to reconnect...");
             WiFi.begin(ssid.c_str(), password.c_str());
         } else if (WiFi.status() == WL_CONNECTED) {
             // Optional: Print IP once connected
-            Serial.print("[WIFI] Status: Connected! IP: ");
-            Serial.println(WiFi.localIP());
+            // Serial.print("[WIFI] Status: Connected! IP: ");
+            // Serial.println(WiFi.localIP());
         }
     }
 }

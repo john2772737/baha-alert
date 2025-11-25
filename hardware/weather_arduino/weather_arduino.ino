@@ -1,7 +1,7 @@
 #include <SoftwareSerial.h>
 #include <avr/sleep.h> 
 
-// --- NEW EEPROM CODE: Library & Storage Structure ---
+// --- EEPROM CODE: Library & Storage Structure ---
 #include <EEPROM.h>
 
 struct WifiCredentials {
@@ -13,7 +13,7 @@ WifiCredentials creds;
 
 // --- 1. SENSOR LIBRARIES ---
 #include "BMP180.h" 
-#include "RainSensor.h" 
+#include "RainSensor.h"
 #include "SoilMoisture.h" 
 #include "Ultrasonic.h" 
 
@@ -45,12 +45,20 @@ const long INTERVAL = 2000;
 // --- FUNCTION PROTOTYPES (For EEPROM Helpers) ---
 void loadWifiCredentials();
 void saveWifiCredentials(String s, String p);
+void runAutoMode();
+void runMaintenanceMode();
+void runSleepMode();
+void changeModeISR();
+
 
 void setup() {
   Serial.begin(9600);     
   espSerial.begin(9600);  
   
-  Serial.println("Initializing Sensors...");
+  Serial.println(F("Initializing Sensors..."));
+  
+  // Note: If any sensor initialization fails (e.g., BMP180), the code may stop here.
+  // Ensure all sensor libraries (BMP180.h, RainSensor.h, etc.) are installed and working.
   bmpsensor.begin();
   rainsensor.begin();
   soilmoisture.begin(); 
@@ -59,8 +67,11 @@ void setup() {
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), changeModeISR, FALLING);
   
-  Serial.println("System Started: AUTO MODE");
-  Serial.println("Press Button to switch modes.");
+  Serial.println(F("System Started: AUTO MODE"));
+  Serial.println(F("Press Button to switch modes."));
+
+  // 🌟 FIX: Ensure startup messages are fully printed before loop starts
+  Serial.flush(); 
 
   // --- NEW EEPROM CODE: Load Wi-Fi on Startup ---
   delay(1000); // Wait for ESP to boot
@@ -92,26 +103,40 @@ void runAutoMode() {
   if (currentMillis - previousMillis >= INTERVAL) {
     previousMillis = currentMillis;
 
+    // 🌟 CHANGE: All readings are now numerical (float/int)
     float pressure = bmpsensor.getPressureHPA();
-    String rainCond = rainsensor.getCondition();
-    String soilCond = soilmoisture.getCondition();
-    String waterLevelCond = ultrasonic.getCondition();
+    // Assuming getRainValue() returns raw analog or scaled voltage (0-1023 or 0.0-5.0)
+    int rainValue = rainsensor.getAnalog(); 
+    // Assuming getMoistureValue() returns raw analog or percentage (0-1023 or 0-100)
+    int soilValue = soilmoisture.getAnalog(); 
+    // Assuming getDistanceCM() returns distance in centimeters
+    float waterDistanceCM = ultrasonic.getDistanceCM(); 
+
+    // 🌟 STATUS CHECK: If BMP reading is wildly off (0 is a common failure value), skip transmission
+    if (pressure < 1.0) {
+        Serial.println(F("AUTO LOG: Pressure read failed. Skipping upload."));
+        return;
+    }
 
     String data;
-    data.reserve(200); 
-    data = "{\"mode\":\"AUTO\","; 
-    data += "\"pressure\":"; data += String(pressure);
-    data += ",\"rain\":\""; data += rainCond; data += "\"";
-    data += ",\"waterLevel\":\""; data += waterLevelCond; data += "\"";
-    data += ",\"soil\":\""; data += soilCond; data += "\"}"; 
+    data.reserve(256); // Increased reserve size for robustness
+    // Using F() macro for constant strings saves RAM
+    data = F("{\"mode\":\"AUTO\","); 
+    data += F("\"pressure\":"); data += String(pressure, 2); // 2 decimal places for pressure
+    data += F(",\"rain\":"); data += String(rainValue); 
+    data += F(",\"soil\":"); data += String(soilValue); 
+    data += F(",\"waterDistanceCM\":"); data += String(waterDistanceCM, 1); // 1 decimal place for distance
+    data += F("}"); 
 
     espSerial.println(data); 
-    Serial.println("AUTO LOG: " + data); 
+    // 🌟 FIX: Flush the serial buffer to ensure the entire JSON is transmitted immediately and completely
+    espSerial.flush();
+    
+    // 🌟 FIX for Ambiguous Operator Error: Use separate print calls instead of String concatenation
+    Serial.print(F("AUTO LOG: ")); 
+    Serial.println(data); 
   }
 }
- // ==========================================
-//           MODE FUNCTIONS
-// ==========================================
 
 void runMaintenanceMode() {
   char cmd = 0;
@@ -138,82 +163,84 @@ void runMaintenanceMode() {
     lastCmd = cmd;
     lastCmdTime = millis();
 
-    Serial.print("CMD RECEIVED: "); Serial.println(cmd);
+    Serial.print(F("CMD RECEIVED: ")); Serial.println(cmd);
 
     switch (cmd) {
       case 'U': case 'u': 
         {
-          String val = ultrasonic.getCondition();
-          Serial.print("WATER: "); Serial.println(val);
-          espSerial.println("{\"sensor\":\"water\",\"val\":\"" + val + "\"}");
+          // 🌟 CHANGE: Get distance in CM
+          float val = ultrasonic.getDistanceCM();
+          Serial.print(F("WATER (CM): ")); Serial.println(val);
+          // Send as JSON number, not a string
+          espSerial.println("{\"sensor\":\"waterDistanceCM\",\"val\":" + String(val, 1) + "}");
         } break;
 
       case 'R': case 'r': 
         {
-          String val = rainsensor.getCondition();
-          Serial.print("RAIN: "); Serial.println(val);
-          espSerial.println("{\"sensor\":\"rain\",\"val\":\"" + val + "\"}");
+          // 🌟 CHANGE: Get raw rain sensor value
+          int val = rainsensor.getAnalog();
+          Serial.print(F("RAIN (RAW): ")); Serial.println(val);
+          // Send as JSON number
+          espSerial.println("{\"sensor\":\"rainRaw\",\"val\":" + String(val) + "}");
         } break;
 
       case 'S': case 's': 
         {
-          String val = soilmoisture.getCondition();
-          Serial.print("SOIL: "); Serial.println(val);
-          espSerial.println("{\"sensor\":\"soil\",\"val\":\"" + val + "\"}");
+          // 🌟 CHANGE: Get raw soil moisture value
+          int val = soilmoisture.getAnalog();
+          Serial.print(F("SOIL (RAW): ")); Serial.println(val);
+          // Send as JSON number
+          espSerial.println("{\"sensor\":\"soilRaw\",\"val\":" + String(val) + "}");
         } break;
 
       case 'P': case 'p': 
         {
+          // Pressure remains numerical, but we standardize the JSON format
           float val = bmpsensor.getPressureHPA();
-          Serial.print("PRESSURE: "); Serial.println(val);
-          espSerial.println("{\"sensor\":\"pressure\",\"val\":" + String(val) + "}");
+          Serial.print(F("PRESSURE (hPA): ")); Serial.println(val);
+          // Send as JSON number
+          espSerial.println("{\"sensor\":\"pressureHPA\",\"val\":" + String(val, 2) + "}");
         } break;
 
       case 'L': case 'l': 
         digitalWrite(13, !digitalRead(13)); 
-        Serial.println("LED Toggled");
+        Serial.println(F("LED Toggled"));
         espSerial.println("{\"sensor\":\"led\",\"val\":\"toggled\"}");
         break;
 
-      // --- EEPROM CODE: The 'W' Command for Wi-Fi Setup (The fixed part) ---
+      // --- EEPROM CODE: The 'W' Command for Wi-Fi Setup (No changes needed here) ---
       case 'W': case 'w':
-        Serial.println("=== WI-FI SETUP ===");
-        Serial.println("Type your Wi-Fi details in this format:");
-        Serial.println("**SSID,PASSWORD**");
+        Serial.println(F("=== WI-FI SETUP ==="));
+        Serial.println(F("Type your Wi-Fi details in this format:"));
+        Serial.println(F("**SSID,PASSWORD**"));
         
         // --- CRITICAL FIX: Clear the buffer fully before waiting for new input ---
-        // This consumes any stray \n, \r, or spaces left after the 'w' command, 
-        // preventing the "Error: Missing comma" message from being triggered immediately.
         while (Serial.available()) {
           Serial.read();
-          delay(2); // Small delay aids buffer flushing on some boards
+          delay(2);
         }
         
-        Serial.println("Waiting for input...");
+        Serial.println(F("Waiting for input..."));
         
-        // Wait for user to type (Blocking is okay in Maintenance Mode)
         unsigned long startTime = millis();
         const long TIMEOUT = 30000; // 30 seconds timeout
         
         while(Serial.available() == 0 && (millis() - startTime < TIMEOUT)) {
-          // Check button just in case user wants to exit
           if(digitalRead(BUTTON_PIN) == LOW) {
-            Serial.println("Wi-Fi setup aborted by button press.");
+            Serial.println(F("Wi-Fi setup aborted by button press."));
             return; 
           }
           delay(10);
         }
 
         if (Serial.available() == 0) {
-          Serial.println("Wi-Fi setup timed out (30s).");
+          Serial.println(F("Wi-Fi setup timed out (30s)."));
           return;
         }
         
-        // Read the full line of input
         String input = Serial.readStringUntil('\n');
-        input.trim(); // Remove leading/trailing whitespace (e.g., if the user put a space after the comma)
+        input.trim();
         
-        // Double-check: Clear any remaining bytes that might be in the buffer after the read
         while (Serial.available()) {
             Serial.read();
         }
@@ -223,29 +250,27 @@ void runMaintenanceMode() {
           String newSSID = input.substring(0, commaIndex);
           String newPass = input.substring(commaIndex + 1);
           
-          // Safety check for length against the 32-byte char arrays
           if (newSSID.length() >= 32 || newPass.length() >= 32) {
-             Serial.println("Error: SSID or Password too long (max 31 chars).");
+             Serial.println(F("Error: SSID or Password too long (max 31 chars)."));
           } else {
-             Serial.print("Saving: " + newSSID);
+             Serial.print(F("Saving: ")); Serial.println(newSSID);
              saveWifiCredentials(newSSID, newPass);
           }
         } else {
-          // This should only trigger if the user typed text without a comma
-          Serial.println("Error: Missing comma. Format: ssid,pass");
+          Serial.println(F("Error: Missing comma. Format: ssid,pass"));
         }
         break;
       // ----------------------------------------
 
       default: 
-        Serial.println("Unknown Command"); 
+        Serial.println(F("Unknown Command")); 
         break;
     }
   }
 }
 
 void runSleepMode() {
-  Serial.println("System Sleeping... (Press Button to Wake)");
+  Serial.println(F("System Sleeping... (Press Button to Wake)"));
   Serial.flush(); 
   
   espSerial.println("{\"mode\":\"SLEEP\"}");
@@ -261,7 +286,7 @@ void runSleepMode() {
   detachInterrupt(digitalPinToInterrupt(BUTTON_PIN)); 
   
   currentState = AUTO_MODE; 
-  Serial.println("Woke up!");
+  Serial.println(F("Woke up!"));
 
   while (digitalRead(BUTTON_PIN) == LOW) { delay(50); }
   
@@ -279,39 +304,32 @@ void changeModeISR() {
 }
 
 // ==========================================
-//    NEW HELPER FUNCTIONS FOR EEPROM
+//    HELPER FUNCTIONS FOR EEPROM
 // ==========================================
 
 void loadWifiCredentials() {
   EEPROM.get(0, creds); // Read from Address 0
   
-  // Check if EEPROM is empty (New Arduino)
   if (creds.ssid[0] == 0 || creds.ssid[0] == 0xFF) {
-    Serial.println("EEPROM: No Wi-Fi found. Please set in Maintenance Mode.");
+    Serial.println(F("EEPROM: No Wi-Fi found. Please set in Maintenance Mode."));
   } else {
-    Serial.print("EEPROM: Loading Wi-Fi: ");
+    Serial.print(F("EEPROM: Loading Wi-Fi: "));
     Serial.println(creds.ssid);
     
-    // Send Config to ESP
-    // Format: {"type":"config","ssid":"Name","pass":"123"}
     String config = "{\"type\":\"config\",\"ssid\":\"" + String(creds.ssid) + "\",\"pass\":\"" + String(creds.password) + "\"}";
     espSerial.println(config);
   }
 }
 
 void saveWifiCredentials(String newSSID, String newPass) {
-  // Clear old data
   memset(creds.ssid, 0, 32);
   memset(creds.password, 0, 32);
   
-  // Copy new Strings to Char Arrays
   newSSID.toCharArray(creds.ssid, 32);
   newPass.toCharArray(creds.password, 32);
   
-  // Write to EEPROM
   EEPROM.put(0, creds);
-  Serial.println(" -> Saved to Memory!");
+  Serial.println(F(" -> Saved to Memory!"));
   
-  // Send to ESP immediately
   loadWifiCredentials();
 }
