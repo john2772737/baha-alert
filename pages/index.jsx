@@ -247,6 +247,7 @@ const App = () => {
         let rainData = [];
         let pressureData = [];
         let soilData = [];
+        let waterData = [];
 
         if (historyData && historyData.length > 0) {
             // 🌟 UPDATE CHART: Processing 7-Day Average Data
@@ -259,6 +260,8 @@ const App = () => {
             pressureData = historyData.map(item => item.avgPressure || 0);
             // Convert raw soil average to percentage
             soilData = historyData.map(item => Math.round(100 - ((item.avgSoil || 0) / 1023.0 * 100)));
+            // 🌟 NEW: Process Water Distance
+            waterData = historyData.map(item => item.avgWaterDistance || 0);
         } else {
             // Placeholder if data is empty
             labels = ['No Data'];
@@ -280,7 +283,9 @@ const App = () => {
                 datasets: [
                     { label: 'Avg Rain (Raw)', data: rainData, borderColor: 'rgba(59, 130, 246, 1)', backgroundColor: 'rgba(59, 130, 246, 0.1)', tension: 0.3, yAxisID: 'yRain' },
                     { label: 'Avg Pressure (hPa)', data: pressureData, borderColor: 'rgba(168, 85, 247, 1)', backgroundColor: 'rgba(168, 85, 247, 0.1)', tension: 0.3, yAxisID: 'yPressure' },
-                    { label: 'Avg Soil Moisture (%)', data: soilData, borderColor: 'rgba(132, 204, 22, 1)', backgroundColor: 'rgba(132, 204, 22, 0.1)', fill: true, tension: 0.3, yAxisID: 'yLevel' }
+                    { label: 'Avg Soil Moisture (%)', data: soilData, borderColor: 'rgba(132, 204, 22, 1)', backgroundColor: 'rgba(132, 204, 22, 0.1)', fill: true, tension: 0.3, yAxisID: 'yLevel' },
+                    // 🌟 NEW DATASET: Water Level
+                    { label: 'Avg Water Level (cm)', data: waterData, borderColor: 'rgba(6, 182, 212, 1)', backgroundColor: 'rgba(6, 182, 212, 0.1)', tension: 0.3, yAxisID: 'yWater' }
                 ]
             },
             options: {
@@ -289,7 +294,9 @@ const App = () => {
                     x: { grid: { color: 'rgba(75, 85, 99, 0.3)' }, ticks: { color: chartTextColor } },
                     yRain: { type: 'linear', position: 'left', beginAtZero: true, title: {display:true, text:'Rain (Raw)', color: chartTextColor}, grid: { color: 'rgba(75, 85, 99, 0.3)' }, ticks: { color: chartTextColor } },
                     yPressure: { type: 'linear', position: 'right', min: 950, max: 1050, grid: { display: false }, ticks: { color: chartTextColor } },
-                    yLevel: { type: 'linear', position: 'left', min: 0, max: 100, grid: { display: false }, ticks: { callback: (v) => v + '%', color: chartTextColor } }
+                    yLevel: { type: 'linear', position: 'left', min: 0, max: 100, grid: { display: false }, ticks: { callback: (v) => v + '%', color: chartTextColor } },
+                    // 🌟 NEW SCALE: yWater
+                    yWater: { type: 'linear', position: 'right', min: 0, suggestedMax: 50, grid: { display: false }, ticks: { callback: (v) => v + ' cm', color: chartTextColor } }
                 },
                 plugins: { legend: { labels: { color: chartTextColor } } }
             }
