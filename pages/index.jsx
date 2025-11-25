@@ -83,8 +83,7 @@ const App = () => {
         setCurrentTime(getFormattedTime());
         
         const cdnUrls = [
-            "https://unpkg.com/react@18/umd/react.production.min.js",
-            "https://unpkg.com/react-dom@18/umd/react-dom.production.min.js",
+            // 🌟 FIX: Removed React and React DOM CDNs to avoid conflicts
             "https://cdnjs.cloudflare.com/ajax/libs/gauge.js/1.3.7/gauge.min.js",
             "https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js",
             "https://cdn.tailwindcss.com",
@@ -611,7 +610,7 @@ const App = () => {
                         {/* Main Content Section - Gauges & Chart (Dynamic) */}
                         <section className="grid grid-cols-1 gap-8 md:grid-cols-1">
                             <article className="card p-6 bg-slate-800 rounded-3xl shadow-2xl border border-slate-700">
-                                <h3 className="2xl font-bold mb-6 text-slate-200 border-b border-slate-700 pb-2">Live Sensor Readings (Gauges)</h3>
+                                <h3 className="text-2xl font-bold mb-6 text-slate-200 border-b border-slate-700 pb-2">Live Sensor Readings (Gauges)</h3>
                                 <div className="gauges-container">
                                     {/* Rain Gauge with Raw Data */}
                                     <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
