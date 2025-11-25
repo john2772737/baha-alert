@@ -21,7 +21,6 @@ const getFormattedTime = () => {
 };
 
 // --- HELPER: Mappings for Gauge Needles (Visual Only) ---
-// Note: These convert raw sensor data into a 0-100 or 0-50 scale for the gauge needle position.
 const STATE_MAPPINGS = {
     rain: (rainRaw) => {
         // Invert: 1023 (Dry) -> 0, 0 (Wet) -> 50
@@ -33,8 +32,8 @@ const STATE_MAPPINGS = {
         const mapped = 100 - (soilRaw / 1023.0 * 100);
         return Math.min(100, Math.max(0, mapped));
     },
-    waterTank: (distanceCM) => {
-        // Invert: 50cm (Empty) -> 0%, 0cm (Full) -> 100%
+    waterLevel: (distanceCM) => {
+        // Invert: 50cm (Empty/Low) -> 0%, 0cm (High) -> 100%
         const percentageFull = 100.0 - (distanceCM / 50.0) * 100.0;
         return Math.min(100, Math.max(0, percentageFull));
     }
@@ -54,15 +53,15 @@ const App = () => {
     const [currentTime, setCurrentTime] = useState('Loading...');
     const [historyData, setHistoryData] = useState([]); 
     
-    // Refs for DOM elements
+    // Refs
     const lastIdRef = useRef(null); 
     const rainGaugeRef = useRef(null);
     const pressureGaugeRef = useRef(null);
     const soilGaugeRef = useRef(null);
-    const waterTankGaugeRef = useRef(null); 
+    const waterGaugeRef = useRef(null); // Renamed ref for clarity
     const historyChartRef = useRef(null);
     
-    // Refs for Instance storage
+    // Instance Refs
     const gaugeInstances = useRef({});
     const chartInstance = useRef(null);
 
@@ -98,11 +97,8 @@ const App = () => {
         return () => clearInterval(timeInterval);
     }, []);
 
-    // --- 2. STATUS LOGIC (CORRECTED) ---
-    // These functions determine the text and color based on sensor values.
-    
+    // --- 2. STATUS LOGIC ---
     const getRainStatus = (rainRaw) => {
-        // High number = Dry, Low number = Rain
         if (rainRaw > 900) return { reading: 'Dry / No Rain', status: 'STATUS: Clear', className: 'text-emerald-400 font-bold' };
         if (rainRaw > 700) return { reading: 'Drizzling', status: 'STATUS: Light Rain', className: 'text-yellow-400 font-bold' };
         if (rainRaw > 400) return { reading: 'Raining', status: 'ALERT: Moderate Rain', className: 'text-orange-400 font-bold' };
@@ -110,17 +106,15 @@ const App = () => {
     };
     
     const getSoilStatus = (soilRaw) => {
-        // High number = Dry, Mid = Moist, Low = Waterlogged
         if (soilRaw >= 800) return { reading: 'Very Dry', status: 'ALERT: Water Needed!', className: 'text-red-400 font-bold' };
         if (soilRaw >= 400) return { reading: 'Moist (Optimal)', status: 'STATUS: Soil Good', className: 'text-emerald-400 font-bold' };
         return { reading: 'Wet / Saturated', status: 'WARNING: Too Wet', className: 'text-yellow-400 font-bold' };
     };
     
-    const getWaterTankStatus = (distanceCM) => {
-        // Low distance = Full, High distance = Empty
-        if (distanceCM <= 10) return { reading: 'High Level', status: 'WARNING: Potential Overflow!', className: 'text-yellow-400 font-bold' };
+    const getWaterLevelStatus = (distanceCM) => {
+        if (distanceCM <= 10) return { reading: 'High Level', status: 'WARNING: High Water!', className: 'text-yellow-400 font-bold' };
         if (distanceCM <= 35) return { reading: 'Normal Level', status: 'STATUS: Level Optimal', className: 'text-emerald-400 font-bold' };
-        return { reading: 'Low Level', status: 'ALERT: Tank is Low!', className: 'text-red-400 font-bold' };
+        return { reading: 'Low Level', status: 'ALERT: Water Low!', className: 'text-red-400 font-bold' };
     };
     
     const getPressureStatus = (pressure) => {
@@ -129,11 +123,10 @@ const App = () => {
         return { status: 'STATUS: Normal Pressure', className: 'text-emerald-400 font-bold' };
     };
     
-    // Memoized Statuses
     const rainStatus = useMemo(() => getRainStatus(liveData.rainRaw), [liveData.rainRaw]);
     const pressureStatus = useMemo(() => getPressureStatus(liveData.pressure), [liveData.pressure]);
     const soilStatus = useMemo(() => getSoilStatus(liveData.soilRaw), [liveData.soilRaw]);
-    const waterTankStatus = useMemo(() => getWaterTankStatus(liveData.waterDistanceCM), [liveData.waterDistanceCM]);
+    const waterStatus = useMemo(() => getWaterLevelStatus(liveData.waterDistanceCM), [liveData.waterDistanceCM]);
 
     // --- 3. DATA FETCHING ---
     const fetchSensorData = useCallback(async () => {
@@ -188,7 +181,7 @@ const App = () => {
     // --- 4. GAUGES INITIALIZATION ---
     useEffect(() => {
         if (!isClient || !scriptsLoaded || mode !== 'Auto') return;
-        if (!rainGaugeRef.current || !pressureGaugeRef.current || !soilGaugeRef.current || !waterTankGaugeRef.current) return;
+        if (!rainGaugeRef.current || !pressureGaugeRef.current || !soilGaugeRef.current || !waterGaugeRef.current) return;
 
         const Gauge = window.Gauge;
         if (!Gauge) return;
@@ -212,28 +205,22 @@ const App = () => {
             return gauge;
         };
 
-        // Create Gauges if missing
         if (!gaugeInstances.current.rain) {
-            // Rain (0-50 visual scale)
             gaugeInstances.current.rain = createGauge(rainGaugeRef, 50, 0, [0, 25, 50], [{strokeStyle: "#10b981", min: 0, max: 15}, {strokeStyle: "#f59e0b", min: 15, max: 35}, {strokeStyle: "#ef4444", min: 35, max: 50}]);
-            // Pressure
             gaugeInstances.current.pressure = createGauge(pressureGaugeRef, 1050, 950, [950, 1000, 1050], [{strokeStyle: "#f59e0b", min: 950, max: 980}, {strokeStyle: "#10b981", min: 980, max: 1040}, {strokeStyle: "#f59e0b", min: 1040, max: 1050}]);
-            // Water Tank (0-100% visual scale)
-            gaugeInstances.current.waterTank = createGauge(waterTankGaugeRef, 100, 0, [0, 50, 100], [{strokeStyle: "#ef4444", min: 0, max: 20}, {strokeStyle: "#f59e0b", min: 20, max: 40}, {strokeStyle: "#10b981", min: 40, max: 100}]);
-            // Soil (0-100% visual scale)
+            gaugeInstances.current.water = createGauge(waterGaugeRef, 100, 0, [0, 50, 100], [{strokeStyle: "#ef4444", min: 0, max: 20}, {strokeStyle: "#f59e0b", min: 20, max: 40}, {strokeStyle: "#10b981", min: 40, max: 100}]);
             gaugeInstances.current.soil = createGauge(soilGaugeRef, 100, 0, [0, 50, 100], [{strokeStyle: "#ef4444", min: 0, max: 30}, {strokeStyle: "#10b981", min: 30, max: 70}, {strokeStyle: "#f59e0b", min: 70, max: 100}]);
         }
 
-        // Update Gauge Values using STATE_MAPPINGS
         if (gaugeInstances.current.rain) gaugeInstances.current.rain.set(STATE_MAPPINGS.rain(liveData.rainRaw));
         if (gaugeInstances.current.pressure && liveData.pressure > 100) gaugeInstances.current.pressure.set(liveData.pressure);
-        if (gaugeInstances.current.waterTank) gaugeInstances.current.waterTank.set(STATE_MAPPINGS.waterTank(liveData.waterDistanceCM));
+        if (gaugeInstances.current.water) gaugeInstances.current.water.set(STATE_MAPPINGS.waterLevel(liveData.waterDistanceCM));
         if (gaugeInstances.current.soil) gaugeInstances.current.soil.set(STATE_MAPPINGS.soil(liveData.soilRaw));
 
     }, [isClient, scriptsLoaded, mode, liveData]);
 
 
-    // --- 5. CHART LOGIC (UPDATED WITH COMBINED POINTS) ---
+    // --- 5. CHART LOGIC ---
     useEffect(() => {
         if (!isClient || !scriptsLoaded || mode !== 'Auto') return;
         if (!historyChartRef.current || typeof window.Chart === 'undefined') return;
@@ -242,18 +229,14 @@ const App = () => {
         const ctx = historyChartRef.current.getContext('2d');
         const chartTextColor = '#e2e8f0';
 
-        // Prepare Data
         let labels = [];
         let rainData = [], pressureData = [], soilData = [], waterData = [];
 
         if (historyData && historyData.length > 0) {
             labels = historyData.map(item => new Date(item._id).toLocaleDateString('en-US', { weekday: 'short' }));
-            
             rainData = historyData.map(item => item.avgRain || 0);
             pressureData = historyData.map(item => item.avgPressure || 0);
-            // Soil %
             soilData = historyData.map(item => Math.round(100 - ((item.avgSoil || 0) / 1023.0 * 100)));
-            // Water Level % (Logic: 50cm is empty, 0cm is full)
             waterData = historyData.map(item => {
                 const dist = item.avgWaterDistance || 50; 
                 const pct = 100 - (dist / 50.0 * 100); 
@@ -273,15 +256,12 @@ const App = () => {
                     { label: 'Rain (Raw)', data: rainData, borderColor: 'rgba(59, 130, 246, 1)', backgroundColor: 'rgba(59, 130, 246, 0.1)', tension: 0.4, yAxisID: 'yRain', pointRadius: 4, pointHoverRadius: 6 },
                     { label: 'Pressure (hPa)', data: pressureData, borderColor: 'rgba(168, 85, 247, 1)', backgroundColor: 'rgba(168, 85, 247, 0.1)', tension: 0.4, yAxisID: 'yPressure', pointRadius: 4, pointHoverRadius: 6 },
                     { label: 'Soil Moist (%)', data: soilData, borderColor: 'rgba(132, 204, 22, 1)', backgroundColor: 'rgba(132, 204, 22, 0.1)', fill: true, tension: 0.4, yAxisID: 'yLevel', pointRadius: 4, pointHoverRadius: 6 },
-                    { label: 'Water Lvl (%)', data: waterData, borderColor: 'rgba(6, 182, 212, 1)', backgroundColor: 'rgba(6, 182, 212, 0.1)', tension: 0.4, yAxisID: 'yWater', pointRadius: 4, pointHoverRadius: 6 }
+                    { label: 'Water Level (%)', data: waterData, borderColor: 'rgba(6, 182, 212, 1)', backgroundColor: 'rgba(6, 182, 212, 0.1)', tension: 0.4, yAxisID: 'yWater', pointRadius: 4, pointHoverRadius: 6 }
                 ]
             },
             options: {
                 responsive: true, maintainAspectRatio: false,
-                interaction: {
-                    mode: 'index', // COMBINES POINTS
-                    intersect: false,
-                },
+                interaction: { mode: 'index', intersect: false },
                 scales: {
                     x: { grid: { color: 'rgba(75, 85, 99, 0.3)' }, ticks: { color: chartTextColor } },
                     yRain: { type: 'linear', position: 'left', beginAtZero: true, display: false },
@@ -298,7 +278,6 @@ const App = () => {
 
     }, [isClient, scriptsLoaded, mode, historyData]);
 
-    // --- ICONS ---
     const ClockIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>);
     const CloudRainIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"></path><path d="M16 20v-3"></path><path d="M8 20v-3"></path><path d="M12 18v-3"></path></svg>);
     const GaugeIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19c-3.3 0-6-2.7-6-6s2.7-6 6-6 6 2.7 6 6-2.7 6-6 6z"></path><path d="M9 13l3 3 3-3"></path></svg>);
@@ -357,8 +336,9 @@ const App = () => {
                             
                             <article className="card p-5 bg-slate-800 rounded-xl shadow-2xl border border-slate-700 hover:border-cyan-600/70 h-full">
                                 <BoxIcon className="w-10 h-10 mb-3 text-cyan-400 p-2 bg-cyan-900/40 rounded-lg" />
+                                {/* Label changed to Water Level */}
                                 <h3 className="text-lg font-semibold mb-1 text-slate-300">Water Level</h3>
-                                <p className={`text-sm font-bold ${waterTankStatus.className}`}>{waterTankStatus.status}</p>
+                                <p className={`text-sm font-bold ${waterStatus.className}`}>{waterStatus.status}</p>
                             </article>
 
                             <article className="card p-5 bg-slate-800 rounded-xl shadow-2xl border border-slate-700 hover:border-orange-600/70 h-full">
@@ -388,12 +368,12 @@ const App = () => {
                                             <span className="text-xl text-purple-400 font-bold">{liveData.pressure.toFixed(1)} hPa</span>
                                         </p>
                                     </div>
-                                    {/* Water Gauge */}
+                                    {/* Water Gauge (Updated: Label changed, 'Full' removed) */}
                                     <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
-                                        <canvas id="gaugeWaterTank" ref={waterTankGaugeRef} className="max-w-full h-auto"></canvas>
+                                        <canvas id="gaugeWaterTank" ref={waterGaugeRef} className="max-w-full h-auto"></canvas>
                                         <p className="mt-3 text-lg font-semibold text-slate-300 gauge-text">
-                                            <span className="text-sm text-slate-400">Water Tank</span>
-                                            <span className="text-xl text-cyan-400 font-bold">{STATE_MAPPINGS.waterTank(liveData.waterDistanceCM).toFixed(0)}% Full</span>
+                                            <span className="text-sm text-slate-400">Water Level</span>
+                                            <span className="text-xl text-cyan-400 font-bold">{STATE_MAPPINGS.waterLevel(liveData.waterDistanceCM).toFixed(0)}%</span>
                                         </p>
                                     </div>
                                     {/* Soil Gauge */}
