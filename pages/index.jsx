@@ -591,7 +591,11 @@ const App = () => {
                                 <div className="gauges-container">
                                     <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
                                         <canvas id="gaugeRain" ref={rainGaugeRef} className="max-w-full h-auto"></canvas>
-                                        <p className="mt-3 text-lg font-semibold text-slate-300">Rain Status: <span className="text-sky-400">{rainStatus.reading}</span></p>
+                                        <p className="mt-3 text-lg font-semibold text-slate-300">
+                                            Rain Status: <span className="text-sky-400">{rainStatus.reading}</span> 
+                                            <br/>
+                                            <span className="text-sm text-slate-400">(Raw: {liveData.rainRaw})</span>
+                                        </p>
                                     </div>
                                     <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
                                         <canvas id="gaugePressure" ref={pressureGaugeRef} className="max-w-full h-auto"></canvas>
@@ -599,11 +603,19 @@ const App = () => {
                                     </div>
                                     <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
                                         <canvas id="gaugeWaterTank" ref={waterTankGaugeRef} className="max-w-full h-auto"></canvas>
-                                        <p className="mt-3 text-lg font-semibold text-slate-300">Water Level: <span className="text-cyan-400">{waterTankStatus.reading}</span></p>
+                                        <p className="mt-3 text-lg font-semibold text-slate-300">
+                                            Water Level: <span className="text-cyan-400">{waterTankStatus.reading}</span>
+                                            <br/>
+                                            <span className="text-sm text-slate-400">({liveData.waterDistanceCM.toFixed(1)} cm distance)</span>
+                                        </p>
                                     </div>
                                     <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
                                         <canvas id="gaugeSoil" ref={soilGaugeRef} className="max-w-full h-auto"></canvas>
-                                        <p className="mt-3 text-lg font-semibold text-slate-300">Soil Moisture: <span className="text-orange-400">{soilStatus.reading}</span></p>
+                                        <p className="mt-3 text-lg font-semibold text-slate-300">
+                                            Soil Moisture: <span className="text-orange-400">{soilStatus.reading}</span>
+                                            <br/>
+                                            <span className="text-sm text-slate-400">(Raw: {liveData.soilRaw})</span>
+                                        </p>
                                     </div>
                                 </div>
                             </article>
