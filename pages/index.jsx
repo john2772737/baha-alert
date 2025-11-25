@@ -619,8 +619,8 @@ const App = () => {
                                     <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
                                         <canvas id="gaugeRain" ref={rainGaugeRef} className="max-w-full h-auto"></canvas>
                                         <p className="mt-3 text-lg font-semibold text-slate-300">
-                                            {/* 🌟 FIX 3: Show only Raw value for Rain */}
-                                            Raw: <span className="text-sky-400">{liveData.rainRaw}</span> 
+                                            {/* 🌟 FIX: Show sensor name + raw value */}
+                                            Rain Sensor: <span className="text-sky-400">{liveData.rainRaw}</span> 
                                         </p>
                                     </div>
                                     
@@ -628,8 +628,8 @@ const App = () => {
                                     <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
                                         <canvas id="gaugePressure" ref={pressureGaugeRef} className="max-w-full h-auto"></canvas>
                                         <p className="mt-3 text-lg font-semibold text-slate-300">
-                                            {/* 🌟 FIX 4: Show only Raw value for Pressure */}
-                                            Pressure: <span className="text-purple-400">{liveData.pressure.toFixed(1)} hPa</span>
+                                            {/* 🌟 FIX: Show sensor name + raw value */}
+                                            Barometric Pressure: <span className="text-purple-400">{liveData.pressure.toFixed(1)} hPa</span>
                                         </p>
                                     </div>
                                     
@@ -637,8 +637,8 @@ const App = () => {
                                     <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
                                         <canvas id="gaugeWaterTank" ref={waterTankGaugeRef} className="max-w-full h-auto"></canvas>
                                         <p className="mt-3 text-lg font-semibold text-slate-300">
-                                            {/* 🌟 FIX 5: Show only Raw value for Water Tank */}
-                                            Distance: <span className="text-cyan-400">{liveData.waterDistanceCM.toFixed(1)} cm</span>
+                                            {/* 🌟 FIX: Show sensor name + raw value */}
+                                            Ultrasonic Sensor: <span className="text-cyan-400">{liveData.waterDistanceCM.toFixed(1)} cm</span>
                                         </p>
                                     </div>
                                     
@@ -646,8 +646,8 @@ const App = () => {
                                     <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
                                         <canvas id="gaugeSoil" ref={soilGaugeRef} className="max-w-full h-auto"></canvas>
                                         <p className="mt-3 text-lg font-semibold text-slate-300">
-                                            {/* 🌟 FIX 6: Show only Raw value for Soil */}
-                                            Raw: <span className="text-orange-400">{liveData.soilRaw}</span>
+                                            {/* 🌟 FIX: Show sensor name + raw value */}
+                                            Soil Moisture Sensor: <span className="text-orange-400">{liveData.soilRaw}</span>
                                         </p>
                                     </div>
                                 </div>
