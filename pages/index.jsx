@@ -292,15 +292,17 @@ const App = () => {
             
             if (result.success && Array.isArray(result.data)) {
                 console.log("History Data Received:", result.data);
-                // Process raw averages into proper graph data
+                
+                // Directly map the API result without client-side slicing
+                // TRUSTING API: result.data contains exactly what should be displayed
+                
                 const processed = result.data.map(item => {
-                    // item._id is "YYYY-MM-DD"
                     const dateObj = new Date(item._id);
                     const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' }); 
                     
                     return {
                         day: dayName,
-                        // Use the SAME mapping logic as live data to get percentages
+                        // Mapping Average Raw Values from API to Percentages for Graph
                         rain: STATE_MAPPINGS.rain(item.avgRain),
                         soil: STATE_MAPPINGS.soil(item.avgSoil),
                         pressure: item.avgPressure
@@ -325,7 +327,7 @@ const App = () => {
         fetchHistoryData();
     }, [fetchHistoryData]);
 
-    // === Live Update Logic ===
+    // === Live Update Logic (Gauges Only) ===
     useEffect(() => {
         if (!isClient || !scriptsLoaded || mode !== 'Auto') {
             if (isDashboardInitializedRef.current) {
@@ -354,6 +356,18 @@ const App = () => {
         });
 
     }, [isClient, scriptsLoaded, mode, rainPercent, soilPercent, waterPercent, liveData.pressure, initializeDashboard]);
+
+    // === CHART Update Logic (Reacts to History Data Fetch) ===
+    useEffect(() => {
+        if (isDashboardInitializedRef.current && gaugeInstances.current.chart && historyData.length > 0) {
+            const chart = gaugeInstances.current.chart;
+            chart.data.labels = historyData.map(d => d.day);
+            chart.data.datasets[0].data = historyData.map(d => d.rain);
+            chart.data.datasets[1].data = historyData.map(d => d.soil);
+            chart.data.datasets[2].data = historyData.map(d => d.pressure);
+            chart.update();
+        }
+    }, [historyData]);
 
     // --- Icons ---
     const ClockIcon = (p) => (<svg {...p} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>);
