@@ -568,7 +568,6 @@ const App = () => {
                         <section className="grid grid-cols-2 lg:grid-cols-4 gap-6">
                             <article className="card p-5 bg-slate-800 rounded-xl shadow-2xl transition duration-300 hover:shadow-emerald-500/50 hover:scale-[1.02] border border-slate-700 hover:border-emerald-600/70">
                                 <CloudRainIcon className="w-10 h-10 mb-3 text-sky-400 p-2 bg-sky-900/40 rounded-lg" />
-                                {/* 🌟 FIX 1: Removed Raw value from title */}
                                 <h3 className="text-lg font-semibold mb-1 text-slate-300">Rain Sensor</h3>
                                 <p className="text-3xl font-black mb-1 text-slate-50">
                                     {rainStatus.reading}
@@ -579,8 +578,13 @@ const App = () => {
                             <article className="card p-5 bg-slate-800 rounded-xl shadow-2xl transition duration-300 hover:shadow-purple-500/50 hover:scale-[1.02] border border-slate-700 hover:border-purple-600/70">
                                 <GaugeIcon className="w-10 h-10 mb-3 text-purple-400 p-2 bg-purple-900/40 rounded-lg" />
                                 <h3 className="text-lg font-semibold mb-1 text-slate-300">Barometric Pressure</h3>
-                                <p className="text-3xl font-black mb-1 text-slate-50">{liveData.pressure.toFixed(1)} hPa</p>
-                                <p className={`text-sm ${pressureStatus.className}`}>{pressureStatus.status}</p>
+                                {/* 🌟 FIX 1: Prominently show Status message instead of value */}
+                                <p className={`text-3xl font-black mb-1 ${pressureStatus.className}`}>
+                                    {pressureStatus.status.split(': ')[1] || pressureStatus.status}
+                                </p>
+                                <p className={`text-sm text-slate-400`}>
+                                    ({liveData.pressure.toFixed(1)} hPa)
+                                </p>
                             </article>
                             
                             {/* Water Tank Status (Numerical Ultrasonic Distance) - Card 3 */}
@@ -588,15 +592,14 @@ const App = () => {
                                 <BoxIcon className="w-10 h-10 mb-3 text-cyan-400 p-2 bg-cyan-900/40 rounded-lg" />
                                 <h3 className="text-lg font-semibold mb-1 text-slate-300">Water Tank Level</h3>
                                 <p className="text-3xl font-black mb-1 text-slate-50">{waterTankStatus.reading}</p>
+                                {/* 🌟 FIX 2: Removed raw cm distance */}
                                 <p className={`text-sm ${waterTankStatus.className}`}>
-                                    {/* 🌟 FIX 3: Removed raw cm distance */}
                                     {waterTankStatus.status}
                                 </p>
                             </article>
 
                             <article className="card p-5 bg-slate-800 rounded-xl shadow-2xl transition duration-300 hover:shadow-orange-500/50 hover:scale-[1.02] border border-slate-700 hover:border-orange-600/70">
                                 <LeafIcon className="w-10 h-10 mb-3 text-orange-400 p-2 bg-orange-900/40 rounded-lg" />
-                                {/* 🌟 FIX 2: Removed Raw value from title */}
                                 <h3 className="text-lg font-semibold mb-1 text-slate-300">Soil Moisture</h3>
                                 <p className="text-3xl font-black mb-1 text-slate-50">
                                     {soilStatus.reading}
@@ -614,25 +617,26 @@ const App = () => {
                                     <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
                                         <canvas id="gaugeRain" ref={rainGaugeRef} className="max-w-full h-auto"></canvas>
                                         <p className="mt-3 text-lg font-semibold text-slate-300">
-                                            Rain Status: <span className="text-sky-400">{rainStatus.reading}</span> 
-                                            <br/>
-                                            <span className="text-sm text-slate-400">(Raw: {liveData.rainRaw})</span>
+                                            {/* 🌟 FIX 3: Show only Raw value for Rain */}
+                                            Raw: <span className="text-sky-400">{liveData.rainRaw}</span> 
                                         </p>
                                     </div>
                                     
                                     {/* Pressure Gauge */}
                                     <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
                                         <canvas id="gaugePressure" ref={pressureGaugeRef} className="max-w-full h-auto"></canvas>
-                                        <p className="mt-3 text-lg font-semibold text-slate-300">Pressure: <span className="text-purple-400">{liveData.pressure.toFixed(1)} hPa</span></p>
+                                        <p className="mt-3 text-lg font-semibold text-slate-300">
+                                            {/* 🌟 FIX 4: Show only Raw value for Pressure */}
+                                            Pressure: <span className="text-purple-400">{liveData.pressure.toFixed(1)} hPa</span>
+                                        </p>
                                     </div>
                                     
                                     {/* Water Tank Gauge with Raw Distance */}
                                     <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
                                         <canvas id="gaugeWaterTank" ref={waterTankGaugeRef} className="max-w-full h-auto"></canvas>
                                         <p className="mt-3 text-lg font-semibold text-slate-300">
-                                            Water Level: <span className="text-cyan-400">{waterTankStatus.reading}</span>
-                                            <br/>
-                                            <span className="text-sm text-slate-400">({liveData.waterDistanceCM.toFixed(1)} cm distance)</span>
+                                            {/* 🌟 FIX 5: Show only Raw value for Water Tank */}
+                                            Distance: <span className="text-cyan-400">{liveData.waterDistanceCM.toFixed(1)} cm</span>
                                         </p>
                                     </div>
                                     
@@ -640,9 +644,8 @@ const App = () => {
                                     <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
                                         <canvas id="gaugeSoil" ref={soilGaugeRef} className="max-w-full h-auto"></canvas>
                                         <p className="mt-3 text-lg font-semibold text-slate-300">
-                                            Soil Moisture: <span className="text-orange-400">{soilStatus.reading}</span>
-                                            <br/>
-                                            <span className="text-sm text-slate-400">(Raw: {liveData.soilRaw})</span>
+                                            {/* 🌟 FIX 6: Show only Raw value for Soil */}
+                                            Raw: <span className="text-orange-400">{liveData.soilRaw}</span>
                                         </p>
                                     </div>
                                 </div>
@@ -662,7 +665,7 @@ const App = () => {
                 {mode !== 'Auto' && (
                     <div className="p-16 bg-slate-800 rounded-3xl shadow-2xl border border-slate-700 text-center flex flex-col items-center justify-center min-h-[50vh]">
                         <RefreshCcwIcon className={`w-16 h-16 mb-6 ${mode === 'Maintenance' ? 'text-yellow-400 animate-spin' : 'text-gray-500'}`} />
-                        <h3 className="text-4xl font-extrabold mb-4 text-emerald-400">
+                        <h3 className="4xl font-extrabold mb-4 text-emerald-400">
                             System Mode: <span className={mode === 'Maintenance' ? 'text-yellow-400' : 'text-gray-400'}>{mode}</span>
                         </h3>
                         <p className="text-slate-300 text-lg max-w-xl">
