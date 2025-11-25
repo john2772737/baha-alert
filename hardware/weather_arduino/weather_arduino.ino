@@ -25,6 +25,8 @@ enum SystemState {
 };
 
 volatile SystemState currentState = AUTO_MODE;
+// 🌟 NEW: Flag to signal an immediate mode change status update is needed
+volatile bool modeChangeFlag = false; 
 
 // --- 3. PINS ---
 const int BUTTON_PIN = 2;       
@@ -49,6 +51,7 @@ void runAutoMode();
 void runMaintenanceMode();
 void runSleepMode();
 void changeModeISR();
+void sendModeStatus(); // 🌟 NEW: Prototype for the status function
 
 
 void setup() {
@@ -80,6 +83,14 @@ void setup() {
 }
 
 void loop() {
+  
+  // 🌟 NEW LOGIC: Check and send immediate mode change status 🌟
+  if (modeChangeFlag) {
+    sendModeStatus();
+    modeChangeFlag = false; // Reset the flag after sending
+  }
+  // -----------------------------------------------------------
+
   switch (currentState) {
     case AUTO_MODE:
       runAutoMode();
@@ -273,7 +284,8 @@ void runSleepMode() {
   Serial.println(F("System Sleeping... (Press Button to Wake)"));
   Serial.flush(); 
   
-  espSerial.println("{\"mode\":\"SLEEP\"}");
+  // 🌟 NOTE: The sleep status is now sent immediately upon entering the mode 
+  // via the sendModeStatus() function, before the microcontroller enters deep sleep.
 
   set_sleep_mode(SLEEP_MODE_PWR_DOWN);
   sleep_enable();
@@ -286,12 +298,44 @@ void runSleepMode() {
   detachInterrupt(digitalPinToInterrupt(BUTTON_PIN)); 
   
   currentState = AUTO_MODE; 
-  Serial.println(F("Woke up!"));
+  Serial.println(F("Woke up! Returning to AUTO MODE."));
+
+  // 🌟 NEW: Set flag to immediately notify ESP of mode change back to AUTO
+  modeChangeFlag = true;
 
   while (digitalRead(BUTTON_PIN) == LOW) { delay(50); }
   
   attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), changeModeISR, FALLING);
 }
+
+
+// ==========================================
+//    INTERRUPT and STATUS FUNCTIONS
+// ==========================================
+
+// 🌟 NEW: Function to send the current mode status to the ESP32
+void sendModeStatus() {
+  String modeString;
+  switch (currentState) {
+    case AUTO_MODE:
+      modeString = "AUTO";
+      break;
+    case MAINTENANCE_MODE:
+      modeString = "MAINTENANCE";
+      break;
+    case SLEEP_MODE:
+      modeString = "SLEEP";
+      break;
+  }
+  
+  String data = "{\"mode\":\"" + modeString + "\"}";
+  espSerial.println(data);
+  espSerial.flush();
+  
+  Serial.print(F("STATUS SENT: Mode changed to "));
+  Serial.println(modeString);
+}
+
 
 void changeModeISR() {
   static unsigned long last_interrupt_time = 0;
@@ -299,6 +343,8 @@ void changeModeISR() {
   
   if (interrupt_time - last_interrupt_time > 200) {
     currentState = (SystemState)((currentState + 1) % 3);
+    // 🌟 CHANGE: Set the flag to trigger an immediate status send in loop()
+    modeChangeFlag = true; 
   }
   last_interrupt_time = interrupt_time;
 }

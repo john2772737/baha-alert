@@ -56,18 +56,17 @@ void uploadToDatabase(String jsonPayload) {
         if (http.begin(serverName)) { // Initializes HTTPS connection
             http.addHeader("Content-Type", "application/json");
             
-            // Log the payload size
-            Serial.print("[UPLOAD] Payload size: ");
-            Serial.print(jsonPayload.length());
-            Serial.println(" bytes.");
+            // Removed verbose payload size logging
+            // Serial.print("[UPLOAD] Payload size: ");
+            // Serial.print(jsonPayload.length());
+            // Serial.println(" bytes.");
 
             int httpResponseCode = http.POST(jsonPayload);
 
             if (httpResponseCode > 0) {
-                String response = http.getString();
+                // Removed verbose response string
                 Serial.print("[UPLOAD] Success Code: ");
                 Serial.println(httpResponseCode);
-                Serial.println("[UPLOAD] Response: " + response);
             } else {
                 // If code is -1 (connection error, DNS failure) or other HTTP error
                 Serial.print("[UPLOAD] Error on sending POST (Code): ");
@@ -109,8 +108,7 @@ void loop() {
             }
             // -------------------------------------------------------------
 
-            Serial.print("Raw Incoming Data: ");
-            Serial.println(incomingData);
+            // Removed: Serial.print("Raw Incoming Data: "); Serial.println(incomingData);
 
             // 512 is generally enough for the current payload structure
             StaticJsonDocument<512> doc; 
@@ -130,48 +128,59 @@ void loop() {
                     WiFi.begin(ssid.c_str(), password.c_str());
                 }
 
-                // --- CASE 2 & 3: Sensor Data / Sleep Mode ---
+                // --- CASE 2, 3, & 4: Operational Modes (AUTO, MAINTENANCE, SLEEP) ---
                 else if (doc.containsKey("mode")) {
-                    
-                    // ⏱️ TIMER CHECK: Only upload if the interval has passed
-                    if (millis() - lastUploadTime >= uploadInterval) {
-                        
-                        if (doc["mode"] == "AUTO") {
-                            // 🌟 Reading numerical values using new field names
-                            float pressure = doc["pressure"].as<float>();
-                            int rainRaw = doc["rain"].as<int>();
-                            int soilRaw = doc["soil"].as<int>();
-                            float waterDist = doc["waterDistanceCM"].as<float>();
+                    String mode = doc["mode"].as<String>();
 
-                            Serial.println("--- DECODED NUMERICAL SENSOR DATA ---");
-                            Serial.printf("Pressure: %.2f hPa\n", pressure);
-                            Serial.printf("Rain (Raw): %d\n", rainRaw);
-                            Serial.printf("Soil (Raw): %d\n", soilRaw);
-                            Serial.printf("Water Dist: %.1f cm\n", waterDist);
-                            Serial.println("-------------------------------------");
-                            
-                        } else if (doc["mode"] == "SLEEP") {
-                            Serial.println("System is entering SLEEP mode.");
+                    if (mode == "AUTO") {
+                        // --- AUTO MODE: Decode and upload sensor readings ---
+                        
+                        // 1. Decode numerical values (Kept for variable usage, print lines removed)
+                        float pressure = doc["pressure"].as<float>();
+                        int rainRaw = doc["rain"].as<int>();
+                        int soilRaw = doc["soil"].as<int>();
+                        float waterDist = doc["waterDistanceCM"].as<float>();
+
+                        // Removed detailed sensor data printing.
+
+                        // 2. Upload check
+                        if (millis() - lastUploadTime >= uploadInterval) {
+                            Serial.println("[TIMER] Time elapsed. Attempting scheduled upload (AUTO).");
+                            uploadToDatabase(incomingData);
+                            lastUploadTime = millis();
+                        } else {
+                            // Removed skipped upload message.
                         }
 
-                        // Execute upload
-                        Serial.println("[TIMER] Time elapsed. Attempting scheduled upload.");
-                        uploadToDatabase(incomingData);
-                        // Reset the timer
-                        lastUploadTime = millis();
-                        
+                    } else if (mode == "MAINTENANCE") {
+                        // --- MAINTENANCE MODE: Receive data but skip continuous upload ---
+                        // Kept these status prints as they indicate a mode change/status check.
+                        Serial.println("--- RECEIVED DATA IN MAINTENANCE MODE ---");
+                        Serial.println("Database upload is explicitly skipped in Maintenance Mode.");
+
+                    } else if (mode == "SLEEP") {
+                        // --- SLEEP MODE: Log the sleep status before the system shuts down ---
+                        // Kept these status prints.
+                        Serial.println("--- SYSTEM IS ENTERING SLEEP MODE ---");
+                        // Upload the sleep status JSON (e.g., {"mode": "SLEEP"}) to log the event.
+                        if (millis() - lastUploadTime >= uploadInterval) {
+                            Serial.println("[TIMER] Time elapsed. Uploading SLEEP status report.");
+                            uploadToDatabase(incomingData);
+                            lastUploadTime = millis();
+                        } else {
+                            // Removed skipped upload message.
+                        }
                     } else {
-                        // Upload is skipped
-                        Serial.print("[TIMER] Upload skipped. Waiting ");
-                        Serial.print((uploadInterval - (millis() - lastUploadTime)) / 1000);
-                        Serial.println(" more seconds...");
+                        // Unknown mode warning is useful for debugging
+                        Serial.println("Unknown operational mode received: " + mode);
                     }
                 }
                 
             } else {
+                // Keep error logging
                 Serial.print("JSON Deserialization Error: ");
                 Serial.println(error.c_str());
-                Serial.println("Check the data format sent by the main Arduino! (or corrupted data was filtered)");
+                Serial.println("Check the data format sent by the main Arduino!");
             }
         }
     }
