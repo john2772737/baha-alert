@@ -1,6 +1,10 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 
-// --- Initial Data Structure ---
+// --- CONFIGURATION ---
+const REAL_API_ENDPOINT = 'https://baha-alert.vercel.app/api'; 
+const FETCH_INTERVAL_MS = 5000; // 5 seconds
+
+// --- INITIAL DATA ---
 const initialSensorData = {
     pressure: 1012.0,       
     rainRaw: 1023,          
@@ -8,58 +12,49 @@ const initialSensorData = {
     waterDistanceCM: 50.0   
 };
 
-// Real API Endpoint provided by the user
-const REAL_API_ENDPOINT = 'https://baha-alert.vercel.app/api'; 
-
-// Define timing constant
-const FETCH_INTERVAL_MS = 5000; // 5 seconds
-
-// Helper function to get the current formatted time
+// --- HELPER: Time Formatting ---
 const getFormattedTime = () => {
     return new Date().toLocaleDateString('en-US', {
-        weekday: 'long',
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
+        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+        hour: '2-digit', minute: '2-digit'
     });
 };
 
-// --- MAPPINGS FOR GAUGE VALUES ---
+// --- HELPER: Mappings for Gauge Needles (Visual Only) ---
+// Note: These convert raw sensor data into a 0-100 or 0-50 scale for the gauge needle position.
 const STATE_MAPPINGS = {
     rain: (rainRaw) => {
+        // Invert: 1023 (Dry) -> 0, 0 (Wet) -> 50
         const mapped = 50 - (rainRaw / 1023.0 * 50); 
         return Math.min(50, Math.max(0, mapped));
     },
     soil: (soilRaw) => {
+        // Invert: 1023 (Dry) -> 0, 0 (Wet) -> 100
         const mapped = 100 - (soilRaw / 1023.0 * 100);
         return Math.min(100, Math.max(0, mapped));
     },
     waterTank: (distanceCM) => {
+        // Invert: 50cm (Empty) -> 0%, 0cm (Full) -> 100%
         const percentageFull = 100.0 - (distanceCM / 50.0) * 100.0;
         return Math.min(100, Math.max(0, percentageFull));
     }
 };
 
-// --- Main App Component ---
 const App = () => {
     const [isClient, setIsClient] = useState(false);
     const [scriptsLoaded, setScriptsLoaded] = useState(false);
     const [fetchError, setFetchError] = useState(null); 
     
-    // System mode control
+    // System Modes
     const [mode, setMode] = useState('Auto');
     const modes = ['Auto', 'Maintenance', 'Sleep'];
 
-    // State variables
+    // Data State
     const [liveData, setLiveData] = useState(initialSensorData);
     const [currentTime, setCurrentTime] = useState('Loading...');
-    
-    // 🌟 Historical Data State
     const [historyData, setHistoryData] = useState([]); 
     
-    // Refs
+    // Refs for DOM elements
     const lastIdRef = useRef(null); 
     const rainGaugeRef = useRef(null);
     const pressureGaugeRef = useRef(null);
@@ -67,7 +62,7 @@ const App = () => {
     const waterTankGaugeRef = useRef(null); 
     const historyChartRef = useRef(null);
     
-    // Instance Refs (to hold Chart/Gauge objects between renders)
+    // Refs for Instance storage
     const gaugeInstances = useRef({});
     const chartInstance = useRef(null);
 
@@ -103,23 +98,29 @@ const App = () => {
         return () => clearInterval(timeInterval);
     }, []);
 
-    // --- 2. STATUS HELPERS ---
+    // --- 2. STATUS LOGIC (CORRECTED) ---
+    // These functions determine the text and color based on sensor values.
+    
     const getRainStatus = (rainRaw) => {
-        if (rainRaw >= 600) return { reading: 'Completely Dry (No Rain)', status: 'STATUS: Clear', className: 'text-emerald-400 font-bold' };
-        if (rainRaw >= 400) return { reading: 'Light Rain / Few Drops', status: 'STATUS: Light Rainfall', className: 'text-yellow-400 font-bold' };
-        if (rainRaw >= 200) return { reading: 'Moderate Rain', status: 'STATUS: Moderate Rainfall', className: 'text-orange-400 font-bold' };
-        return { reading: 'Heavy Rain / Wet', status: 'ALERT: Heavy Rainfall!', className: 'text-red-400 font-bold' };
+        // High number = Dry, Low number = Rain
+        if (rainRaw > 900) return { reading: 'Dry / No Rain', status: 'STATUS: Clear', className: 'text-emerald-400 font-bold' };
+        if (rainRaw > 700) return { reading: 'Drizzling', status: 'STATUS: Light Rain', className: 'text-yellow-400 font-bold' };
+        if (rainRaw > 400) return { reading: 'Raining', status: 'ALERT: Moderate Rain', className: 'text-orange-400 font-bold' };
+        return { reading: 'Storm / Heavy', status: 'ALERT: Heavy Rain!', className: 'text-red-500 font-bold animate-pulse' };
     };
     
     const getSoilStatus = (soilRaw) => {
-        if (soilRaw > 600) return { reading: 'Dry', status: 'ALERT: Soil is Dry!', className: 'text-red-400 font-bold' };
-        return { reading: 'Wet', status: 'WARNING: Soil is Wet!', className: 'text-yellow-400 font-bold' };
+        // High number = Dry, Mid = Moist, Low = Waterlogged
+        if (soilRaw >= 800) return { reading: 'Very Dry', status: 'ALERT: Water Needed!', className: 'text-red-400 font-bold' };
+        if (soilRaw >= 400) return { reading: 'Moist (Optimal)', status: 'STATUS: Soil Good', className: 'text-emerald-400 font-bold' };
+        return { reading: 'Wet / Saturated', status: 'WARNING: Too Wet', className: 'text-yellow-400 font-bold' };
     };
     
     const getWaterTankStatus = (distanceCM) => {
-        if (distanceCM <= 10) return { reading: 'Above Normal', status: 'WARNING: Potential Overflow!', className: 'text-yellow-400 font-bold' };
-        if (distanceCM <= 25) return { reading: 'Normal', status: 'STATUS: Level Optimal', className: 'text-emerald-400 font-bold' };
-        return { reading: 'Below Normal', status: 'ALERT: Tank is Low!', className: 'text-red-400 font-bold' };
+        // Low distance = Full, High distance = Empty
+        if (distanceCM <= 10) return { reading: 'High Level', status: 'WARNING: Potential Overflow!', className: 'text-yellow-400 font-bold' };
+        if (distanceCM <= 35) return { reading: 'Normal Level', status: 'STATUS: Level Optimal', className: 'text-emerald-400 font-bold' };
+        return { reading: 'Low Level', status: 'ALERT: Tank is Low!', className: 'text-red-400 font-bold' };
     };
     
     const getPressureStatus = (pressure) => {
@@ -128,14 +129,13 @@ const App = () => {
         return { status: 'STATUS: Normal Pressure', className: 'text-emerald-400 font-bold' };
     };
     
+    // Memoized Statuses
     const rainStatus = useMemo(() => getRainStatus(liveData.rainRaw), [liveData.rainRaw]);
     const pressureStatus = useMemo(() => getPressureStatus(liveData.pressure), [liveData.pressure]);
     const soilStatus = useMemo(() => getSoilStatus(liveData.soilRaw), [liveData.soilRaw]);
     const waterTankStatus = useMemo(() => getWaterTankStatus(liveData.waterDistanceCM), [liveData.waterDistanceCM]);
 
-    // --- 3. DATA FETCHING (LIVE & HISTORY) ---
-    
-    // Fetch Live Data
+    // --- 3. DATA FETCHING ---
     const fetchSensorData = useCallback(async () => {
         if (mode !== 'Auto' || !isClient) return;
         try {
@@ -158,7 +158,6 @@ const App = () => {
         }
     }, [isClient, mode]);
 
-    // Fetch Historical Data (7-Day)
     const fetchHistoryData = useCallback(async () => {
         if (!isClient) return;
         try {
@@ -167,7 +166,6 @@ const App = () => {
             const result = await response.json();
             
             if (result.success && Array.isArray(result.data)) {
-                console.log("History Data Received:", result.data);
                 setHistoryData(result.data);
             }
         } catch (error) {
@@ -175,12 +173,10 @@ const App = () => {
         }
     }, [isClient]);
 
-    // Intervals
     useEffect(() => {
         fetchSensorData();
-        fetchHistoryData(); // Fetch history initially
+        fetchHistoryData();
         const interval = setInterval(fetchSensorData, FETCH_INTERVAL_MS); 
-        // Optional: Refresh history every minute
         const historyInterval = setInterval(fetchHistoryData, 60000);
         return () => {
             clearInterval(interval);
@@ -189,9 +185,7 @@ const App = () => {
     }, [fetchSensorData, fetchHistoryData]); 
 
 
-    // --- 4. INITIALIZATION LOGIC ---
-
-    // 4a. Initialize/Update Gauges (Runs once or when refs ready)
+    // --- 4. GAUGES INITIALIZATION ---
     useEffect(() => {
         if (!isClient || !scriptsLoaded || mode !== 'Auto') return;
         if (!rainGaugeRef.current || !pressureGaugeRef.current || !soilGaugeRef.current || !waterTankGaugeRef.current) return;
@@ -218,15 +212,19 @@ const App = () => {
             return gauge;
         };
 
-        // Create Gauges if they don't exist
+        // Create Gauges if missing
         if (!gaugeInstances.current.rain) {
-            gaugeInstances.current.rain = createGauge(rainGaugeRef, 50, 0, [0, 10, 20, 30, 40, 50], [{strokeStyle: "#10b981", min: 0, max: 10}, {strokeStyle: "#f59e0b", min: 10, max: 30}, {strokeStyle: "#ef4444", min: 30, max: 50}]);
-            gaugeInstances.current.pressure = createGauge(pressureGaugeRef, 1050, 950, [950, 980, 1010, 1040, 1050], [{strokeStyle: "#f59e0b", min: 950, max: 980}, {strokeStyle: "#10b981", min: 980, max: 1040}, {strokeStyle: "#f59e0b", min: 1040, max: 1050}]);
-            gaugeInstances.current.waterTank = createGauge(waterTankGaugeRef, 100, 0, [0, 25, 50, 75, 100], [{strokeStyle: "#ef4444", min: 0, max: 35}, {strokeStyle: "#10b981", min: 35, max: 65}, {strokeStyle: "#f59e0b", min: 65, max: 100}]);
-            gaugeInstances.current.soil = createGauge(soilGaugeRef, 100, 0, [0, 25, 50, 75, 100], [{strokeStyle: "#ef4444", min: 0, max: 30}, {strokeStyle: "#10b981", min: 30, max: 70}, {strokeStyle: "#f59e0b", min: 70, max: 100}]);
+            // Rain (0-50 visual scale)
+            gaugeInstances.current.rain = createGauge(rainGaugeRef, 50, 0, [0, 25, 50], [{strokeStyle: "#10b981", min: 0, max: 15}, {strokeStyle: "#f59e0b", min: 15, max: 35}, {strokeStyle: "#ef4444", min: 35, max: 50}]);
+            // Pressure
+            gaugeInstances.current.pressure = createGauge(pressureGaugeRef, 1050, 950, [950, 1000, 1050], [{strokeStyle: "#f59e0b", min: 950, max: 980}, {strokeStyle: "#10b981", min: 980, max: 1040}, {strokeStyle: "#f59e0b", min: 1040, max: 1050}]);
+            // Water Tank (0-100% visual scale)
+            gaugeInstances.current.waterTank = createGauge(waterTankGaugeRef, 100, 0, [0, 50, 100], [{strokeStyle: "#ef4444", min: 0, max: 20}, {strokeStyle: "#f59e0b", min: 20, max: 40}, {strokeStyle: "#10b981", min: 40, max: 100}]);
+            // Soil (0-100% visual scale)
+            gaugeInstances.current.soil = createGauge(soilGaugeRef, 100, 0, [0, 50, 100], [{strokeStyle: "#ef4444", min: 0, max: 30}, {strokeStyle: "#10b981", min: 30, max: 70}, {strokeStyle: "#f59e0b", min: 70, max: 100}]);
         }
 
-        // Update Values
+        // Update Gauge Values using STATE_MAPPINGS
         if (gaugeInstances.current.rain) gaugeInstances.current.rain.set(STATE_MAPPINGS.rain(liveData.rainRaw));
         if (gaugeInstances.current.pressure && liveData.pressure > 100) gaugeInstances.current.pressure.set(liveData.pressure);
         if (gaugeInstances.current.waterTank) gaugeInstances.current.waterTank.set(STATE_MAPPINGS.waterTank(liveData.waterDistanceCM));
@@ -235,146 +233,71 @@ const App = () => {
     }, [isClient, scriptsLoaded, mode, liveData]);
 
 
-    // 4b. Initialize/Update Chart (Runs whenever historyData changes)
+    // --- 5. CHART LOGIC (UPDATED WITH COMBINED POINTS) ---
     useEffect(() => {
         if (!isClient || !scriptsLoaded || mode !== 'Auto') return;
         if (!historyChartRef.current || typeof window.Chart === 'undefined') return;
 
         const Chart = window.Chart;
+        const ctx = historyChartRef.current.getContext('2d');
+        const chartTextColor = '#e2e8f0';
 
-        // Process Data
+        // Prepare Data
         let labels = [];
-        let rainData = [];
-        let pressureData = [];
-        let soilData = [];
-        let waterData = [];
+        let rainData = [], pressureData = [], soilData = [], waterData = [];
 
         if (historyData && historyData.length > 0) {
-            labels = historyData.map(item => {
-                const date = new Date(item._id);
-                return date.toLocaleDateString('en-US', { weekday: 'short' });
-            });
+            labels = historyData.map(item => new Date(item._id).toLocaleDateString('en-US', { weekday: 'short' }));
+            
             rainData = historyData.map(item => item.avgRain || 0);
             pressureData = historyData.map(item => item.avgPressure || 0);
+            // Soil %
             soilData = historyData.map(item => Math.round(100 - ((item.avgSoil || 0) / 1023.0 * 100)));
-            waterData = historyData.map(item => item.avgWaterDistance || 0);
+            // Water Level % (Logic: 50cm is empty, 0cm is full)
+            waterData = historyData.map(item => {
+                const dist = item.avgWaterDistance || 50; 
+                const pct = 100 - (dist / 50.0 * 100); 
+                return Math.max(0, Math.min(100, Math.round(pct)));
+            });
         } else {
             labels = ['No Data'];
         }
 
-        // Destroy previous chart instance
-        if (chartInstance.current) {
-            chartInstance.current.destroy();
-        }
-
-        // Create New Chart
-        const ctx = historyChartRef.current.getContext('2d');
-        const chartTextColor = '#e2e8f0';
+        if (chartInstance.current) chartInstance.current.destroy();
 
         chartInstance.current = new Chart(ctx, {
             type: 'line',
             data: {
                 labels: labels,
                 datasets: [
-                    { 
-                        label: 'Avg Rain', 
-                        data: rainData, 
-                        borderColor: 'rgba(59, 130, 246, 1)', 
-                        backgroundColor: 'rgba(59, 130, 246, 0.1)', 
-                        tension: 0.3, 
-                        yAxisID: 'yRain',
-                        pointRadius: 4, // Make points visible
-                        pointHoverRadius: 6
-                    },
-                    { 
-                        label: 'Avg Pressure', 
-                        data: pressureData, 
-                        borderColor: 'rgba(168, 85, 247, 1)', 
-                        backgroundColor: 'rgba(168, 85, 247, 0.1)', 
-                        tension: 0.3, 
-                        yAxisID: 'yPressure',
-                        pointRadius: 4,
-                        pointHoverRadius: 6
-                    },
-                    { 
-                        label: 'Avg Soil', 
-                        data: soilData, 
-                        borderColor: 'rgba(132, 204, 22, 1)', 
-                        backgroundColor: 'rgba(132, 204, 22, 0.1)', 
-                        fill: true, 
-                        tension: 0.3, 
-                        yAxisID: 'yLevel',
-                        pointRadius: 4,
-                        pointHoverRadius: 6
-                    },
-                    { 
-                        label: 'Avg Water', 
-                        data: waterData, 
-                        borderColor: 'rgba(6, 182, 212, 1)', 
-                        backgroundColor: 'rgba(6, 182, 212, 0.1)', 
-                        tension: 0.3, 
-                        yAxisID: 'yWater',
-                        pointRadius: 4,
-                        pointHoverRadius: 6
-                    }
+                    { label: 'Rain (Raw)', data: rainData, borderColor: 'rgba(59, 130, 246, 1)', backgroundColor: 'rgba(59, 130, 246, 0.1)', tension: 0.4, yAxisID: 'yRain', pointRadius: 4, pointHoverRadius: 6 },
+                    { label: 'Pressure (hPa)', data: pressureData, borderColor: 'rgba(168, 85, 247, 1)', backgroundColor: 'rgba(168, 85, 247, 0.1)', tension: 0.4, yAxisID: 'yPressure', pointRadius: 4, pointHoverRadius: 6 },
+                    { label: 'Soil Moist (%)', data: soilData, borderColor: 'rgba(132, 204, 22, 1)', backgroundColor: 'rgba(132, 204, 22, 0.1)', fill: true, tension: 0.4, yAxisID: 'yLevel', pointRadius: 4, pointHoverRadius: 6 },
+                    { label: 'Water Lvl (%)', data: waterData, borderColor: 'rgba(6, 182, 212, 1)', backgroundColor: 'rgba(6, 182, 212, 0.1)', tension: 0.4, yAxisID: 'yWater', pointRadius: 4, pointHoverRadius: 6 }
                 ]
             },
             options: {
-                responsive: true, 
-                maintainAspectRatio: false,
-                // 🌟 NEW: This combines the points on hover
+                responsive: true, maintainAspectRatio: false,
                 interaction: {
-                    mode: 'index',
+                    mode: 'index', // COMBINES POINTS
                     intersect: false,
                 },
                 scales: {
-                    x: { 
-                        grid: { color: 'rgba(75, 85, 99, 0.3)' }, 
-                        ticks: { color: chartTextColor } 
-                    },
-                    yRain: { 
-                        type: 'linear', 
-                        position: 'left', 
-                        beginAtZero: true, 
-                        grid: { color: 'rgba(75, 85, 99, 0.3)' }, 
-                        ticks: { color: chartTextColor, display: false } // Hide ticks to reduce clutter
-                    },
-                    yPressure: { 
-                        type: 'linear', 
-                        position: 'right', 
-                        min: 950, 
-                        max: 1050, 
-                        grid: { display: false }, 
-                        ticks: { color: chartTextColor, display: false } 
-                    },
-                    yLevel: { 
-                        type: 'linear', 
-                        position: 'left', 
-                        min: 0, 
-                        max: 100, 
-                        grid: { display: false }, 
-                        ticks: { callback: (v) => v + '%', color: chartTextColor }  
-                    },
-                    yWater: { 
-                        type: 'linear', 
-                        position: 'right', 
-                        min: 0, 
-                        suggestedMax: 50, 
-                        grid: { display: false }, 
-                        ticks: { callback: (v) => v + 'cm', color: chartTextColor } 
-                    }
+                    x: { grid: { color: 'rgba(75, 85, 99, 0.3)' }, ticks: { color: chartTextColor } },
+                    yRain: { type: 'linear', position: 'left', beginAtZero: true, display: false },
+                    yPressure: { type: 'linear', position: 'right', min: 950, max: 1050, display: false },
+                    yLevel: { type: 'linear', position: 'left', min: 0, max: 100, grid: { color: 'rgba(75, 85, 99, 0.3)' }, ticks: { callback: (v) => v + '%', color: chartTextColor } },
+                    yWater: { type: 'linear', position: 'right', min: 0, max: 100, display: false }
                 },
                 plugins: { 
                     legend: { labels: { color: chartTextColor } },
-                    tooltip: {
-                        mode: 'index', // Ensures tooltip shows all sensors for that day
-                        intersect: false
-                    }
+                    tooltip: { mode: 'index', intersect: false, backgroundColor: 'rgba(15, 23, 42, 0.9)' }
                 }
             }
         });
 
     }, [isClient, scriptsLoaded, mode, historyData]);
+
     // --- ICONS ---
     const ClockIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>);
     const CloudRainIcon = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"></path><path d="M16 20v-3"></path><path d="M8 20v-3"></path><path d="M12 18v-3"></path></svg>);
@@ -447,15 +370,17 @@ const App = () => {
                         
                         <section className="grid grid-cols-1 gap-8 md:grid-cols-1">
                             <article className="card p-6 bg-slate-800 rounded-3xl shadow-2xl border border-slate-700">
-                                <h3 className="text-2xl font-bold mb-6 text-slate-200 border-b border-slate-700 pb-2">Live Sensor Readings (Gauges)</h3>
+                                <h3 className="text-2xl font-bold mb-6 text-slate-200 border-b border-slate-700 pb-2">Live Sensor Readings</h3>
                                 <div className="gauges-container">
+                                    {/* Rain Gauge */}
                                     <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
                                         <canvas id="gaugeRain" ref={rainGaugeRef} className="max-w-full h-auto"></canvas>
                                         <p className="mt-3 text-lg font-semibold text-slate-300 gauge-text">
                                             <span className="text-sm text-slate-400">Rain Sensor</span>
-                                            <span className="text-xl text-sky-400 font-bold">{liveData.rainRaw}</span>
+                                            <span className={`text-xl ${rainStatus.className}`}>{rainStatus.reading}</span>
                                         </p>
                                     </div>
+                                    {/* Pressure Gauge */}
                                     <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
                                         <canvas id="gaugePressure" ref={pressureGaugeRef} className="max-w-full h-auto"></canvas>
                                         <p className="mt-3 text-lg font-semibold text-slate-300 gauge-text">
@@ -463,25 +388,27 @@ const App = () => {
                                             <span className="text-xl text-purple-400 font-bold">{liveData.pressure.toFixed(1)} hPa</span>
                                         </p>
                                     </div>
+                                    {/* Water Gauge */}
                                     <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
                                         <canvas id="gaugeWaterTank" ref={waterTankGaugeRef} className="max-w-full h-auto"></canvas>
                                         <p className="mt-3 text-lg font-semibold text-slate-300 gauge-text">
-                                            <span className="text-sm text-slate-400">Ultrasonic Sensor</span>
-                                            <span className="text-xl text-cyan-400 font-bold">{liveData.waterDistanceCM.toFixed(1)} cm</span>
+                                            <span className="text-sm text-slate-400">Water Tank</span>
+                                            <span className="text-xl text-cyan-400 font-bold">{STATE_MAPPINGS.waterTank(liveData.waterDistanceCM).toFixed(0)}% Full</span>
                                         </p>
                                     </div>
+                                    {/* Soil Gauge */}
                                     <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
                                         <canvas id="gaugeSoil" ref={soilGaugeRef} className="max-w-full h-auto"></canvas>
                                         <p className="mt-3 text-lg font-semibold text-slate-300 gauge-text">
-                                            <span className="text-sm text-slate-400">Soil Moisture Sensor</span>
-                                            <span className="text-xl text-orange-400 font-bold">{liveData.soilRaw}</span>
+                                            <span className="text-sm text-slate-400">Soil Moisture</span>
+                                            <span className={`text-xl ${soilStatus.className}`}>{soilStatus.reading}</span>
                                         </p>
                                     </div>
                                 </div>
                             </article>
 
                             <article className="card p-6 bg-slate-800 rounded-3xl shadow-2xl border border-slate-700">
-                                <h3 className="text-2xl font-bold mb-6 text-slate-200 border-b border-slate-700 pb-2">7-Day Historical Trends (Chart)</h3>
+                                <h3 className="text-2xl font-bold mb-6 text-slate-200 border-b border-slate-700 pb-2">7-Day Historical Trends</h3>
                                 <div className="chart-container">
                                     <canvas id="historyChart" ref={historyChartRef}></canvas>
                                 </div>
@@ -494,7 +421,7 @@ const App = () => {
                     <div className="p-16 bg-slate-800 rounded-3xl shadow-2xl border border-slate-700 text-center flex flex-col items-center justify-center min-h-[50vh]">
                         <RefreshCcwIcon className={`w-16 h-16 mb-6 ${mode === 'Maintenance' ? 'text-yellow-400 animate-spin' : 'text-gray-500'}`} />
                         <h3 className="text-4xl font-extrabold mb-4 text-emerald-400">System Mode: <span className={mode === 'Maintenance' ? 'text-yellow-400' : 'text-gray-400'}>{mode}</span></h3>
-                        <p className="text-slate-300 text-lg max-w-xl">The system is currently in **{mode} Mode**. Automatic monitoring and control systems are temporarily suspended. Please switch back to **Auto** to resume live data streaming.</p>
+                        <p className="text-slate-300 text-lg max-w-xl">The system is currently in **{mode} Mode**. Automatic monitoring is suspended. Switch to **Auto** to resume.</p>
                     </div>
                 )}
             </main>
