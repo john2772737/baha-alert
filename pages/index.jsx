@@ -33,7 +33,9 @@ const STATE_MAPPINGS = {
         return Math.min(100, Math.max(0, mapped));
     },
     waterLevel: (distanceCM) => {
-        // Invert: 50cm (Empty/Low) -> 0%, 0cm (High) -> 100%
+        // 🌟 LOGIC: Distance Near (Low #) = Level High (High %)
+        // 0cm distance = 100% Full
+        // 50cm distance = 0% Full
         const percentageFull = 100.0 - (distanceCM / 50.0) * 100.0;
         return Math.min(100, Math.max(0, percentageFull));
     }
@@ -58,7 +60,7 @@ const App = () => {
     const rainGaugeRef = useRef(null);
     const pressureGaugeRef = useRef(null);
     const soilGaugeRef = useRef(null);
-    const waterGaugeRef = useRef(null); // Renamed ref for clarity
+    const waterGaugeRef = useRef(null); 
     const historyChartRef = useRef(null);
     
     // Instance Refs
@@ -112,9 +114,10 @@ const App = () => {
     };
     
     const getWaterLevelStatus = (distanceCM) => {
-        if (distanceCM <= 10) return { reading: 'High Level', status: 'WARNING: High Water!', className: 'text-yellow-400 font-bold' };
-        if (distanceCM <= 35) return { reading: 'Normal Level', status: 'STATUS: Level Optimal', className: 'text-emerald-400 font-bold' };
-        return { reading: 'Low Level', status: 'ALERT: Water Low!', className: 'text-red-400 font-bold' };
+        // 🌟 LOGIC: Small Distance = High Level
+        if (distanceCM <= 15) return { reading: 'High Level', status: 'STATUS: Tank Full', className: 'text-emerald-400 font-bold' };
+        if (distanceCM <= 35) return { reading: 'Normal Level', status: 'STATUS: Optimal', className: 'text-cyan-400 font-bold' };
+        return { reading: 'Low Level', status: 'ALERT: Refill Tank!', className: 'text-red-400 font-bold' };
     };
     
     const getPressureStatus = (pressure) => {
@@ -208,7 +211,14 @@ const App = () => {
         if (!gaugeInstances.current.rain) {
             gaugeInstances.current.rain = createGauge(rainGaugeRef, 50, 0, [0, 25, 50], [{strokeStyle: "#10b981", min: 0, max: 15}, {strokeStyle: "#f59e0b", min: 15, max: 35}, {strokeStyle: "#ef4444", min: 35, max: 50}]);
             gaugeInstances.current.pressure = createGauge(pressureGaugeRef, 1050, 950, [950, 1000, 1050], [{strokeStyle: "#f59e0b", min: 950, max: 980}, {strokeStyle: "#10b981", min: 980, max: 1040}, {strokeStyle: "#f59e0b", min: 1040, max: 1050}]);
-            gaugeInstances.current.water = createGauge(waterGaugeRef, 100, 0, [0, 50, 100], [{strokeStyle: "#ef4444", min: 0, max: 20}, {strokeStyle: "#f59e0b", min: 20, max: 40}, {strokeStyle: "#10b981", min: 40, max: 100}]);
+            
+            // Water Gauge: Green = High % (Near Distance), Red = Low % (Far Distance)
+            gaugeInstances.current.water = createGauge(waterGaugeRef, 100, 0, [0, 50, 100], [
+                {strokeStyle: "#ef4444", min: 0, max: 30},   // Low Level (Red)
+                {strokeStyle: "#f59e0b", min: 30, max: 70},  // Mid Level (Orange)
+                {strokeStyle: "#10b981", min: 70, max: 100}  // High Level (Green)
+            ]);
+            
             gaugeInstances.current.soil = createGauge(soilGaugeRef, 100, 0, [0, 50, 100], [{strokeStyle: "#ef4444", min: 0, max: 30}, {strokeStyle: "#10b981", min: 30, max: 70}, {strokeStyle: "#f59e0b", min: 70, max: 100}]);
         }
 
@@ -237,6 +247,7 @@ const App = () => {
             rainData = historyData.map(item => item.avgRain || 0);
             pressureData = historyData.map(item => item.avgPressure || 0);
             soilData = historyData.map(item => Math.round(100 - ((item.avgSoil || 0) / 1023.0 * 100)));
+            // Chart Water Logic: Small Distance -> High %
             waterData = historyData.map(item => {
                 const dist = item.avgWaterDistance || 50; 
                 const pct = 100 - (dist / 50.0 * 100); 
@@ -336,7 +347,6 @@ const App = () => {
                             
                             <article className="card p-5 bg-slate-800 rounded-xl shadow-2xl border border-slate-700 hover:border-cyan-600/70 h-full">
                                 <BoxIcon className="w-10 h-10 mb-3 text-cyan-400 p-2 bg-cyan-900/40 rounded-lg" />
-                                {/* Label changed to Water Level */}
                                 <h3 className="text-lg font-semibold mb-1 text-slate-300">Water Level</h3>
                                 <p className={`text-sm font-bold ${waterStatus.className}`}>{waterStatus.status}</p>
                             </article>
@@ -368,7 +378,7 @@ const App = () => {
                                             <span className="text-xl text-purple-400 font-bold">{liveData.pressure.toFixed(1)} hPa</span>
                                         </p>
                                     </div>
-                                    {/* Water Gauge (Updated: Label changed, 'Full' removed) */}
+                                    {/* Water Gauge */}
                                     <div className="gauge-wrapper flex flex-col items-center justify-center p-2">
                                         <canvas id="gaugeWaterTank" ref={waterGaugeRef} className="max-w-full h-auto"></canvas>
                                         <p className="mt-3 text-lg font-semibold text-slate-300 gauge-text">
