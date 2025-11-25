@@ -4,8 +4,9 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 const initialSensorData = {
     pressure: 1012.0,       // hPa
     rainRaw: 1023,          // Analog value (1023 = dry, 0 = wet)
-    soilRaw: 1023,          // Analog value (1023 = dry, 0 = wet) - Fixed default to dry
-    waterDistanceCM: 50.0   // Ultrasonic distance (cm)
+    soilRaw: 1023,          // Analog value (1023 = dry, 0 = wet)
+    waterDistanceCM: 50.0,  // Ultrasonic distance (cm)
+    deviceMode: '---'       // Mode reported by hardware
 };
 
 const REAL_API_ENDPOINT = 'https://baha-alert.vercel.app/api'; 
@@ -39,6 +40,9 @@ const STATE_MAPPINGS = {
     },
     // Water Tank: Maps 50cm (Empty) -> 0% to 0cm (Full) -> 100%
     waterTank: (distanceCM) => {
+        // If distance is massive (error code 999), return 0%
+        if (distanceCM > 100) return 0;
+        
         const maxDistance = 50.0;
         const val = 100.0 - (distanceCM / maxDistance) * 100.0;
         return Math.min(100, Math.max(0, Math.round(val)));
@@ -49,7 +53,7 @@ const App = () => {
     const [isClient, setIsClient] = useState(false);
     const [scriptsLoaded, setScriptsLoaded] = useState(false);
     const [fetchError, setFetchError] = useState(null); 
-    const [mode, setMode] = useState('Auto');
+    const [mode, setMode] = useState('Auto'); // UI Mode (fetching control)
     const modes = ['Auto', 'Maintenance', 'Sleep'];
 
     const [liveData, setLiveData] = useState(initialSensorData);
@@ -106,23 +110,25 @@ const App = () => {
     }, []);
 
     // === Status Logic ===
-    const getRainStatus = (raw, percent) => {
-        // High analog value = Dry, Low analog value = Wet
-        // Or use calculated percentage: High % = Wet
+    const getRainStatus = (percent) => {
         if (percent < 10) return { reading: 'Dry', status: 'STATUS: Clear', className: 'text-emerald-400 font-bold' };
         if (percent >= 10 && percent < 40) return { reading: 'Light Rain', status: 'STATUS: Drizzling', className: 'text-yellow-400 font-bold' };
         if (percent >= 40 && percent < 70) return { reading: 'Moderate Rain', status: 'STATUS: Raining', className: 'text-orange-400 font-bold' };
         return { reading: 'Heavy Rain', status: 'ALERT: Storm!', className: 'text-red-400 font-bold' };
     };
     
-    const getSoilStatus = (raw, percent) => {
-        // High % = Wet/Moist
+    const getSoilStatus = (percent) => {
         if (percent < 30) return { reading: 'Dry', status: 'ALERT: Needs Water!', className: 'text-red-400 font-bold' };
         if (percent >= 30 && percent < 80) return { reading: 'Moist', status: 'STATUS: Optimal', className: 'text-emerald-400 font-bold' };
         return { reading: 'Wet', status: 'WARNING: Saturated', className: 'text-yellow-400 font-bold' };
     };
     
-    const getWaterTankStatus = (percent) => {
+    const getWaterTankStatus = (percent, distance) => {
+        // Specific check for Error code (999 or very high distance)
+        if (distance >= 400) {
+            return { reading: 'Error', status: 'SENSOR ERROR', className: 'text-red-500 font-black animate-pulse' };
+        }
+        
         if (percent > 90) return { reading: 'Full', status: 'WARNING: Overflow Risk', className: 'text-yellow-400 font-bold' };
         if (percent >= 40) return { reading: 'Normal', status: 'STATUS: Adequate', className: 'text-emerald-400 font-bold' };
         return { reading: 'Low', status: 'ALERT: Refill Needed', className: 'text-red-400 font-bold' };
@@ -134,9 +140,10 @@ const App = () => {
         return { status: 'STATUS: Stable', className: 'text-emerald-400 font-bold' };
     };
     
-    const rainStatus = useMemo(() => getRainStatus(liveData.rainRaw, rainPercent), [liveData.rainRaw, rainPercent]);
-    const soilStatus = useMemo(() => getSoilStatus(liveData.soilRaw, soilPercent), [liveData.soilRaw, soilPercent]);
-    const waterTankStatus = useMemo(() => getWaterTankStatus(waterPercent), [waterPercent]);
+    const rainStatus = useMemo(() => getRainStatus(rainPercent), [rainPercent]);
+    const soilStatus = useMemo(() => getSoilStatus(soilPercent), [soilPercent]);
+    // Pass raw distance to status function for error checking
+    const waterTankStatus = useMemo(() => getWaterTankStatus(waterPercent, liveData.waterDistanceCM), [waterPercent, liveData.waterDistanceCM]);
     const pressureStatus = useMemo(() => getPressureStatus(liveData.pressure), [liveData.pressure]);
 
     // Hardcoded History
@@ -265,10 +272,11 @@ const App = () => {
 
             setLiveData(prev => ({
                 pressure: parseFloat(payload.pressure) || prev.pressure,
-                // STRICT MAPPING: payload.rain -> rainRaw, payload.soil -> soilRaw
+                // STRICT MAPPING: lowercase keys based on user sample
                 rainRaw: parseInt(payload.rain, 10) || prev.rainRaw,
                 soilRaw: parseInt(payload.soil, 10) || prev.soilRaw,
-                waterDistanceCM: parseFloat(payload.waterDistanceCM) || prev.waterDistanceCM
+                waterDistanceCM: parseFloat(payload.waterDistanceCM) || prev.waterDistanceCM,
+                deviceMode: payload.mode || prev.deviceMode // Capture hardware mode
             }));
             
             setFetchError(null); 
@@ -321,6 +329,7 @@ const App = () => {
     const LeafIcon = (p) => (<svg {...p} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 20A10 10 0 0 0 2 11c0-4 4-4 8-8 3 0 4 3 4 5 0 2-3 5-3 5l-1 1 1 1c1.5 1.5 3.5 1.5 5 0l1-1c3 0 5 3 5 5 0 3-4 5-8 5z"></path></svg>);
     const RefreshCcwIcon = (p) => (<svg {...p} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 18A8 8 0 1 0 7 19l-4-4"></path><path d="M4 13v-2"></path><path d="M17 19h-2l-4-4"></path></svg>);
     const BoxIcon = (p) => (<svg {...p} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><path d="M3.27 6.3L12 11.5l8.73-5.2"></path><path d="M12 22.78V11.5"></path></svg>);
+    const CpuIcon = (p) => (<svg {...p} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect><rect x="9" y="9" width="6" height="6"></rect><line x1="9" y1="1" x2="9" y2="4"></line><line x1="15" y1="1" x2="15" y2="4"></line><line x1="9" y1="20" x2="9" y2="23"></line><line x1="15" y1="20" x2="15" y2="23"></line><line x1="20" y1="9" x2="23" y2="9"></line><line x1="20" y1="14" x2="23" y2="14"></line><line x1="1" y1="9" x2="4" y2="9"></line><line x1="1" y1="14" x2="4" y2="14"></line></svg>);
 
     if (!isClient || !scriptsLoaded) return <div className="flex justify-center items-center h-screen bg-slate-900 text-emerald-400 font-inter"><RefreshCcwIcon className="animate-spin w-8 h-8 mr-2" /> Initializing...</div>;
 
@@ -334,8 +343,15 @@ const App = () => {
             `}</style>
             
             <header className="mb-8 p-5 bg-slate-800 rounded-3xl shadow-lg border-b-4 border-emerald-500/50 flex flex-col md:flex-row justify-between items-center">
-                <h1 className="text-3xl font-extrabold text-emerald-400 mb-2 md:mb-0">Smart Farm Monitor</h1>
-                <div className="flex items-center text-slate-400 bg-slate-900 px-4 py-2 rounded-xl border border-slate-700">
+                <div className="flex flex-col">
+                    <h1 className="text-3xl font-extrabold text-emerald-400 mb-2 md:mb-0">Smart Farm Monitor</h1>
+                    {/* Device Mode Display */}
+                    <div className="flex items-center text-xs text-slate-400 mt-1">
+                        <CpuIcon className="w-3 h-3 mr-1" />
+                        DEVICE MODE: <span className="text-emerald-300 ml-1 font-mono">{liveData.deviceMode}</span>
+                    </div>
+                </div>
+                <div className="flex items-center text-slate-400 bg-slate-900 px-4 py-2 rounded-xl border border-slate-700 mt-4 md:mt-0">
                     <ClockIcon className="w-5 h-5 mr-2 text-indigo-400" />
                     <span>{currentTime}</span>
                 </div>
@@ -401,6 +417,8 @@ const App = () => {
                                     <div className="gauge-wrapper flex flex-col items-center">
                                         <canvas ref={waterTankGaugeRef}></canvas>
                                         <p className="mt-2 text-sm font-bold text-slate-300">Tank Level: <span className="text-cyan-400">{waterPercent}%</span></p>
+                                        {/* Added small warning text below gauge if error */}
+                                        {liveData.waterDistanceCM >= 400 && <span className="text-[10px] text-red-500 font-bold uppercase tracking-wider">Check Sensor</span>}
                                     </div>
                                     <div className="gauge-wrapper flex flex-col items-center">
                                         <canvas ref={soilGaugeRef}></canvas>
