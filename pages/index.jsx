@@ -151,6 +151,8 @@ const App = () => {
         if (!isClient || !scriptsLoaded || typeof window.Gauge === 'undefined' || typeof window.Chart === 'undefined') return;
         if (mode !== 'Auto') return;
         if (!rainGaugeRef.current || !pressureGaugeRef.current || !soilGaugeRef.current || !waterTankGaugeRef.current || !historyChartRef.current) return;
+        // CRITICAL CHECK: Don't initialize if the device is not in AUTO mode
+        if (liveData.deviceMode !== 'AUTO') return;
 
         const Gauge = window.Gauge;
         const Chart = window.Chart;
@@ -302,11 +304,12 @@ const App = () => {
             });
             isDashboardInitializedRef.current = true;
         }
-    }, [isClient, scriptsLoaded, mode, liveData.pressure, rainPercent, soilPercent, waterPercent, historyData]);
+    }, [isClient, scriptsLoaded, mode, liveData.pressure, rainPercent, soilPercent, waterPercent, historyData, liveData.deviceMode]); // Added liveData.deviceMode dependency
 
     // === Data Fetching: Live ===
     const fetchSensorData = useCallback(async () => {
-        if (mode !== 'Auto' || !isClient) return;
+        // Fetch runs regardless of UI mode, but only when client is ready
+        if (!isClient) return; 
         
         try {
             const response = await fetch(REAL_API_ENDPOINT); 
@@ -337,7 +340,7 @@ const App = () => {
             console.error("Fetch error:", error);
             setFetchError(`Connection Error`);
         }
-    }, [isClient, mode, liveData.deviceMode]);
+    }, [isClient, liveData.deviceMode]); // Removed 'mode' dependency as fetching should be constant
 
     // === Data Fetching: History ===
     const fetchHistoryData = useCallback(async () => {
@@ -371,7 +374,7 @@ const App = () => {
         }
     }, [isClient, mode]);
 
-    // Loop for Live Data
+    // Loop for Live Data (Runs constantly to track deviceMode)
     useEffect(() => {
         fetchSensorData();
         const interval = setInterval(fetchSensorData, FETCH_INTERVAL_MS); 
@@ -385,7 +388,8 @@ const App = () => {
 
     // === Live Update Logic (Gauges Only) ===
     useEffect(() => {
-        if (!isClient || !scriptsLoaded || mode !== 'Auto') {
+        // If UI is not Auto OR Device is not AUTO, shut down dashboard visuals
+        if (!isClient || !scriptsLoaded || mode !== 'Auto' || liveData.deviceMode !== 'AUTO') {
             if (isDashboardInitializedRef.current) {
                 try { if (gaugeInstances.current.chart) gaugeInstances.current.chart.destroy(); } catch(e) {}
                 gaugeInstances.current = {};
@@ -411,11 +415,12 @@ const App = () => {
             }
         });
 
-    }, [isClient, scriptsLoaded, mode, rainPercent, soilPercent, waterPercent, liveData.pressure, initializeDashboard]);
+    }, [isClient, scriptsLoaded, mode, rainPercent, soilPercent, waterPercent, liveData.pressure, initializeDashboard, liveData.deviceMode]);
 
     // === CHART Update Logic (Reacts to History Data Fetch) ===
     useEffect(() => {
-        if (isDashboardInitializedRef.current && gaugeInstances.current.chart && historyData.length > 0) {
+        // Only update chart if device is in AUTO mode and dashboard is initialized
+        if (liveData.deviceMode === 'AUTO' && isDashboardInitializedRef.current && gaugeInstances.current.chart && historyData.length > 0) {
             const chart = gaugeInstances.current.chart;
             chart.data.labels = historyData.map(d => d.day);
             chart.data.datasets[0].data = historyData.map(d => d.rain);
@@ -425,7 +430,7 @@ const App = () => {
             if(chart.data.datasets[3]) chart.data.datasets[3].data = historyData.map(d => d.pressure);
             chart.update();
         }
-    }, [historyData]);
+    }, [historyData, liveData.deviceMode]);
 
     // --- Icons ---
     const ClockIcon = (p) => (<svg {...p} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>);
@@ -475,100 +480,130 @@ const App = () => {
                 </div>
                 
                 {mode === 'Auto' && (
-                    <>
-                        {fetchError && <div className="p-3 bg-red-900/30 text-red-300 rounded-lg border border-red-800 text-center font-semibold text-sm">{fetchError}</div>}
+                    liveData.deviceMode === 'AUTO' ? (
+                        <>
+                            {fetchError && <div className="p-3 bg-red-900/30 text-red-300 rounded-lg border border-red-800 text-center font-semibold text-sm">{fetchError}</div>}
 
-                        <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                            {/* Card 1: Rain */}
-                            <article className="p-5 bg-slate-800 rounded-xl shadow-lg border border-slate-700">
-                                <CloudRainIcon className="w-8 h-8 mb-3 text-sky-400 bg-sky-900/30 p-1.5 rounded-lg" />
-                                <h3 className="text-sm font-medium text-slate-400">Rain Sensor</h3>
-                                <p className="text-2xl font-black text-white">{rainStatus.reading}</p>
-                                <p className={`text-xs ${rainStatus.className}`}>{rainStatus.status}</p>
-                            </article>
+                            <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                                {/* Card 1: Rain */}
+                                <article className="p-5 bg-slate-800 rounded-xl shadow-lg border border-slate-700">
+                                    <CloudRainIcon className="w-8 h-8 mb-3 text-sky-400 bg-sky-900/30 p-1.5 rounded-lg" />
+                                    <h3 className="text-sm font-medium text-slate-400">Rain Sensor</h3>
+                                    <p className="text-2xl font-black text-white">{rainStatus.reading}</p>
+                                    <p className={`text-xs ${rainStatus.className}`}>{rainStatus.status}</p>
+                                </article>
+                                
+                                {/* Card 2: Pressure */}
+                                <article className="p-5 bg-slate-800 rounded-xl shadow-lg border border-slate-700">
+                                    <GaugeIcon className="w-8 h-8 mb-3 text-purple-400 bg-purple-900/30 p-1.5 rounded-lg" />
+                                    <h3 className="text-sm font-medium text-slate-400">Pressure</h3>
+                                    <p className="text-2xl font-black text-white">{liveData.pressure.toFixed(1)} hPa</p>
+                                    <p className={`text-xs ${pressureStatus.className}`}>{pressureStatus.status}</p>
+                                </article>
+
+                                {/* Card 3: Water Tank */}
+                                <article className="p-5 bg-slate-800 rounded-xl shadow-lg border border-slate-700">
+                                    <BoxIcon className="w-8 h-8 mb-3 text-cyan-400 bg-cyan-900/30 p-1.5 rounded-lg" />
+                                    <h3 className="text-sm font-medium text-slate-400">Water Level</h3>
+                                    <p className="text-2xl font-black text-white">{waterTankStatus.reading}</p>
+                                    <p className={`text-xs ${waterTankStatus.className}`}>{waterTankStatus.status}</p>
+                                </article>
+
+                                {/* Card 4: Soil */}
+                                <article className="p-5 bg-slate-800 rounded-xl shadow-lg border border-slate-700">
+                                    <LeafIcon className="w-8 h-8 mb-3 text-orange-400 bg-orange-900/30 p-1.5 rounded-lg" />
+                                    <h3 className="text-sm font-medium text-slate-400">Soil Moisture</h3>
+                                    <p className="text-2xl font-black text-white">{soilStatus.reading}</p>
+                                    <p className={`text-xs ${soilStatus.className}`}>{soilStatus.status}</p>
+                                </article>
+                            </section>
                             
-                            {/* Card 2: Pressure */}
-                            <article className="p-5 bg-slate-800 rounded-xl shadow-lg border border-slate-700">
-                                <GaugeIcon className="w-8 h-8 mb-3 text-purple-400 bg-purple-900/30 p-1.5 rounded-lg" />
-                                <h3 className="text-sm font-medium text-slate-400">Pressure</h3>
-                                <p className="text-2xl font-black text-white">{liveData.pressure.toFixed(1)} hPa</p>
-                                <p className={`text-xs ${pressureStatus.className}`}>{pressureStatus.status}</p>
-                            </article>
+                            <section className="grid grid-cols-1 gap-6">
+                                <article className="p-6 bg-slate-800 rounded-2xl shadow-lg border border-slate-700">
+                                    <h3 className="text-xl font-bold mb-6 text-slate-200">Live Sensors (Percent)</h3>
+                                    <div className="gauges-container">
+                                        <div className="gauge-wrapper flex flex-col items-center">
+                                            <canvas ref={rainGaugeRef}></canvas>
+                                            <p className="mt-2 text-sm font-bold text-slate-300">Wetness: <span className="text-sky-400">{rainPercent}%</span></p>
+                                        </div>
+                                        <div className="gauge-wrapper flex flex-col items-center">
+                                            <canvas ref={pressureGaugeRef}></canvas>
+                                            <p className="mt-2 text-sm font-bold text-slate-300">Pressure: <span className="text-purple-400">{liveData.pressure.toFixed(0)} hPa</span></p>
+                                        </div>
+                                        <div className="gauge-wrapper flex flex-col items-center">
+                                            <canvas ref={waterTankGaugeRef}></canvas>
+                                            <p className="mt-2 text-sm font-bold text-slate-300">Tank Level: <span className="text-cyan-400">{waterPercent}%</span></p>
+                                            {/* Added small warning text below gauge if error */}
+                                            {liveData.waterDistanceCM >= 400 && <span className="text-[10px] text-red-500 font-bold uppercase tracking-wider">Check Sensor</span>}
+                                        </div>
+                                        <div className="gauge-wrapper flex flex-col items-center">
+                                            <canvas ref={soilGaugeRef}></canvas>
+                                            <p className="mt-2 text-sm font-bold text-slate-300">Moisture: <span className="text-orange-400">{soilPercent}%</span></p>
+                                        </div>
+                                    </div>
+                                </article>
 
-                            {/* Card 3: Water Tank */}
-                            <article className="p-5 bg-slate-800 rounded-xl shadow-lg border border-slate-700">
-                                <BoxIcon className="w-8 h-8 mb-3 text-cyan-400 bg-cyan-900/30 p-1.5 rounded-lg" />
-                                <h3 className="text-sm font-medium text-slate-400">Water Level</h3>
-                                <p className="text-2xl font-black text-white">{waterTankStatus.reading}</p>
-                                <p className={`text-xs ${waterTankStatus.className}`}>{waterTankStatus.status}</p>
-                            </article>
-
-                            {/* Card 4: Soil */}
-                            <article className="p-5 bg-slate-800 rounded-xl shadow-lg border border-slate-700">
-                                <LeafIcon className="w-8 h-8 mb-3 text-orange-400 bg-orange-900/30 p-1.5 rounded-lg" />
-                                <h3 className="text-sm font-medium text-slate-400">Soil Moisture</h3>
-                                <p className="text-2xl font-black text-white">{soilStatus.reading}</p>
-                                <p className={`text-xs ${soilStatus.className}`}>{soilStatus.status}</p>
-                            </article>
-                        </section>
-                        
-                        <section className="grid grid-cols-1 gap-6">
-                            <article className="p-6 bg-slate-800 rounded-2xl shadow-lg border border-slate-700">
-                                <h3 className="text-xl font-bold mb-6 text-slate-200">Live Sensors (Percent)</h3>
-                                <div className="gauges-container">
-                                    <div className="gauge-wrapper flex flex-col items-center">
-                                        <canvas ref={rainGaugeRef}></canvas>
-                                        <p className="mt-2 text-sm font-bold text-slate-300">Wetness: <span className="text-sky-400">{rainPercent}%</span></p>
+                                <article className="p-6 bg-slate-800 rounded-2xl shadow-lg border border-slate-700">
+                                    <h3 className="text-xl font-bold mb-4 text-slate-200">Historical Trends</h3>
+                                    <div className="chart-container">
+                                        <canvas ref={historyChartRef}></canvas>
                                     </div>
-                                    <div className="gauge-wrapper flex flex-col items-center">
-                                        <canvas ref={pressureGaugeRef}></canvas>
-                                        <p className="mt-2 text-sm font-bold text-slate-300">Pressure: <span className="text-purple-400">{liveData.pressure.toFixed(0)} hPa</span></p>
-                                    </div>
-                                    <div className="gauge-wrapper flex flex-col items-center">
-                                        <canvas ref={waterTankGaugeRef}></canvas>
-                                        <p className="mt-2 text-sm font-bold text-slate-300">Tank Level: <span className="text-cyan-400">{waterPercent}%</span></p>
-                                        {/* Added small warning text below gauge if error */}
-                                        {liveData.waterDistanceCM >= 400 && <span className="text-[10px] text-red-500 font-bold uppercase tracking-wider">Check Sensor</span>}
-                                    </div>
-                                    <div className="gauge-wrapper flex flex-col items-center">
-                                        <canvas ref={soilGaugeRef}></canvas>
-                                        <p className="mt-2 text-sm font-bold text-slate-300">Moisture: <span className="text-orange-400">{soilPercent}%</span></p>
-                                    </div>
-                                </div>
-                            </article>
-
-                            <article className="p-6 bg-slate-800 rounded-2xl shadow-lg border border-slate-700">
-                                <h3 className="text-xl font-bold mb-4 text-slate-200">Historical Trends</h3>
-                                <div className="chart-container">
-                                    <canvas ref={historyChartRef}></canvas>
-                                </div>
-                            </article>
-                        </section>
-                    </>
+                                </article>
+                            </section>
+                        </>
+                    ) : (
+                        // --- Mode Conflict Warning: UI is Auto, but Device is not (Maintenance/Sleep) ---
+                        <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center">
+                            {/* Icon based on actual device mode */}
+                            {liveData.deviceMode === 'SLEEP' ? (
+                                <MoonIcon className="w-12 h-12 mb-4 text-indigo-400" />
+                            ) : liveData.deviceMode === 'MAINTENANCE' ? (
+                                <RefreshCcwIcon className="w-12 h-12 mb-4 text-yellow-400 animate-spin" />
+                            ) : (
+                                // Default/Initial state or unknown mode
+                                <CpuIcon className="w-12 h-12 mb-4 text-red-500" />
+                            )}
+                            
+                            <h3 className="text-2xl font-bold text-slate-200 mb-2">Device Mode Conflict</h3>
+                            
+                            <p className="text-slate-400 max-w-md">
+                                The device is currently running in <span className="text-yellow-300 font-mono font-bold">{liveData.deviceMode}</span> mode, and is not sending continuous sensor data.
+                                Switch to the <span className="font-bold">{liveData.deviceMode}</span> tab below to view status details.
+                            </p>
+                            <div className="flex space-x-4 mt-6">
+                                {liveData.deviceMode !== '---' && (
+                                    <button onClick={() => setMode(liveData.deviceMode)} className="px-6 py-2 bg-yellow-600 hover:bg-yellow-700 text-white font-semibold rounded-lg shadow-md transition-colors">
+                                        Go to {liveData.deviceMode} Tab
+                                    </button>
+                                )}
+                                <button onClick={() => setMode('Auto')} className="px-6 py-2 bg-slate-600 hover:bg-slate-700 text-white font-semibold rounded-lg shadow-md transition-colors">
+                                    Refresh UI
+                                </button>
+                            </div>
+                        </div>
+                    )
                 )}
 
                 {/* Displays actual device mode when UI is not on 'Auto' */}
                 {mode !== 'Auto' && (
                     <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center">
-                        {/* Icon based on actual device mode */}
-                        {liveData.deviceMode === 'SLEEP' ? (
+                        {/* Icon based on UI mode selected (Maintenance/Sleep) */}
+                        {mode === 'Sleep' ? (
                             <MoonIcon className="w-12 h-12 mb-4 text-indigo-400" />
-                        ) : liveData.deviceMode === 'MAINTENANCE' ? (
+                        ) : mode === 'Maintenance' ? (
                             <RefreshCcwIcon className="w-12 h-12 mb-4 text-yellow-400 animate-spin" />
                         ) : (
                             <CpuIcon className="w-12 h-12 mb-4 text-slate-500" />
                         )}
                         
-                        {/* Title based on actual device mode */}
-                        <h3 className="text-2xl font-bold text-slate-200 mb-2">Device Status: {liveData.deviceMode}</h3>
+                        {/* Title reflects UI mode, while body confirms device mode */}
+                        <h3 className="text-2xl font-bold text-slate-200 mb-2">UI in {mode} View</h3>
                         
-                        {/* Description based on actual device mode */}
                         <p className="text-slate-400 max-w-md">
-                            {liveData.deviceMode === 'SLEEP' 
-                                ? "The sensor board is in deep sleep to conserve power. Monitoring will resume upon wake-up or button press."
-                                : liveData.deviceMode === 'MAINTENANCE'
-                                ? "The sensor board is running diagnostics/calibration. Data is being logged locally but not uploaded to the cloud."
-                                : "The system is currently running in AUTO mode, but the dashboard is hidden. Switch UI mode to Auto to view live data."
+                            The dashboard is currently focused on the **{mode}** status view. The physical device is reporting its current operational mode as **<span className="text-yellow-300 font-mono font-bold">{liveData.deviceMode}</span>**.
+                            {mode === 'Sleep' 
+                                ? "This mode conserves power; the device must be woken by a physical button press."
+                                : "This mode is for calibration/diagnostics; minimal data is uploaded."
                             }
                         </p>
                         <button onClick={() => setMode('Auto')} className="mt-6 px-6 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg shadow-md transition-colors">
