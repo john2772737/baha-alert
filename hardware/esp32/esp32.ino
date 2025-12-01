@@ -4,56 +4,38 @@
 #include <SoftwareSerial.h>
 
 // --- ESP-01 PIN DEFINITIONS ---
-// WARNING: GPIO1 (TXD) and GPIO3 (RXD) are used for flashing and Serial Monitor.
-// Using them for SoftwareSerial can interfere with debugging and upload processes.
 // RX pin: GPIO3 (D3) -> Connects to Arduino Pro Mini TX (D5)
 // TX pin: GPIO1 (D1) -> Connects to Arduino Pro Mini RX (D4)
-// **TEMPORARILY DISABLE SoftwareSerial to test hardware UART stability:**
-// SoftwareSerial Serial2(3, 1);  
+SoftwareSerial Serial2(3, 1);  
 // SoftwareSerial(RX_PIN, TX_PIN)
 
 // -------------- SERVER URL ------------------
 const char* serverName = "http://baha-alert.vercel.app/api"; 
 // Using HTTP (not secure) as standard ESP8266 configuration requires this.
 
-// -------------- WIFI CREDENTIALS (HARDCODE FOR TESTING) --------------
-// Replace with your actual Wi-Fi credentials for this test
-String ssid = "GlobeAtHome_B37B3";
-String password = "18L0DE824YQ";
+// -------------- WIFI CREDENTIALS --------------
+String ssid = "";
+String password = "";
 
 // -------------- UPLOAD TIMING ----------------
 unsigned long lastUploadTime = 0;
-// Set a long interval for this test to control the upload timing
-const long uploadInterval = 10000; // Upload every 10 seconds for testing
-
-// --- DUMMY PAYLOAD FOR UPLOAD TEST ---
-const String DUMMY_PAYLOAD = "{\"mode\":\"TESTING\",\"pressure\":999.0,\"rain\":1,\"soil\":1,\"waterDistanceCM\":0.0}";
+const long uploadInterval = 1500;  // 1.5s minimum interval
 
 // -------------------------------------------------
 // SETUP
 // -------------------------------------------------
 void setup() {
-  // Use Hardware Serial (GPIO1/GPIO3) for debugging only
+  // Hardware Serial (GPIO1/GPIO3) for debugging on the PC
   Serial.begin(9600); 
   
-  // Serial2.begin(9600); // DISABLED FOR THIS TEST
+  // SoftwareSerial is enabled to receive data from the Arduino Pro Mini
+  Serial2.begin(9600);
 
-  Serial.println("\n\nESP-01 DIAGNOSTIC TEST STARTED...");
-  Serial.println("!!! UPLOADING DUMMY PAYLOAD DIRECTLY !!!");
+  Serial.println("\n\nESP-01 OPERATIONAL MODE STARTED...");
+  Serial.println("!!! WAITING FOR WIFI CONFIGURATION FROM ARDUINO !!!");
   
   WiFi.mode(WIFI_STA);
   WiFi.disconnect(); 
-  
-  // Wait for Wi-Fi to connect before starting the loop
-  Serial.print("Connecting to WiFi");
-  WiFi.begin(ssid.c_str(), password.c_str());
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println();
-  Serial.print("Connected! IP address: ");
-  Serial.println(WiFi.localIP());
 }
 
 // -------------------------------------------------
@@ -72,7 +54,6 @@ void uploadToDatabase(String jsonPayload) {
   WiFiClient client;
   HTTPClient http;
 
-  // IMPORTANT: Set timeout to ensure the connection doesn't hang indefinitely
   http.setTimeout(10000); // 10 seconds timeout
 
   // --- DNS CHECK (Using Hostname for resolution check) ---
@@ -124,15 +105,107 @@ void uploadToDatabase(String jsonPayload) {
 // -------------------------------------------------
 void loop() {
 
-  // Since SoftwareSerial is disabled, we rely on the timer to trigger the upload
-  if (millis() - lastUploadTime >= uploadInterval) {
+  // Check for incoming data from the Arduino Pro Mini on SoftwareSerial
+  if (Serial2.available()) {
+    // Small delay to ensure the entire line is received
+    delay(5); 
+
+    String incomingData = Serial2.readStringUntil('\n');
+    incomingData.trim();
+
+    if (incomingData.length() == 0) return;
+
+    // Robustness: Filter out leading junk characters
+    int braceIndex = incomingData.indexOf('{');
+    if (braceIndex > 0) incomingData = incomingData.substring(braceIndex);
+    if (braceIndex == -1) {
+      // Serial.println("[FILTER] Invalid data: " + incomingData); // Re-enabling this line if needed
+      return; 
+    }
+
+    StaticJsonDocument<512> doc;
+    DeserializationError error = deserializeJson(doc, incomingData);
+
+    if (error) {
+      Serial.print("JSON Deserialization Error: ");
+      Serial.println(error.c_str());
+      return;
+    }
+
+    // -----------------------------------------
+    // 1. WIFI CONFIG UPDATE (Must come first)
+    // -----------------------------------------
+    if (doc.containsKey("type") && doc["type"] == "config") {
+      ssid = doc["ssid"].as<String>();
+      password = doc["pass"].as<String>();
+
+      Serial.println("--- WIFI CREDENTIALS RECEIVED. CONNECTING... ---");
+      Serial.println("SSID: " + ssid);
+
+      // Start connection immediately
+      WiFi.begin(ssid.c_str(), password.c_str());
+      return;
+    }
+
+    // -----------------------------------------
+    // 2. MODE HANDLING (AUTO, MAINTENANCE, SLEEP)
+    // -----------------------------------------
+    if (!doc.containsKey("mode")) return;
+
+    String mode = doc["mode"].as<String>();
+
+    // Check if it's a full sensor payload (as opposed to just a mode status notification)
+    bool isFullSensorData = doc.containsKey("pressure") && doc.containsKey("rain");
     
-    Serial.println("\n[TIMER] Uploading dummy data..."); 
+    // NEW DIAGNOSTIC PRINT: Confirms the JSON was successfully parsed and passed the mode check
+    Serial.println("\n[DATA_RECEIVED] Starting upload sequence (JSON OK)..."); 
     Serial.flush(); 
 
-    uploadToDatabase(DUMMY_PAYLOAD);
-    lastUploadTime = millis();
+    // --- Upload Logic (All Modes) ---
+    // If the interval has passed, attempt the upload regardless of mode.
+    if (millis() - lastUploadTime >= uploadInterval) {
+        
+        if (mode == "AUTO") {
+            if (isFullSensorData) {
+                Serial.println("[AUTO] Uploading AUTO sensor data...");
+            } else {
+                Serial.println("[AUTO] Uploading AUTO status report (Mode Change)...");
+            }
+        } else if (mode == "MAINTENANCE") {
+            Serial.println("[MAINTENANCE] Uploading status report...");
+        } else if (mode == "SLEEP") {
+            Serial.println("[SLEEP] Uploading status report...");
+        }
+        
+        uploadToDatabase(incomingData);
+        lastUploadTime = millis();
+    }
   }
-  
-  // No Wi-Fi reconnect logic needed here as connection is guaranteed in setup.
+
+  // ---------------- WIFI RECONNECT & STATUS CHECK ----------------
+  static unsigned long lastCheck = 0;
+  static bool printIP = true; 
+
+  if (millis() - lastCheck > 5000) {
+    lastCheck = millis();
+
+    // Check 1: Reconnect if needed
+    if (ssid != "" && WiFi.status() != WL_CONNECTED) {
+      Serial.println("[WIFI] Reconnecting...");
+      WiFi.begin(ssid.c_str(), password.c_str());
+      printIP = true; // Reset flag to print IP when connection succeeds
+    } 
+    
+    // Check 2: Print current connection status for debugging
+    if (WiFi.status() == WL_CONNECTED) {
+        if(printIP) {
+            Serial.print("[WIFI] Status: CONNECTED. IP: ");
+            Serial.println(WiFi.localIP());
+            printIP = false; // Only print once per connection
+        }
+    } else {
+        Serial.print("[WIFI] Status: ");
+        Serial.println(WiFi.status());
+    }
+  }
 }
