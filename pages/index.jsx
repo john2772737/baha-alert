@@ -4,7 +4,7 @@ import { getFormattedTime } from '../utils/sensorUtils';
 import { useSensorData } from '../hooks/useSensorData';
 import { useDashboardInit } from '../hooks/useDashboardInit';
 import { ClockIcon, RefreshCcwIcon, CpuIcon } from '../utils/icons';
-import ModeView from '../components/ModeView';
+import ModeView from '../component/ModeView';
 
 const App = () => {
     const [isClient, setIsClient] = useState(false);
