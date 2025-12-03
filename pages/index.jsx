@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-// ⭐ FIX: Ensuring paths start with the required number of dots or relative path pattern
+// ⭐ FIX: Ensuring paths are correctly pointing up one level (../)
 import { getFormattedTime } from '../utils/sensorUtils';
 import { useSensorData } from '../hooks/useSensorData';
 import { useDashboardInit } from '../hooks/useDashboardInit';
@@ -34,7 +34,7 @@ const App = () => {
     // ⭐ PDF Download Logic (Uses jsPDF and jspdf-autotable)
     const downloadReportPDF = useCallback((dataToDownload) => {
         const { jsPDF } = window;
-        // FIX: Check jsPDF.prototype.autoTable instead of window.autoTable
+        // Check jsPDF.prototype.autoTable
         if (typeof jsPDF === 'undefined' || typeof window.html2canvas === 'undefined' || typeof jsPDF.prototype.autoTable === 'undefined') {
             console.error('PDF libraries not fully loaded. Check for jsPDF, html2canvas, and autoTable plugin.');
             return;
@@ -158,22 +158,12 @@ const App = () => {
     // 3. Client/CDN Init & Time update
     useEffect(() => {
         setIsClient(true);
-        // Load external libraries required for gauges, charts, and PDF
-        const cdnUrls = [
-            "https://cdnjs.cloudflare.com/ajax/libs/gauge.js/1.3.7/gauge.min.js",
-            "https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js",
-            "https://cdn.tailwindcss.com",
-            // PDF Libraries
-            "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js",
-            "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js",
-            "https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.23/jspdf.plugin.autotable.min.js",
-        ];
         
+        // Function to dynamically load a script and return a Promise
         const loadScript = (url) => new Promise(resolve => {
             const script = document.createElement('script');
-            script.src = url; script.async = true; 
+            script.src = url; script.async = false; // Important: Force sequential/blocking load for dependencies
             
-            // Special handling for jsPDF global setup
             if (url.includes('jspdf') && !url.includes('autotable')) {
                 script.onload = () => {
                      if (window.jspdf && window.jspdf.jsPDF) window.jsPDF = window.jspdf.jsPDF;
@@ -183,25 +173,51 @@ const App = () => {
                  script.onload = resolve; 
             }
             
-            if (url.includes('tailwindcss')) document.head.prepend(script); else document.head.appendChild(script);
-            if (url.includes('tailwindcss')) resolve(); 
-        });
-
-        // FIX: Refined the dependency check to ensure autoTable plugin is available
-        Promise.all(cdnUrls.map(loadScript)).then(() => { 
-            const isReady = (
-                typeof window.Gauge !== 'undefined' && 
-                typeof window.Chart !== 'undefined' && 
-                typeof window.jsPDF !== 'undefined' && 
-                typeof window.html2canvas !== 'undefined' &&
-                // Critical Check: Ensure autoTable function is attached to jsPDF prototype
-                (window.jsPDF && typeof window.jsPDF.prototype.autoTable !== 'undefined')
-            );
-            if (isReady) {
-                setScriptsLoaded(true); 
+            if (url.includes('tailwindcss')) {
+                document.head.prepend(script); 
+                resolve(); // Tailwind loads instantly
+            } else {
+                document.head.appendChild(script);
             }
         });
-        
+
+        // CRITICAL FIX: Load libraries sequentially where dependency exists
+        const loadDependencies = async () => {
+            try {
+                // 1. Core/CSS
+                await loadScript("https://cdn.tailwindcss.com");
+                await loadScript("https://cdnjs.cloudflare.com/ajax/libs/gauge.js/1.3.7/gauge.min.js");
+                await loadScript("https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js");
+
+                // 2. PDF Core (jsPDF)
+                await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js");
+                
+                // 3. PDF Plugins (Must load after jsPDF Core)
+                await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.23/jspdf.plugin.autotable.min.js");
+                await loadScript("https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js");
+
+                // Check final state
+                const isReady = (
+                    typeof window.Gauge !== 'undefined' && 
+                    typeof window.Chart !== 'undefined' && 
+                    typeof window.jsPDF !== 'undefined' && 
+                    typeof window.html2canvas !== 'undefined' &&
+                    (window.jsPDF && typeof window.jsPDF.prototype.autoTable !== 'undefined')
+                );
+                
+                if (isReady) {
+                    setScriptsLoaded(true); 
+                } else {
+                    console.error("Initialization failed: Final check of global objects failed.");
+                }
+
+            } catch(e) {
+                console.error("Error during sequential script loading:", e);
+            }
+        };
+
+        loadDependencies();
+
         setCurrentTime(getFormattedTime());
         const timeInterval = setInterval(() => setCurrentTime(getFormattedTime()), 10000);
         return () => clearInterval(timeInterval);
@@ -210,6 +226,7 @@ const App = () => {
     // Passive background fetch (Kept for viewing logs)
     useEffect(() => {
         const fetchTodayDataPassive = async () => {
+             if (!isClient || !scriptsLoaded) return; // Wait until ready
              try {
                 const response = await fetch(`${REAL_API_ENDPOINT}?today=true`);
                 if (!response.ok) throw new Error("Passive fetch failed");
@@ -224,7 +241,7 @@ const App = () => {
         fetchTodayDataPassive();
         const interval = setInterval(fetchTodayDataPassive, FETCH_TODAY_LOG_INTERVAL_MS);
         return () => clearInterval(interval);
-    }, [isClient]);
+    }, [isClient, scriptsLoaded]);
 
 
     if (!isClient || !scriptsLoaded) return <div className="flex justify-center items-center h-screen bg-slate-900 text-emerald-400 font-inter"><RefreshCcwIcon className="animate-spin w-8 h-8 mr-2" /> Initializing...</div>;
