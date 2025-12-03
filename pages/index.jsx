@@ -2,13 +2,10 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { getFormattedTime } from '../utils/sensorUtils';
 import { useSensorData } from '../hooks/useSensorData';
 import { useDashboardInit } from '../hooks/useDashboardInit';
-import { ClockIcon, RefreshCcwIcon, CpuIcon, DownloadIcon } from '../utils/icons'; // Added DownloadIcon if you have it, otherwise use text
+import { ClockIcon, RefreshCcwIcon, CpuIcon } from '../utils/icons';
 import ModeView from '../components/ModeView';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
-
-const REAL_API_ENDPOINT = 'https://baha-alert.vercel.app/api';
-const FETCH_TODAY_LOG_INTERVAL_MS = 600000; // 10 minutes
 
 const App = () => {
     const [isClient, setIsClient] = useState(false);
@@ -17,26 +14,24 @@ const App = () => {
     const modes = ['Auto', 'Maintenance', 'Sleep'];
     const [currentTime, setCurrentTime] = useState('Loading...');
 
-    // 1. Fetch Data & Calculate Percentages
-    // historyData is usually the array of logs we want to print
+    // 1. Fetch Data
     const { liveData, historyData, fetchError, rainPercent, soilPercent, waterPercent } = useSensorData(isClient, mode);
 
-    // 2. Initialize and Update Dashboard Libraries (Gauges/Chart)
-    useDashboardInit(liveData, historyData, mode, rainPercent, soilPercent, waterPercent);
+    // 2. Initialize Dashboard Libraries (FIXED: Capturing the return value)
+    const dashboardRefs = useDashboardInit(liveData, historyData, mode, rainPercent, soilPercent, waterPercent);
 
-    // Group percentages for ModeView
+    // Group percentages
     const percents = useMemo(() => ({ rainPercent, soilPercent, waterPercent }), [rainPercent, soilPercent, waterPercent]);
 
-    // Handle Client-side hydration and Clock
+    // Client-side hydration and Clock
     useEffect(() => {
         setIsClient(true);
         const timer = setInterval(() => setCurrentTime(getFormattedTime()), 1000);
         return () => clearInterval(timer);
     }, []);
 
-    // ⭐ PDF Download Logic (Table Design)
+    // PDF Download Logic
     const downloadReportPDF = useCallback(() => {
-        // Use historyData as the source for the report
         const dataToDownload = historyData;
 
         if (!dataToDownload || dataToDownload.length === 0) {
@@ -64,7 +59,6 @@ const App = () => {
 
             // -- Table Rows --
             const tableRows = dataToDownload.map(item => {
-                // Determine status based on water level (Example logic)
                 let status = "Normal";
                 const waterVal = parseFloat(item.waterLevel);
                 if (waterVal > 75) status = "Critical";
@@ -86,7 +80,7 @@ const App = () => {
                 startY: 40,
                 theme: 'grid',
                 styles: { fontSize: 10, cellPadding: 3, halign: 'center' },
-                headStyles: { fillColor: [22, 160, 133], textColor: 255, fontStyle: 'bold' }, // Teal Header
+                headStyles: { fillColor: [22, 160, 133], textColor: 255, fontStyle: 'bold' },
                 alternateRowStyles: { fillColor: [245, 245, 245] }
             });
 
@@ -100,7 +94,6 @@ const App = () => {
         }
     }, [historyData]);
 
-    // Prevent hydration mismatch
     if (!isClient) return null;
 
     return (
@@ -121,7 +114,6 @@ const App = () => {
                             <span>{currentTime}</span>
                         </div>
                         
-                        {/* Mode Selector */}
                         <div className="flex items-center space-x-2 bg-gray-100 rounded-lg p-1">
                             {modes.map((m) => (
                                 <button
@@ -164,7 +156,6 @@ const App = () => {
                             <span>Generating...</span>
                         ) : (
                             <>
-                                {/* SVG for Download Icon inline if not imported */}
                                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                                     <polyline points="7 10 12 15 17 10"></polyline>
@@ -184,12 +175,13 @@ const App = () => {
                     </div>
                 )}
 
-                {/* Main Visualization Component */}
+                {/* Main Visualization Component (FIXED: Passed dashboardRefs) */}
                 <ModeView 
                     mode={mode} 
                     liveData={liveData} 
                     historyData={historyData}
                     percents={percents}
+                    dashboardRefs={dashboardRefs}
                 />
             </main>
         </div>
