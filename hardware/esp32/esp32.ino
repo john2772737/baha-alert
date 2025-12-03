@@ -1,211 +1,134 @@
-#include <ESP8266WiFi.h>
-#include <ESP8266HTTPClient.h>
+#include <WiFi.h>
+#include <HTTPClient.h>
 #include <ArduinoJson.h>
-#include <SoftwareSerial.h>
+#include <WiFiClientSecure.h> // <--- 1. REQUIRED FOR HTTPS
 
-// --- ESP-01 PIN DEFINITIONS ---
-// RX pin: GPIO3 (D3) -> Connects to Arduino Pro Mini TX (D5)
-// TX pin: GPIO1 (D1) -> Connects to Arduino Pro Mini RX (D4)
-SoftwareSerial Serial2(3, 1);  
-// SoftwareSerial(RX_PIN, TX_PIN)
+// ------------------------------------------------
+// CONFIGURATION
+// ------------------------------------------------
+// ⭐ CHANGE "/weather" IF YOUR API ROUTE NAME IS DIFFERENT
+const char* serverName = "https://baha-alert.vercel.app/api"; 
 
-// -------------- SERVER URL ------------------
-const char* serverName = "http://baha-alert.vercel.app/api"; 
-// Using HTTP (not secure) as standard ESP8266 configuration requires this.
+// Use Serial2 for communication with Arduino (Pins 16 RX, 17 TX)
+#define RXD2 16
+#define TXD2 17
 
-// -------------- WIFI CREDENTIALS --------------
-String ssid = "";
-String password = "";
+HTTPClient http;
 
-// -------------- UPLOAD TIMING ----------------
-unsigned long lastUploadTime = 0;
-const long uploadInterval = 1500;  // 1.5s minimum interval
-
-// -------------------------------------------------
-// SETUP
-// -------------------------------------------------
 void setup() {
-  // Hardware Serial (GPIO1/GPIO3) for debugging on the PC
-  Serial.begin(9600); 
-  
-  // SoftwareSerial is enabled to receive data from the Arduino Pro Mini
-  Serial2.begin(9600);
+  // 1. Debug Serial (USB to Computer)
+  Serial.begin(115200);
+  Serial.println("\n--- ESP32 STARTED ---");
 
-  Serial.println("\n\nESP-01 OPERATIONAL MODE STARTED...");
-  Serial.println("!!! WAITING FOR WIFI CONFIGURATION FROM ARDUINO !!!");
+  // 2. Communication Serial (To Arduino)
+  Serial2.begin(9600, SERIAL_8N1, RXD2, TXD2);
   
   WiFi.mode(WIFI_STA);
-  WiFi.disconnect(); 
+  WiFi.disconnect();
 }
 
-// -------------------------------------------------
-// UPLOAD TO DATABASE (ESP8266 VERSION)
-// -------------------------------------------------
-void uploadToDatabase(String jsonPayload) {
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("[UPLOAD] ERROR: WiFi NOT connected. Skipping POST.");
-    Serial.flush();
+void loop() {
+  // Check if data is coming from Arduino on pins 16/17
+  if (Serial2.available()) {
+    
+    String input = Serial2.readStringUntil('\n');
+    input.trim();
+
+    Serial.print("Received from Arduino: ");
+    Serial.println(input);
+
+    if (input.length() > 0) {
+      handleArduinoMessage(input);
+    }
+  }
+}
+
+void handleArduinoMessage(String input) {
+  StaticJsonDocument<1024> doc;
+  DeserializationError error = deserializeJson(doc, input);
+
+  if (error) {
+    Serial.print("JSON Error: ");
+    Serial.println(error.c_str());
     return;
   }
+
+  // --- SCENARIO 1: CONFIGURATION ---
+  if (doc.containsKey("type") && doc["type"] == "config") {
+    Serial.println("Type: Config found. Attempting WiFi...");
+    const char* ssid = doc["ssid"];
+    const char* pass = doc["pass"];
+    connectToWiFi(ssid, pass);
+  }
+
+  // --- SCENARIO 2: DATA ---
+  else if (doc.containsKey("pressure")) {
+    Serial.println("Type: Sensor Data found.");
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.println("Sending to API...");
+      sendDataToAPI(doc);
+    } else {
+      Serial.println("WiFi not connected! Requesting Re-handshake.");
+      Serial2.println("{\"status\":\"CONN_LOST\"}"); 
+    }
+  }
+}
+
+void connectToWiFi(const char* ssid, const char* pass) {
+  Serial.print("Connecting to: ");
+  Serial.println(ssid);
   
-  Serial.println("[UPLOAD_FNC] *** Upload function called. Checking DNS... ***"); 
-  Serial.flush(); 
+  WiFi.begin(ssid, pass);
+  
+  unsigned long startAttempt = millis();
+  bool connected = false;
 
-  WiFiClient client;
-  HTTPClient http;
+  while (millis() - startAttempt < 10000) {
+    if (WiFi.status() == WL_CONNECTED) {
+      connected = true;
+      break;
+    }
+    Serial.print(".");
+    delay(500);
+  }
+  Serial.println();
 
-  http.setTimeout(10000); // 10 seconds timeout
-
-  // --- DNS CHECK (Using Hostname for resolution check) ---
-  IPAddress serverIP;
-  if (WiFi.hostByName("baha-alert.vercel.app", serverIP)) {
-    Serial.print("[DNS] Server IP resolved: ");
-    Serial.println(serverIP);
+  if (connected) {
+    Serial.println("WiFi Connected! IP: " + WiFi.localIP().toString());
+    // Small delay to ensure Arduino is listening
+    delay(200); 
+    Serial.println("Sending CONN_OK to Arduino...");
+    Serial2.println("{\"status\":\"CONN_OK\"}");
   } else {
-    Serial.println("[DNS] ERROR: Hostname resolution failed.");
-    Serial.flush();
-    return;
+    Serial.println("WiFi Timeout. Sending CONN_FAIL to Arduino...");
+    Serial2.println("{\"status\":\"CONN_FAIL\"}");
   }
-  // ---------------------
-  
-  if (http.begin(client, serverName)) {
-    Serial.println("[UPLOAD_FNC] HTTP connection started. Posting payload...");
-    Serial.print("[UPLOAD] Payload: ");
-    Serial.println(jsonPayload);
-    Serial.flush();
+}
 
+void sendDataToAPI(JsonDocument& doc) {
+  // ⭐ 2. USE SECURE CLIENT
+  WiFiClientSecure client;
+  client.setInsecure(); // This is the key to fixing 308/SSL errors on Vercel
+
+  // Start connection
+  if (http.begin(client, serverName)) {
     http.addHeader("Content-Type", "application/json");
 
-    int code = http.POST(jsonPayload);
+    String jsonString;
+    serializeJson(doc, jsonString);
 
-    if (code > 0) {
-      Serial.print("[UPLOAD] Success Code: ");
-      Serial.println(code);
-      if (code != 200) {
-        Serial.print("[UPLOAD] Server Response Body: ");
-        Serial.println(http.getString());
-      }
-    } else {
-      Serial.print("[UPLOAD] POST ERROR Code: ");
-      Serial.println(code);
-      Serial.print("[UPLOAD] ERROR String: ");
-      Serial.println(http.errorToString(code));
+    int httpResponseCode = http.POST(jsonString);
+
+    Serial.print("API Response: ");
+    Serial.println(httpResponseCode); // Should now be 200 or 201
+    
+    if (httpResponseCode > 0) {
+      String response = http.getString();
+      Serial.println(response);
     }
-
-    http.end();
-    Serial.flush(); 
   } else {
-    Serial.println("[UPLOAD] ERROR: Cannot initiate HTTP connection (DNS/server name issue).");
-    Serial.flush();
-  }
-}
-
-// -------------------------------------------------
-// MAIN LOOP
-// -------------------------------------------------
-void loop() {
-
-  // Check for incoming data from the Arduino Pro Mini on SoftwareSerial
-  if (Serial2.available()) {
-    // Small delay to ensure the entire line is received
-    delay(5); 
-
-    String incomingData = Serial2.readStringUntil('\n');
-    incomingData.trim();
-
-    if (incomingData.length() == 0) return;
-
-    // Robustness: Filter out leading junk characters
-    int braceIndex = incomingData.indexOf('{');
-    if (braceIndex > 0) incomingData = incomingData.substring(braceIndex);
-    if (braceIndex == -1) {
-      // Serial.println("[FILTER] Invalid data: " + incomingData); // Re-enabling this line if needed
-      return; 
-    }
-
-    StaticJsonDocument<512> doc;
-    DeserializationError error = deserializeJson(doc, incomingData);
-
-    if (error) {
-      Serial.print("JSON Deserialization Error: ");
-      Serial.println(error.c_str());
-      return;
-    }
-
-    // -----------------------------------------
-    // 1. WIFI CONFIG UPDATE (Must come first)
-    // -----------------------------------------
-    if (doc.containsKey("type") && doc["type"] == "config") {
-      ssid = doc["ssid"].as<String>();
-      password = doc["pass"].as<String>();
-
-      Serial.println("--- WIFI CREDENTIALS RECEIVED. CONNECTING... ---");
-      Serial.println("SSID: " + ssid);
-
-      // Start connection immediately
-      WiFi.begin(ssid.c_str(), password.c_str());
-      return;
-    }
-
-    // -----------------------------------------
-    // 2. MODE HANDLING (AUTO, MAINTENANCE, SLEEP)
-    // -----------------------------------------
-    if (!doc.containsKey("mode")) return;
-
-    String mode = doc["mode"].as<String>();
-
-    // Check if it's a full sensor payload (as opposed to just a mode status notification)
-    bool isFullSensorData = doc.containsKey("pressure") && doc.containsKey("rain");
-    
-    // NEW DIAGNOSTIC PRINT: Confirms the JSON was successfully parsed and passed the mode check
-    Serial.println("\n[DATA_RECEIVED] Starting upload sequence (JSON OK)..."); 
-    Serial.flush(); 
-
-    // --- Upload Logic (All Modes) ---
-    // If the interval has passed, attempt the upload regardless of mode.
-    if (millis() - lastUploadTime >= uploadInterval) {
-        
-        if (mode == "AUTO") {
-            if (isFullSensorData) {
-                Serial.println("[AUTO] Uploading AUTO sensor data...");
-            } else {
-                Serial.println("[AUTO] Uploading AUTO status report (Mode Change)...");
-            }
-        } else if (mode == "MAINTENANCE") {
-            Serial.println("[MAINTENANCE] Uploading status report...");
-        } else if (mode == "SLEEP") {
-            Serial.println("[SLEEP] Uploading status report...");
-        }
-        
-        uploadToDatabase(incomingData);
-        lastUploadTime = millis();
-    }
+    Serial.println("Error: Unable to connect to Server");
   }
 
-  // ---------------- WIFI RECONNECT & STATUS CHECK ----------------
-  static unsigned long lastCheck = 0;
-  static bool printIP = true; 
-
-  if (millis() - lastCheck > 5000) {
-    lastCheck = millis();
-
-    // Check 1: Reconnect if needed
-    if (ssid != "" && WiFi.status() != WL_CONNECTED) {
-      Serial.println("[WIFI] Reconnecting...");
-      WiFi.begin(ssid.c_str(), password.c_str());
-      printIP = true; // Reset flag to print IP when connection succeeds
-    } 
-    
-    // Check 2: Print current connection status for debugging
-    if (WiFi.status() == WL_CONNECTED) {
-        if(printIP) {
-            Serial.print("[WIFI] Status: CONNECTED. IP: ");
-            Serial.println(WiFi.localIP());
-            printIP = false; // Only print once per connection
-        }
-    } else {
-        Serial.print("[WIFI] Status: ");
-        Serial.println(WiFi.status());
-    }
-  }
+  http.end();
 }
