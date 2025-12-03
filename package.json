@@ -10,12 +10,14 @@
   "dependencies": {
     "chart": "^0.1.2",
     "chart.js": "^4.4.1",
+    "firebase": "^12.6.0",
     "jspdf": "^3.0.4",
     "jspdf-autotable": "^5.0.2",
     "mongoose": "^9.0.0",
     "next": "^14.0.0",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "react-qr-code": "^2.0.18"
   },
   "devDependencies": {
     "eslint": "^8.56.0",
