@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { useRouter } from 'next/router'; // ⭐ Import Router
-import { useAuth } from '../context/AuthContext'; // ⭐ Import Auth Hook
-import QRCode from 'react-qr-code'; // ⭐ Import QR Library
+import { useRouter } from 'next/router'; 
+import { useAuth } from '../context/AuthContext'; 
+import QRCode from 'react-qr-code'; 
 
 import { getFormattedTime } from '../utils/sensorUtils';
 import { useSensorData } from '../hooks/useSensorData';
@@ -10,7 +10,7 @@ import { ClockIcon, RefreshCcwIcon, CpuIcon } from '../utils/icons';
 import ModeView from '../components/ModeView'; 
 
 const REAL_API_ENDPOINT = 'https://baha-alert.vercel.app/api'; 
-const FETCH_TODAY_LOG_INTERVAL_MS = 600000; // 10 minutes
+const FETCH_TODAY_LOG_INTERVAL_MS = 600000; 
 
 const App = () => {
     // ⭐ Auth & Router Logic
@@ -21,30 +21,65 @@ const App = () => {
     const [isClient, setIsClient] = useState(false);
     const [scriptsLoaded, setScriptsLoaded] = useState(false);
     const [isDownloading, setIsDownloading] = useState(false);
-    const [showQR, setShowQR] = useState(false); // ⭐ QR Toggle State
+    
+    // ⭐ QR Logic States
+    const [showQR, setShowQR] = useState(false);
+    const [qrValue, setQrValue] = useState(''); // Stores the dynamic secure URL
+
     const [mode, setMode] = useState('Auto');
     const modes = ['Auto', 'Maintenance', 'Sleep'];
     const [currentTime, setCurrentTime] = useState('Loading...');
     const [todayData, setTodayData] = useState([]); 
 
-    // ⭐ 1. Protect Route (Redirect if not logged in)
+    // ⭐ 1. Protect Route
     useEffect(() => {
         if (!loading && !user) {
             router.push('/login');
         }
     }, [user, loading, router]);
 
-    // 2. Fetch Data & Calculate Percentages
+    // ⭐ 2. Function to Generate Secure Session QR
+    const generateSecureQR = async () => {
+        if (!user) return;
+        setQrValue(''); // Clear previous value to show loading state
+        setShowQR(true); // Open modal immediately
+
+        try {
+            // A. Get current user's ID token to prove identity
+            const idToken = await user.getIdToken();
+            
+            // B. Ask server for a transfer token
+            const response = await fetch('/api/generate-qr', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ idToken })
+            });
+            
+            const data = await response.json();
+            
+            if (data.token) {
+                // C. Create the Magic Link with the custom token
+                const magicLink = `https://baha-alert.vercel.app/login?token=${data.token}`;
+                setQrValue(magicLink);
+            } else {
+                console.error("Failed to generate token");
+            }
+        } catch (error) {
+            console.error("QR Generation Error:", error);
+        }
+    };
+
+    // 3. Fetch Data & Calculate Percentages
     const { liveData, historyData, fetchError, rainPercent, soilPercent, waterPercent } = useSensorData(isClient, mode);
     
-    // 3. Initialize Dashboard Libraries
+    // 4. Initialize Dashboard Libraries
     const dashboardRefs = useDashboardInit(
         liveData, historyData, mode, rainPercent, soilPercent, waterPercent
     );
 
     const percents = useMemo(() => ({ rainPercent, soilPercent, waterPercent }), [rainPercent, soilPercent, waterPercent]);
 
-    // ⭐ PDF Download Logic (Preserved: Raw Data, No Chart)
+    // ⭐ PDF Download Logic
     const downloadReportPDF = useCallback((dataToDownload) => {
         if (typeof window.jsPDF === 'undefined') {
             console.error('PDF library jsPDF not loaded.');
@@ -223,7 +258,7 @@ const App = () => {
         return () => clearInterval(interval);
     }, [isClient]);
 
-    // ⭐ Auth Loading State
+    // Auth Loading State
     if (loading || !user) return <div className="flex justify-center items-center h-screen bg-slate-900 text-emerald-400 font-inter">Checking Access...</div>;
 
     if (!isClient || !scriptsLoaded) return <div className="flex justify-center items-center h-screen bg-slate-900 text-emerald-400 font-inter"><RefreshCcwIcon className="animate-spin w-8 h-8 mr-2" /> Initializing...</div>;
@@ -238,7 +273,7 @@ const App = () => {
                 @media (min-width: 1024px) { .gauges-container { grid-template-columns: repeat(4, 1fr); } .chart-container { height: 400px; } }
             `}</style>
             
-            {/* ⭐ Updated Header */}
+            {/* Header */}
             <header className="mb-8 p-5 bg-slate-800 rounded-3xl shadow-lg border-b-4 border-emerald-500/50 flex flex-col md:flex-row justify-between items-center">
                 <div className="flex flex-col">
                     <h1 className="text-3xl font-extrabold text-emerald-400 mb-2 md:mb-0">Smart Weather Station</h1>
@@ -248,8 +283,8 @@ const App = () => {
                             <CpuIcon className="w-3 h-3 mr-1 text-yellow-400" />
                             MODE: <span className="text-emerald-300 ml-1 font-mono font-bold">{liveData.deviceMode}</span>
                         </div>
-                        {/* QR Toggle Button */}
-                        <button onClick={() => setShowQR(true)} className="text-xs bg-indigo-600 px-2 py-1 rounded text-white font-bold hover:bg-indigo-500 transition-colors">
+                        {/* QR Toggle Button - Calls the Secure Gen Function */}
+                        <button onClick={generateSecureQR} className="text-xs bg-indigo-600 px-2 py-1 rounded text-white font-bold hover:bg-indigo-500 transition-colors">
                              SHOW QR
                         </button>
                     </div>
@@ -270,21 +305,29 @@ const App = () => {
                 </div>
             </header>
 
-            // Inside your App component return statement...
-
-            {/* ⭐ QR Code Modal */}
+            {/* ⭐ QR Code Modal (Secure) */}
             {showQR && (
                 <div className="fixed inset-0 bg-black/80 z-50 flex flex-col items-center justify-center p-4" onClick={() => setShowQR(false)}>
                     <div className="bg-white p-6 rounded-2xl flex flex-col items-center shadow-2xl" onClick={e => e.stopPropagation()}>
-                        <h3 className="text-black text-lg font-bold mb-4">Scan for Instant Access</h3>
-                        <div className="bg-white p-2 border-2 border-slate-200 rounded-lg">
-                            {/* ⭐ CHANGED: Added /login?mode=scan to the value */}
-                            <QRCode 
-                                value="https://baha-alert.vercel.app/login?mode=scan" 
-                                size={200} 
-                            />
+                        <h3 className="text-black text-lg font-bold mb-4">Scan to Share Session</h3>
+                        
+                        <div className="bg-white p-2 border-2 border-slate-200 rounded-lg flex items-center justify-center" style={{ minHeight: '200px', minWidth: '200px' }}>
+                            {/* Check if QR Value exists before rendering */}
+                            {qrValue ? (
+                                <QRCode 
+                                    value={qrValue} 
+                                    size={200} 
+                                />
+                            ) : (
+                                <div className="flex flex-col items-center text-slate-500">
+                                    <RefreshCcwIcon className="w-8 h-8 animate-spin mb-2 text-indigo-500" />
+                                    <span className="text-xs">Generating Secure Key...</span>
+                                </div>
+                            )}
                         </div>
-                        <p className="text-slate-500 text-xs mt-4 font-mono">Auto-Login QR Code</p>
+                        <p className="text-slate-500 text-xs mt-4 font-mono">
+                            {qrValue ? "Valid for 1 Hour" : "Requesting Server..."}
+                        </p>
                     </div>
                     <button className="mt-6 text-white text-sm underline hover:text-emerald-400">Tap anywhere to close</button>
                 </div>

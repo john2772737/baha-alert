@@ -1,7 +1,12 @@
 // context/AuthContext.js
 import { createContext, useContext, useEffect, useState } from 'react';
-// ⭐ Import signInAnonymously
-import { onAuthStateChanged, signInWithPopup, signOut, signInAnonymously } from 'firebase/auth';
+import { 
+  onAuthStateChanged, 
+  signInWithPopup, 
+  signOut, 
+  signInAnonymously, 
+  signInWithCustomToken 
+} from 'firebase/auth';
 import { auth, googleProvider } from '../lib/firebase';
 import { useRouter } from 'next/router';
 
@@ -14,6 +19,7 @@ export const AuthContextProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
+  // 1. Listen for auth state changes (logged in / logged out)
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setUser(user ? user : null);
@@ -22,6 +28,7 @@ export const AuthContextProvider = ({ children }) => {
     return () => unsubscribe();
   }, []);
 
+  // 2. Google Login Function
   const googleSignIn = async () => {
     try {
       await signInWithPopup(auth, googleProvider);
@@ -31,7 +38,7 @@ export const AuthContextProvider = ({ children }) => {
     }
   };
 
-  // ⭐ NEW: Anonymous Login Function
+  // 3. Guest (Anonymous) Login Function
   const anonymousSignIn = async () => {
     try {
       await signInAnonymously(auth);
@@ -41,14 +48,28 @@ export const AuthContextProvider = ({ children }) => {
     }
   };
 
+  // 4. ⭐ Token Login Function (For Secure QR Scan)
+  const tokenSignIn = async (token) => {
+    try {
+      await signInWithCustomToken(auth, token);
+      router.push('/');
+    } catch (error) {
+      console.error("Token Login failed", error);
+    }
+  };
+
+  // 5. Logout Function
   const logOut = async () => {
-    await signOut(auth);
-    router.push('/login');
+    try {
+      await signOut(auth);
+      router.push('/login');
+    } catch (error) {
+      console.error("Logout failed", error);
+    }
   };
 
   return (
-    // ⭐ Expose anonymousSignIn
-    <AuthContext.Provider value={{ user, googleSignIn, anonymousSignIn, logOut, loading }}>
+    <AuthContext.Provider value={{ user, googleSignIn, anonymousSignIn, tokenSignIn, logOut, loading }}>
       {!loading && children}
     </AuthContext.Provider>
   );
