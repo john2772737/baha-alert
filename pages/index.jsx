@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-// ⭐ FIX: Ensuring paths are correctly pointing up one level (../)
-import { getFormattedTime } from '../utils/sensorUtils';
-import { useSensorData } from '../hooks/useSensorData';
-import { useDashboardInit } from '../hooks/useDashboardInit';
-import { ClockIcon, RefreshCcwIcon, CpuIcon } from '../utils/icons';
-import ModeView from '../components/ModeView'; 
+// ⭐ FIX: Explicitly adding .js extensions to help path resolution
+import { getFormattedTime } from '../utils/sensorUtils.js';
+import { useSensorData } from '../hooks/useSensorData.js';
+import { useDashboardInit } from '../hooks/useDashboardInit.js';
+import { ClockIcon, RefreshCcwIcon, CpuIcon } from '../utils/icons.js';
+import ModeView from '../components/ModeView.jsx'; // Assuming components are .jsx
 
 const REAL_API_ENDPOINT = 'https://baha-alert.vercel.app/api'; 
 const FETCH_TODAY_LOG_INTERVAL_MS = 600000; // 10 minutes (for passive background fetch)
@@ -162,16 +162,16 @@ const App = () => {
         // Function to dynamically load a script and return a Promise
         const loadScript = (url) => new Promise(resolve => {
             const script = document.createElement('script');
-            script.src = url; script.async = false; // Important: Force sequential/blocking load for dependencies
+            script.src = url; 
+            script.async = false; // Ensures order integrity
             
-            if (url.includes('jspdf') && !url.includes('autotable')) {
-                script.onload = () => {
-                     if (window.jspdf && window.jspdf.jsPDF) window.jsPDF = window.jspdf.jsPDF;
-                     resolve();
-                };
-            } else {
-                 script.onload = resolve; 
-            }
+            script.onload = () => {
+                // Ensure jsPDF is globally available if loaded from UMD bundle
+                if (url.includes('jspdf') && !url.includes('autotable') && window.jspdf && window.jspdf.jsPDF) {
+                    window.jsPDF = window.jspdf.jsPDF;
+                }
+                resolve(); 
+            };
             
             if (url.includes('tailwindcss')) {
                 document.head.prepend(script); 
@@ -193,16 +193,16 @@ const App = () => {
                 await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js");
                 
                 // 3. PDF Plugins (Must load after jsPDF Core)
-                await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.23/jspdf.plugin.autotable.min.js");
                 await loadScript("https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js");
+                await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.23/jspdf.plugin.autotable.min.js");
 
-                // Check final state
+                // FINAL CHECK: Check for core required globals.
                 const isReady = (
                     typeof window.Gauge !== 'undefined' && 
                     typeof window.Chart !== 'undefined' && 
                     typeof window.jsPDF !== 'undefined' && 
-                    typeof window.html2canvas !== 'undefined' &&
-                    (window.jsPDF && typeof window.jsPDF.prototype.autoTable !== 'undefined')
+                    // Critical Check: Ensure autoTable function is attached to jsPDF prototype
+                    (window.jsPDF && typeof window.jsPDF.prototype.autoTable === 'function')
                 );
                 
                 if (isReady) {
