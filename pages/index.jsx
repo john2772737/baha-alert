@@ -1,159 +1,279 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import Script from 'next/script'; 
-import dynamic from 'next/dynamic'; // ⭐ Import Dynamic
-
 import { getFormattedTime } from '../utils/sensorUtils';
 import { useSensorData } from '../hooks/useSensorData';
 import { useDashboardInit } from '../hooks/useDashboardInit';
 import { ClockIcon, RefreshCcwIcon, CpuIcon } from '../utils/icons';
-import ModeView from '../components/ModeView';
+import ModeView from '../components/ModeView'; // Corrected component path
 
-// ------------------------------------------------------------------
-// 1. Rename your main component to "DashboardComponent"
-//    This contains all your logic, hooks, and UI.
-// ------------------------------------------------------------------
-const DashboardComponent = () => {
+const REAL_API_ENDPOINT = 'https://baha-alert.vercel.app/api'; 
+const FETCH_TODAY_LOG_INTERVAL_MS = 600000; // 10 minutes (for passive background fetch)
+
+const App = () => {
     const [isClient, setIsClient] = useState(false);
-    const [isDownloading, setIsDownloading] = useState(false);
+    const [scriptsLoaded, setScriptsLoaded] = useState(false);
+    const [isDownloading, setIsDownloading] = useState(false); // ⭐ New state for download status
     const [mode, setMode] = useState('Auto');
+    const modes = ['Auto', 'Maintenance', 'Sleep'];
     const [currentTime, setCurrentTime] = useState('Loading...');
     
-    // Hooks are now safe because this component only loads in the browser
-    const { liveData, historyData, fetchError, rainPercent, soilPercent, waterPercent } = useSensorData(true, mode);
+    const [todayData, setTodayData] = useState([]); 
 
-    useDashboardInit(liveData, historyData, mode, rainPercent, soilPercent, waterPercent);
+    // 1. Fetch Data & Calculate Percentages
+    const { liveData, historyData, fetchError, rainPercent, soilPercent, waterPercent } = useSensorData(isClient, mode);
+    
+    // 2. Initialize and Update Dashboard Libraries (Gauges/Chart)
+    const dashboardRefs = useDashboardInit(
+        liveData, historyData, mode, rainPercent, soilPercent, waterPercent
+    );
 
-    const percents = useMemo(() => ({ 
-        rainPercent, soilPercent, waterPercent 
-    }), [rainPercent, soilPercent, waterPercent]);
+    // Group percentages for easy passing to ModeView
+    const percents = useMemo(() => ({ rainPercent, soilPercent, waterPercent }), [rainPercent, soilPercent, waterPercent]);
 
+
+    // ⭐ PDF Download Logic (Uses jsPDF and html2canvas)
+    // This function now accepts the data array directly.
     const downloadReportPDF = useCallback((dataToDownload) => {
-        // eslint-disable-next-line no-undef
-        if (typeof window === 'undefined' || !window.jspdf) {
-            alert("PDF Library is loading... please try again in 5 seconds.");
+        if (typeof window.jsPDF === 'undefined') {
+            console.error('PDF library jsPDF not loaded.');
             return;
         }
 
+        const { jsPDF } = window;
         if (!dataToDownload || dataToDownload.length === 0) {
-            alert("No data available to generate report.");
+            console.error('No data available to generate report.');
             return;
         }
+        
+        // 1. Prepare Monospace Text Content
+        const reportElement = document.createElement('div');
+        reportElement.style.fontFamily = 'monospace';
+        reportElement.style.fontSize = '10px';
+        
+        let content = `SMART WEATHER STATION - DAILY LOG REPORT\n`;
+        content += `Generated Time: ${getFormattedTime()}\n`;
+        content += `Device Mode: ${liveData.deviceMode}\n\n`;
+        content += `----------------------------------------------------------------------------------------\n`;
+        content += `| Time (HH:MM) | Pressure (hPa) | Rain (%) | Soil (%) | Water (cm) |\n`;
+        content += `----------------------------------------------------------------------------------------\n`;
 
+        dataToDownload.forEach(item => {
+            const date = new Date(item.timestamp);
+            const timeStr = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+            
+            const p = item.avgPressure ? item.avgPressure.toFixed(1) : 'N/A';
+            const r = item.avgRain ? item.avgRain.toFixed(0) : 'N/A';
+            const s = item.avgSoil ? item.avgSoil.toFixed(0) : 'N/A';
+            const w = item.avgWaterDistance ? item.avgWaterDistance.toFixed(1) : 'N/A';
+            
+            const pad = (str, len) => String(str).padEnd(len).substring(0, len);
+
+            content += `| ${pad(timeStr, 12)} | ${pad(p, 14)} | ${pad(r, 8)} | ${pad(s, 8)} | ${pad(w, 10)} |\n`;
+        });
+        
+        content += `----------------------------------------------------------------------------------------\n`;
+        
+        reportElement.innerText = content;
+
+        // 2. Generate PDF
+        const doc = new jsPDF('p', 'mm', 'a4');
+        const margin = 10;
+        const textWidth = 190;
+        
+        doc.setFont('courier');
+        doc.setFontSize(10);
+        
+        const textLines = doc.splitTextToSize(reportElement.innerText, textWidth);
+        doc.text(textLines, margin, margin);
+
+        // 3. Add Chart Snapshot (using html2canvas)
+        if (dashboardRefs.historyChartRef.current && typeof window.html2canvas !== 'undefined') {
+             const canvas = dashboardRefs.historyChartRef.current;
+             
+             // Check if chart is initialized and visible
+             if (canvas.width > 0 && canvas.height > 0) {
+                 window.html2canvas(canvas, { scale: 1 }).then(chartCanvas => {
+                     const chartDataURL = chartCanvas.toDataURL('image/png');
+                     doc.addPage();
+                     doc.setFontSize(14);
+                     doc.text("Historical Trend Chart", margin, margin);
+                     doc.addImage(chartDataURL, 'PNG', margin, margin + 5, 190, 100); 
+                     doc.save(`weather_report_${new Date().toISOString().substring(0, 10)}.pdf`);
+                 }).catch(err => {
+                    console.error("Error generating chart snapshot:", err);
+                    // Fallback save if chart fails
+                    doc.save(`weather_report_${new Date().toISOString().substring(0, 10)}.pdf`);
+                 });
+             } else {
+                 // Fallback save if chart is not rendered
+                 doc.save(`weather_report_${new Date().toISOString().substring(0, 10)}.pdf`);
+             }
+        } else {
+             doc.save(`weather_report_${new Date().toISOString().substring(0, 10)}.pdf`);
+        }
+        
+    }, [liveData.deviceMode, dashboardRefs.historyChartRef]);
+
+
+    // ⭐ ORCHESTRATOR: Fetches and then immediately downloads
+    const fetchAndDownloadLogs = useCallback(async () => {
+        if (!isClient || isDownloading) return;
         setIsDownloading(true);
-
+        
         try {
-            // eslint-disable-next-line no-undef
-            const { jsPDF } = window.jspdf;
-            const doc = new jsPDF();
-
-            doc.setFontSize(18);
-            doc.setTextColor(40);
-            doc.text("Baha-Alert System Report", 14, 22);
-
-            doc.setFontSize(11);
-            doc.setTextColor(100);
-            doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 30);
-            doc.text(`System Mode: ${mode}`, 14, 36);
-
-            const tableBody = dataToDownload.map(log => [
-                log.timestamp || log.createdAt ? new Date(log.timestamp || log.createdAt).toLocaleTimeString() : 'N/A',
-                `${log.rain_value ?? log.rain ?? 0}%`,
-                `${log.soil_value ?? log.soil ?? 0}%`,
-                `${log.water_level ?? log.water ?? 0}%`
-            ]);
-
-            doc.autoTable({
-                head: [["Time", "Rain Level", "Soil Moisture", "Water Level"]],
-                body: tableBody,
-                startY: 45,
-                theme: 'grid',
-                headStyles: { fillColor: [22, 160, 133] },
-                styles: { fontSize: 10, cellPadding: 3 },
-                alternateRowStyles: { fillColor: [240, 240, 240] }
-            });
-
-            doc.save(`BahaAlert_Log_${new Date().toISOString().slice(0, 10)}.pdf`);
-
-        } catch (error) {
-            console.error("PDF Generation Error:", error);
-            alert("Failed to generate PDF.");
+            const response = await fetch(`${REAL_API_ENDPOINT}?today=true`);
+            if (!response.ok) throw new Error("Fetch failed.");
+            const result = await response.json();
+            
+            if (result.success && Array.isArray(result.data)) {
+                setTodayData(result.data); // Update state for passive viewing
+                downloadReportPDF(result.data); // Trigger immediate download
+            }
+        } catch (e) {
+            console.error("Download Orchestration Error:", e);
         } finally {
             setIsDownloading(false);
         }
-    }, [mode]);
-
+    }, [isClient, isDownloading, downloadReportPDF]);
+    
+    // 3. Client/CDN Init & Time update
     useEffect(() => {
         setIsClient(true);
-        const timer = setInterval(() => setCurrentTime(getFormattedTime()), 1000);
-        return () => clearInterval(timer);
+        // Load external libraries required for gauges, charts, and PDF
+        const cdnUrls = [
+            "https://cdnjs.cloudflare.com/ajax/libs/gauge.js/1.3.7/gauge.min.js",
+            "https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js",
+            "https://cdn.tailwindcss.com",
+            // ⭐ PDF Libraries (Restored)
+            "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js",
+            "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js",
+        ];
+        
+        const loadScript = (url) => new Promise(resolve => {
+            const script = document.createElement('script');
+            script.src = url; script.async = true; 
+            
+            // Special handling for jsPDF global setup
+            if (url.includes('jspdf')) {
+                script.onload = () => {
+                     // Attach jsPDF function to window directly
+                     if (window.jspdf && window.jspdf.jsPDF) window.jsPDF = window.jspdf.jsPDF;
+                     resolve();
+                };
+            } else {
+                 script.onload = resolve; 
+            }
+            
+            // Note: The imports below are correctly pointing to the relative paths of the Vercel structure
+            if (url.includes('tailwindcss')) document.head.prepend(script); else document.head.appendChild(script);
+            if (url.includes('tailwindcss')) resolve(); 
+        });
+
+        // Simplified dependency check for library loading
+        Promise.all(cdnUrls.map(loadScript)).then(() => { 
+            // Check for core libraries + PDF libraries
+            if (typeof window.Gauge !== 'undefined' && typeof window.Chart !== 'undefined' && typeof window.jsPDF !== 'undefined' && typeof window.html2canvas !== 'undefined') {
+                setScriptsLoaded(true); 
+            }
+        });
+        
+        setCurrentTime(getFormattedTime());
+        const timeInterval = setInterval(() => setCurrentTime(getFormattedTime()), 10000);
+        return () => clearInterval(timeInterval);
     }, []);
+    
+    // Passive background fetch (Kept for viewing logs)
+    useEffect(() => {
+        const fetchTodayDataPassive = async () => {
+             try {
+                const response = await fetch(`${REAL_API_ENDPOINT}?today=true`);
+                if (!response.ok) throw new Error("Passive fetch failed");
+                const result = await response.json();
+                if (result.success && Array.isArray(result.data)) {
+                    setTodayData(result.data);
+                }
+            } catch (e) {
+                console.error("Passive Fetch Error:", e);
+            }
+        };
+        fetchTodayDataPassive();
+        const interval = setInterval(fetchTodayDataPassive, FETCH_TODAY_LOG_INTERVAL_MS);
+        return () => clearInterval(interval);
+    }, [isClient]);
 
+
+    if (!isClient || !scriptsLoaded) return <div className="flex justify-center items-center h-screen bg-slate-900 text-emerald-400 font-inter"><RefreshCcwIcon className="animate-spin w-8 h-8 mr-2" /> Initializing...</div>;
+
+    // --- RENDER ---
     return (
-        <div className="min-h-screen bg-gray-50 p-4 font-sans text-gray-800">
-            {/* Scripts load lazily to avoid blocking */}
-            <Script 
-                src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" 
-                strategy="lazyOnload"
-            />
-            <Script 
-                src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.29/jspdf.plugin.autotable.min.js" 
-                strategy="lazyOnload"
-            />
-
-            <header className="flex flex-col md:flex-row justify-between items-center mb-6 bg-white p-4 shadow-sm rounded-lg">
-                <div className="flex items-center gap-2 mb-4 md:mb-0">
-                   <h1 className="text-2xl font-bold text-teal-600">Baha-Alert Dashboard</h1>
-                </div>
-
-                <div className="flex items-center gap-4 text-sm text-gray-600">
-                    <div className="flex items-center gap-1">
-                        <ClockIcon /> <span>{currentTime}</span>
+        <div className className="min-h-screen bg-slate-900 text-slate-100 p-4 sm:p-10 font-inter dark">
+            <style>{`
+                .chart-container { height: 50vh; width: 100%; }
+                .gauges-container { display: grid; grid-template-columns: repeat(2, 1fr); gap: 2rem; }
+                .gauge-wrapper canvas { max-width: 100%; height: auto; }
+                @media (min-width: 1024px) { .gauges-container { grid-template-columns: repeat(4, 1fr); } .chart-container { height: 400px; } }
+            `}</style>
+            
+            <header className="mb-8 p-5 bg-slate-800 rounded-3xl shadow-lg border-b-4 border-emerald-500/50 flex flex-col md:flex-row justify-between items-center">
+                <div className="flex flex-col">
+                    <h1 className="text-3xl font-extrabold text-emerald-400 mb-2 md:mb-0">Smart Weather Station</h1>
+                    <div className="flex items-center text-xs text-slate-400 mt-1 bg-slate-900 px-2 py-1 rounded-md border border-slate-700 w-fit">
+                        <CpuIcon className="w-3 h-3 mr-1 text-yellow-400" />
+                        DEVICE MODE: <span className="text-emerald-300 ml-1 font-mono font-bold">{liveData.deviceMode}</span>
                     </div>
-                    <button 
-                        onClick={() => downloadReportPDF(historyData)}
-                        disabled={isDownloading}
-                        className={`px-4 py-2 rounded text-white transition font-medium ${
-                            isDownloading ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
-                        }`}
-                    >
-                        {isDownloading ? 'Generating...' : 'Download Report'}
-                    </button>
+                </div>
+                <div className="flex items-center text-slate-400 bg-slate-900 px-4 py-2 rounded-xl border border-slate-700 mt-4 md:mt-0">
+                    <ClockIcon className="w-5 h-5 mr-2 text-indigo-400" />
+                    <span>{currentTime}</span>
                 </div>
             </header>
 
-            <main className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                <section className="col-span-1 md:col-span-2 lg:col-span-3">
-                   <ModeView 
-                        mode={mode} 
-                        setMode={setMode} 
-                        modes={['Auto', 'Maintenance', 'Sleep']}
-                        percents={percents}
-                   />
-                </section>
-
-                <div className="bg-white p-4 rounded-lg shadow h-64 flex flex-col items-center justify-center">
-                    <h3 className="text-lg font-semibold mb-2">Rain Level</h3>
-                    <div id="gauge-rain" className="w-full h-full"></div> 
+            <main className="space-y-8">
+                {/* UI Mode Selector */}
+                <div className="flex bg-slate-800 p-1.5 rounded-xl border border-slate-700">
+                    {modes.map(m => (
+                        <button key={m} onClick={() => setMode(m)} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${mode === m ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-700'}`}>{m}</button>
+                    ))}
                 </div>
-
-                <div className="bg-white p-4 rounded-lg shadow h-64 flex flex-col items-center justify-center">
-                    <h3 className="text-lg font-semibold mb-2">Soil Moisture</h3>
-                    <div id="gauge-soil" className="w-full h-full"></div>
-                </div>
-
-                <div className="bg-white p-4 rounded-lg shadow h-64 flex flex-col items-center justify-center">
-                    <h3 className="text-lg font-semibold mb-2">Water Level</h3>
-                    <div id="gauge-water" className="w-full h-full"></div>
-                </div>
+                
+                <ModeView
+                    mode={mode}
+                    setMode={setMode}
+                    liveData={liveData}
+                    fetchError={fetchError}
+                    refs={dashboardRefs}
+                    percents={percents}
+                />
             </main>
+            
+            {/* ⭐ NEW: Fetch & Download Button */}
+            {mode === 'Auto' && liveData.deviceMode === 'AUTO' && (
+                <div className="mt-8 p-4 bg-slate-800 rounded-2xl border border-slate-700 text-center">
+                    <h3 className="text-xl font-bold mb-4 text-slate-200">Daily Report Generation</h3>
+                    <button
+                        onClick={fetchAndDownloadLogs} // Calls the orchestrator
+                        disabled={isDownloading}
+                        className={`flex items-center justify-center mx-auto px-6 py-2 font-semibold rounded-lg shadow-md transition-colors 
+                            ${isDownloading 
+                                ? 'bg-indigo-400 text-white cursor-wait' 
+                                : 'bg-indigo-600 hover:bg-indigo-700 text-white'}`}
+                    >
+                        {isDownloading ? (
+                            <>
+                                <RefreshCcwIcon className='w-4 h-4 mr-2 animate-spin'/>
+                                Generating Report...
+                            </>
+                        ) : (
+                            <>
+                                <svg className='w-4 h-4 mr-2' xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                                Fetch & Download Today's Log
+                            </>
+                        )}
+                    </button>
+                    <p className='text-xs text-slate-500 mt-2'>Downloads sampled data (every 10 minutes) + chart snapshot.</p>
+                </div>
+            )}
         </div>
     );
-};
+}
 
-// ------------------------------------------------------------------
-// 2. The Solution: Dynamic Export with SSR Disabled
-//    This tells Vercel: "Don't compile this logic on the server."
-// ------------------------------------------------------------------
-export default dynamic(() => Promise.resolve(DashboardComponent), {
-  ssr: false,
-});
+export default App;
