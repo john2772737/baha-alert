@@ -32,6 +32,7 @@ const App = () => {
 
     // ⭐ PDF Download Logic (Uses jsPDF and html2canvas)
     // This function now accepts the data array directly.
+    // ⭐ PDF Download Logic (Responsive Layout)
     const downloadReportPDF = useCallback((dataToDownload) => {
         if (typeof window.jsPDF === 'undefined') {
             console.error('PDF library jsPDF not loaded.');
@@ -43,74 +44,140 @@ const App = () => {
             console.error('No data available to generate report.');
             return;
         }
-        
-        // 1. Prepare Monospace Text Content
-        const reportElement = document.createElement('div');
-        reportElement.style.fontFamily = 'monospace';
-        reportElement.style.fontSize = '10px';
-        
-        let content = `SMART WEATHER STATION - DAILY LOG REPORT\n`;
-        content += `Generated Time: ${getFormattedTime()}\n`;
-        content += `Device Mode: ${liveData.deviceMode}\n\n`;
-        content += `----------------------------------------------------------------------------------------\n`;
-        content += `| Time (HH:MM) | Pressure (hPa) | Rain (%) | Soil (%) | Water (cm) |\n`;
-        content += `----------------------------------------------------------------------------------------\n`;
 
-        dataToDownload.forEach(item => {
+        // 1. Initialize Document
+        const doc = new jsPDF('p', 'mm', 'a4');
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+        
+        // Layout Config
+        const margin = 15;
+        let currentY = 20; // Start Y position
+        const lineHeight = 8;
+        
+        // Helper: Center Text
+        const centerText = (text, y, size = 10, font = 'helvetica', style = 'normal') => {
+            doc.setFont(font, style);
+            doc.setFontSize(size);
+            const textWidth = doc.getStringUnitWidth(text) * size / doc.internal.scaleFactor;
+            const x = (pageWidth - textWidth) / 2;
+            doc.text(text, x, y);
+        };
+
+        // --- HEADER SECTION ---
+        // Main Title
+        doc.setTextColor(22, 163, 74); // Emerald Color (RGB)
+        centerText('SMART WEATHER STATION', currentY, 18, 'helvetica', 'bold');
+        currentY += 8;
+
+        // Subtitle / Date
+        doc.setTextColor(60, 60, 60); // Dark Gray
+        centerText(`Daily Log Report: ${getFormattedTime()}`, currentY, 12);
+        currentY += 7;
+        
+        // Device Mode Badge
+        centerText(`Device Mode: ${liveData.deviceMode}`, currentY, 10, 'courier', 'bold');
+        currentY += 15;
+
+        // --- TABLE HEADER ---
+        // Define Column Positions (Responsive based on % of page width)
+        const col1 = margin;                   // Time
+        const col2 = margin + 35;              // Pressure
+        const col3 = margin + 75;              // Rain
+        const col4 = margin + 105;             // Soil
+        const col5 = margin + 135;             // Water Level
+
+        // Draw Header Background
+        doc.setFillColor(240, 240, 240); // Light Gray
+        doc.rect(margin, currentY - 5, pageWidth - (margin * 2), 8, 'F');
+
+        // Draw Header Text
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.setTextColor(0, 0, 0);
+        
+        doc.text('TIME', col1, currentY);
+        doc.text('PRESSURE (hPa)', col2, currentY);
+        doc.text('RAIN %', col3, currentY);
+        doc.text('SOIL %', col4, currentY);
+        doc.text('WATER (cm)', col5, currentY);
+        
+        currentY += 10; // Move down for data
+
+        // --- DATA ROWS ---
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(50, 50, 50);
+
+        dataToDownload.forEach((item, index) => {
+            // Check for Page Break
+            if (currentY > pageHeight - 20) {
+                doc.addPage();
+                currentY = 20;
+                // Re-draw header on new page (Optional, simply resetting Y here)
+            }
+
+            // Zebra Striping (Optional visual aid)
+            if (index % 2 === 0) {
+                 doc.setFillColor(252, 252, 252); // Very faint gray
+                 doc.rect(margin, currentY - 5, pageWidth - (margin * 2), lineHeight, 'F');
+            }
+
+            // Parse Data
             const date = new Date(item.timestamp);
             const timeStr = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-            
-            const p = item.avgPressure ? item.avgPressure.toFixed(1) : 'N/A';
-            const r = item.avgRain ? item.avgRain.toFixed(0) : 'N/A';
-            const s = item.avgSoil ? item.avgSoil.toFixed(0) : 'N/A';
-            const w = item.avgWaterDistance ? item.avgWaterDistance.toFixed(1) : 'N/A';
-            
-            const pad = (str, len) => String(str).padEnd(len).substring(0, len);
+            const p = item.avgPressure ? item.avgPressure.toFixed(1) : '-';
+            const r = item.avgRain ? item.avgRain.toFixed(0) : '-';
+            const s = item.avgSoil ? item.avgSoil.toFixed(0) : '-';
+            const w = item.avgWaterDistance ? item.avgWaterDistance.toFixed(1) : '-';
 
-            content += `| ${pad(timeStr, 12)} | ${pad(p, 14)} | ${pad(r, 8)} | ${pad(s, 8)} | ${pad(w, 10)} |\n`;
+            // Draw Row Data
+            doc.text(timeStr, col1, currentY);
+            doc.text(p, col2, currentY);
+            doc.text(r + '%', col3, currentY);
+            doc.text(s + '%', col4, currentY);
+            doc.text(w, col5, currentY);
+
+            currentY += lineHeight;
         });
-        
-        content += `----------------------------------------------------------------------------------------\n`;
-        
-        reportElement.innerText = content;
 
-        // 2. Generate PDF
-        const doc = new jsPDF('p', 'mm', 'a4');
-        const margin = 10;
-        const textWidth = 190;
-        
-        doc.setFont('courier');
-        doc.setFontSize(10);
-        
-        const textLines = doc.splitTextToSize(reportElement.innerText, textWidth);
-        doc.text(textLines, margin, margin);
+        // Drawing a footer line
+        doc.setDrawColor(200, 200, 200);
+        doc.line(margin, currentY - 5, pageWidth - margin, currentY - 5);
 
-        // 3. Add Chart Snapshot (using html2canvas)
+
+        // --- CHART SNAPSHOT (Existing Logic) ---
         if (dashboardRefs.historyChartRef.current && typeof window.html2canvas !== 'undefined') {
-             const canvas = dashboardRefs.historyChartRef.current;
-             
-             // Check if chart is initialized and visible
-             if (canvas.width > 0 && canvas.height > 0) {
-                 window.html2canvas(canvas, { scale: 1 }).then(chartCanvas => {
-                     const chartDataURL = chartCanvas.toDataURL('image/png');
-                     doc.addPage();
-                     doc.setFontSize(14);
-                     doc.text("Historical Trend Chart", margin, margin);
-                     doc.addImage(chartDataURL, 'PNG', margin, margin + 5, 190, 100); 
-                     doc.save(`weather_report_${new Date().toISOString().substring(0, 10)}.pdf`);
-                 }).catch(err => {
-                    console.error("Error generating chart snapshot:", err);
-                    // Fallback save if chart fails
+            const canvas = dashboardRefs.historyChartRef.current;
+
+            if (canvas.width > 0 && canvas.height > 0) {
+                window.html2canvas(canvas, { scale: 1 }).then(chartCanvas => {
+                    const chartDataURL = chartCanvas.toDataURL('image/png');
+                    
+                    // Add chart on a new page to ensure it fits cleanly
+                    doc.addPage();
+                    
+                    doc.setFontSize(14);
+                    doc.setFont('helvetica', 'bold');
+                    doc.setTextColor(22, 163, 74);
+                    doc.text("Historical Trend Chart", margin, 20);
+                    
+                    // Fit image to width
+                    const imgWidth = pageWidth - (margin * 2);
+                    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+                    
+                    doc.addImage(chartDataURL, 'PNG', margin, 30, imgWidth, imgHeight); 
                     doc.save(`weather_report_${new Date().toISOString().substring(0, 10)}.pdf`);
-                 });
-             } else {
-                 // Fallback save if chart is not rendered
-                 doc.save(`weather_report_${new Date().toISOString().substring(0, 10)}.pdf`);
-             }
+                }).catch(err => {
+                    console.error("Error generating chart snapshot:", err);
+                    doc.save(`weather_report_${new Date().toISOString().substring(0, 10)}.pdf`);
+                });
+            } else {
+                doc.save(`weather_report_${new Date().toISOString().substring(0, 10)}.pdf`);
+            }
         } else {
-             doc.save(`weather_report_${new Date().toISOString().substring(0, 10)}.pdf`);
+            doc.save(`weather_report_${new Date().toISOString().substring(0, 10)}.pdf`);
         }
-        
+
     }, [liveData.deviceMode, dashboardRefs.historyChartRef]);
 
 
