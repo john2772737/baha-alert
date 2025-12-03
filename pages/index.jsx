@@ -32,8 +32,11 @@ const App = () => {
 
 
     // ⭐ PDF Download Logic (Uses jsPDF and jspdf-autotable)
-    const downloadReportPDF = useCallback((dataToDownload) => {
+    // IMPORTANT: Made function async to properly handle html2canvas promise
+    const downloadReportPDF = useCallback(async (dataToDownload) => {
         const { jsPDF } = window;
+        const filename = `weather_report_${new Date().toISOString().substring(0, 10)}.pdf`;
+
         // Check jsPDF.prototype.autoTable
         if (typeof jsPDF === 'undefined' || typeof window.html2canvas === 'undefined' || typeof jsPDF.prototype.autoTable === 'undefined') {
             console.error('PDF libraries not fully loaded. Check for jsPDF, html2canvas, and autoTable plugin.');
@@ -103,33 +106,33 @@ const App = () => {
              const canvas = dashboardRefs.historyChartRef.current;
              
              if (canvas.width > 0 && canvas.height > 0) {
-                 window.html2canvas(canvas, { scale: 1 }).then(chartCanvas => {
-                     const chartDataURL = chartCanvas.toDataURL('image/png');
-                     
-                     // Check if chart will fit on current page, if not, add page
-                     if (finalY + 100 > 280) { // Approx A4 height is 297mm
-                         doc.addPage();
-                         finalY = margin;
-                     }
-                     
-                     doc.setFontSize(12);
-                     doc.text("Historical Trend Chart (Last 7 Days)", margin, finalY);
-                     finalY += 3;
-                     
-                     // Add image below title
-                     doc.addImage(chartDataURL, 'PNG', margin, finalY, 190, 100); 
-                     
-                     doc.save(`weather_report_${new Date().toISOString().substring(0, 10)}.pdf`);
-                 }).catch(err => {
+                 try {
+                    // ⭐ Use await to wait for html2canvas to finish
+                    const chartCanvas = await window.html2canvas(canvas, { scale: 1 });
+                    const chartDataURL = chartCanvas.toDataURL('image/png');
+                         
+                    // Check if chart will fit on current page, if not, add page
+                    if (finalY + 100 > 280) { // Approx A4 height is 297mm
+                        doc.addPage();
+                        finalY = margin;
+                    }
+                         
+                    doc.setFontSize(12);
+                    doc.text("Historical Trend Chart (Last 7 Days)", margin, finalY);
+                    finalY += 3;
+                         
+                    // Add image below title
+                    doc.addImage(chartDataURL, 'PNG', margin, finalY, 190, 100); 
+                    
+                 } catch(err) {
                     console.error("Error generating chart snapshot:", err);
-                    doc.save(`weather_report_${new Date().toISOString().substring(0, 10)}.pdf`); // Fallback save
-                 });
-             } else {
-                 doc.save(`weather_report_${new Date().toISOString().substring(0, 10)}.pdf`); // Fallback save
+                    // Continue to save the document even if chart fails
+                 }
              }
-        } else {
-             doc.save(`weather_report_${new Date().toISOString().substring(0, 10)}.pdf`);
         }
+        
+        // ⭐ FINAL STEP: Always save the document after all content is added
+        doc.save(filename);
         
     }, [liveData.deviceMode, dashboardRefs.historyChartRef]);
 
@@ -146,7 +149,7 @@ const App = () => {
             
             if (result.success && Array.isArray(result.data)) {
                 setTodayData(result.data); // Update state for passive viewing
-                downloadReportPDF(result.data); // Trigger immediate download
+                await downloadReportPDF(result.data); // ⭐ ADD AWAIT: Wait for the PDF to complete
             }
         } catch (e) {
             console.error("Download Orchestration Error:", e);
@@ -166,10 +169,8 @@ const App = () => {
             script.async = false; // Ensures order integrity
             
             script.onload = () => {
-                // Ensure jsPDF is globally available if loaded from UMD bundle
-                if (url.includes('jspdf') && !url.includes('autotable') && window.jspdf && window.jspdf.jsPDF) {
-                    window.jsPDF = window.jspdf.jsPDF;
-                }
+                // NOTE: We rely on the final check after all scripts load to promote
+                // the UMD bundle's jsPDF object to window.jsPDF
                 resolve(); 
             };
             
@@ -196,11 +197,18 @@ const App = () => {
                 await loadScript("https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js");
                 await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.23/jspdf.plugin.autotable.min.js");
 
+                // ⭐ FIX: Promote jsPDF object from UMD bundle's nested property (window.jspdf.jsPDF) 
+                // to the expected global variable (window.jsPDF).
+                if (window.jspdf && window.jspdf.jsPDF) {
+                    window.jsPDF = window.jspdf.jsPDF;
+                }
+
                 // FINAL CHECK: Check for core required globals.
                 const isReady = (
                     typeof window.Gauge !== 'undefined' && 
                     typeof window.Chart !== 'undefined' && 
-                    typeof window.jsPDF !== 'undefined' && 
+                    typeof window.html2canvas === 'function' && // Check html2canvas is present
+                    typeof window.jsPDF === 'function' && // Check if jsPDF constructor is present
                     // Critical Check: Ensure autoTable function is attached to jsPDF prototype
                     (window.jsPDF && typeof window.jsPDF.prototype.autoTable === 'function')
                 );
