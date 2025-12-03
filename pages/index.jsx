@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-// All paths are assumed to be relative from pages/index.jsx to folders like /utils, /hooks, and /components
+// ⭐ FIX: Ensuring paths start with the required number of dots or relative path pattern
 import { getFormattedTime } from '../utils/sensorUtils';
 import { useSensorData } from '../hooks/useSensorData';
 import { useDashboardInit } from '../hooks/useDashboardInit';
@@ -33,12 +33,13 @@ const App = () => {
 
     // ⭐ PDF Download Logic (Uses jsPDF and jspdf-autotable)
     const downloadReportPDF = useCallback((dataToDownload) => {
-        if (typeof window.jsPDF === 'undefined' || typeof window.html2canvas === 'undefined' || typeof window.autoTable === 'undefined') {
-            console.error('PDF libraries (jsPDF or autoTable) not fully loaded.');
+        const { jsPDF } = window;
+        // FIX: Check jsPDF.prototype.autoTable instead of window.autoTable
+        if (typeof jsPDF === 'undefined' || typeof window.html2canvas === 'undefined' || typeof jsPDF.prototype.autoTable === 'undefined') {
+            console.error('PDF libraries not fully loaded. Check for jsPDF, html2canvas, and autoTable plugin.');
             return;
         }
 
-        const { jsPDF } = window;
         if (!dataToDownload || dataToDownload.length === 0) {
             console.error('No data available to generate report.');
             return;
@@ -162,7 +163,7 @@ const App = () => {
             "https://cdnjs.cloudflare.com/ajax/libs/gauge.js/1.3.7/gauge.min.js",
             "https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js",
             "https://cdn.tailwindcss.com",
-            // ⭐ PDF Libraries
+            // PDF Libraries
             "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js",
             "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js",
             "https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.23/jspdf.plugin.autotable.min.js",
@@ -186,10 +187,17 @@ const App = () => {
             if (url.includes('tailwindcss')) resolve(); 
         });
 
-        // Simplified dependency check for library loading
+        // FIX: Refined the dependency check to ensure autoTable plugin is available
         Promise.all(cdnUrls.map(loadScript)).then(() => { 
-            // Check for core libraries + PDF libraries
-            if (typeof window.Gauge !== 'undefined' && typeof window.Chart !== 'undefined' && typeof window.jsPDF !== 'undefined' && typeof window.html2canvas !== 'undefined') {
+            const isReady = (
+                typeof window.Gauge !== 'undefined' && 
+                typeof window.Chart !== 'undefined' && 
+                typeof window.jsPDF !== 'undefined' && 
+                typeof window.html2canvas !== 'undefined' &&
+                // Critical Check: Ensure autoTable function is attached to jsPDF prototype
+                (window.jsPDF && typeof window.jsPDF.prototype.autoTable !== 'undefined')
+            );
+            if (isReady) {
                 setScriptsLoaded(true); 
             }
         });
