@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-// ⭐ FIX: Explicitly adding .js extensions to help path resolution
-import { getFormattedTime } from '../utils/sensorUtils.js';
-import { useSensorData } from '../hooks/useSensorData.js';
-import { useDashboardInit } from '../hooks/useDashboardInit.js';
-import { ClockIcon, RefreshCcwIcon, CpuIcon } from '../utils/icons.js';
-import ModeView from '../components/ModeView.jsx'; // Assuming components are .jsx
+// ⭐ FIX: Reverting to extensionless paths, assuming the build tool handles resolution automatically
+import { getFormattedTime } from '../utils/sensorUtils';
+import { useSensorData } from '../hooks/useSensorData';
+import { useDashboardInit } from '../hooks/useDashboardInit';
+import { ClockIcon, RefreshCcwIcon, CpuIcon } from '../utils/icons';
+import ModeView from '../components/ModeView'; 
 
 const REAL_API_ENDPOINT = 'https://baha-alert.vercel.app/api'; 
 const FETCH_TODAY_LOG_INTERVAL_MS = 600000; // 10 minutes (for passive background fetch)
