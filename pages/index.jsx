@@ -270,15 +270,21 @@ const App = () => {
                 </div>
             </header>
 
+            // Inside your App component return statement...
+
             {/* ⭐ QR Code Modal */}
             {showQR && (
                 <div className="fixed inset-0 bg-black/80 z-50 flex flex-col items-center justify-center p-4" onClick={() => setShowQR(false)}>
                     <div className="bg-white p-6 rounded-2xl flex flex-col items-center shadow-2xl" onClick={e => e.stopPropagation()}>
-                        <h3 className="text-black text-lg font-bold mb-4">Scan to Login</h3>
+                        <h3 className="text-black text-lg font-bold mb-4">Scan for Instant Access</h3>
                         <div className="bg-white p-2 border-2 border-slate-200 rounded-lg">
-                            <QRCode value="https://baha-alert.vercel.app/" size={200} />
+                            {/* ⭐ CHANGED: Added /login?mode=scan to the value */}
+                            <QRCode 
+                                value="https://baha-alert.vercel.app/login?mode=scan" 
+                                size={200} 
+                            />
                         </div>
-                        <p className="text-slate-500 text-xs mt-4 font-mono">baha-alert.vercel.app</p>
+                        <p className="text-slate-500 text-xs mt-4 font-mono">Auto-Login QR Code</p>
                     </div>
                     <button className="mt-6 text-white text-sm underline hover:text-emerald-400">Tap anywhere to close</button>
                 </div>

@@ -1,6 +1,7 @@
 // context/AuthContext.js
 import { createContext, useContext, useEffect, useState } from 'react';
-import { onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth';
+// ⭐ Import signInAnonymously
+import { onAuthStateChanged, signInWithPopup, signOut, signInAnonymously } from 'firebase/auth';
 import { auth, googleProvider } from '../lib/firebase';
 import { useRouter } from 'next/router';
 
@@ -15,23 +16,28 @@ export const AuthContextProvider = ({ children }) => {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        setUser(user);
-      } else {
-        setUser(null);
-      }
+      setUser(user ? user : null);
       setLoading(false);
     });
-
     return () => unsubscribe();
   }, []);
 
   const googleSignIn = async () => {
     try {
       await signInWithPopup(auth, googleProvider);
-      router.push('/'); // Redirect to dashboard after login
+      router.push('/');
     } catch (error) {
-      console.error("Login failed", error);
+      console.error("Google Login failed", error);
+    }
+  };
+
+  // ⭐ NEW: Anonymous Login Function
+  const anonymousSignIn = async () => {
+    try {
+      await signInAnonymously(auth);
+      router.push('/');
+    } catch (error) {
+      console.error("Guest Login failed", error);
     }
   };
 
@@ -41,8 +47,9 @@ export const AuthContextProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, googleSignIn, logOut, loading }}>
-      {loading ? null : children}
+    // ⭐ Expose anonymousSignIn
+    <AuthContext.Provider value={{ user, googleSignIn, anonymousSignIn, logOut, loading }}>
+      {!loading && children}
     </AuthContext.Provider>
   );
 };
