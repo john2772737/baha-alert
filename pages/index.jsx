@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+// All paths are assumed to be relative from pages/index.jsx to folders like /utils, /hooks, and /components
 import { getFormattedTime } from '../utils/sensorUtils';
 import { useSensorData } from '../hooks/useSensorData';
 import { useDashboardInit } from '../hooks/useDashboardInit';
 import { ClockIcon, RefreshCcwIcon, CpuIcon } from '../utils/icons';
-import ModeView from '../components/ModeView'; // Corrected component path
+import ModeView from '../components/ModeView'; 
 
 const REAL_API_ENDPOINT = 'https://baha-alert.vercel.app/api'; 
 const FETCH_TODAY_LOG_INTERVAL_MS = 600000; // 10 minutes (for passive background fetch)
@@ -11,7 +12,7 @@ const FETCH_TODAY_LOG_INTERVAL_MS = 600000; // 10 minutes (for passive backgroun
 const App = () => {
     const [isClient, setIsClient] = useState(false);
     const [scriptsLoaded, setScriptsLoaded] = useState(false);
-    const [isDownloading, setIsDownloading] = useState(false); // ⭐ New state for download status
+    const [isDownloading, setIsDownloading] = useState(false); 
     const [mode, setMode] = useState('Auto');
     const modes = ['Auto', 'Maintenance', 'Sleep'];
     const [currentTime, setCurrentTime] = useState('Loading...');
@@ -30,11 +31,10 @@ const App = () => {
     const percents = useMemo(() => ({ rainPercent, soilPercent, waterPercent }), [rainPercent, soilPercent, waterPercent]);
 
 
-    // ⭐ PDF Download Logic (Uses jsPDF and html2canvas)
-    // This function now accepts the data array directly.
+    // ⭐ PDF Download Logic (Uses jsPDF and jspdf-autotable)
     const downloadReportPDF = useCallback((dataToDownload) => {
-        if (typeof window.jsPDF === 'undefined') {
-            console.error('PDF library jsPDF not loaded.');
+        if (typeof window.jsPDF === 'undefined' || typeof window.html2canvas === 'undefined' || typeof window.autoTable === 'undefined') {
+            console.error('PDF libraries (jsPDF or autoTable) not fully loaded.');
             return;
         }
 
@@ -44,68 +44,87 @@ const App = () => {
             return;
         }
         
-        // 1. Prepare Monospace Text Content
-        const reportElement = document.createElement('div');
-        reportElement.style.fontFamily = 'monospace';
-        reportElement.style.fontSize = '10px';
+        const doc = new jsPDF('p', 'mm', 'a4');
+        const margin = 10;
+        let finalY = margin;
         
-        let content = `SMART WEATHER STATION - DAILY LOG REPORT\n`;
-        content += `Generated Time: ${getFormattedTime()}\n`;
-        content += `Device Mode: ${liveData.deviceMode}\n\n`;
-        content += `----------------------------------------------------------------------------------------\n`;
-        content += `| Time (HH:MM) | Pressure (hPa) | Rain (%) | Soil (%) | Water (cm) |\n`;
-        content += `----------------------------------------------------------------------------------------\n`;
+        // --- 1. Add Title and Header ---
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(16);
+        doc.text("Smart Weather Station Daily Report", margin, finalY);
+        finalY += 8;
+        
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(10);
+        doc.text(`Generated Time: ${getFormattedTime()}`, margin, finalY);
+        finalY += 5;
+        doc.text(`Device Mode: ${liveData.deviceMode}`, margin, finalY);
+        finalY += 8; // Spacer before table
 
-        dataToDownload.forEach(item => {
+        // --- 2. Prepare Table Data ---
+        const tableHeaders = [
+            'Time', 
+            'Pressure (hPa)', 
+            'Rain (%)', 
+            'Soil (%)', 
+            'Water Dist. (cm)'
+        ];
+
+        const tableBody = dataToDownload.map(item => {
             const date = new Date(item.timestamp);
             const timeStr = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
             
-            const p = item.avgPressure ? item.avgPressure.toFixed(1) : 'N/A';
-            const r = item.avgRain ? item.avgRain.toFixed(0) : 'N/A';
-            const s = item.avgSoil ? item.avgSoil.toFixed(0) : 'N/A';
-            const w = item.avgWaterDistance ? item.avgWaterDistance.toFixed(1) : 'N/A';
-            
-            const pad = (str, len) => String(str).padEnd(len).substring(0, len);
-
-            content += `| ${pad(timeStr, 12)} | ${pad(p, 14)} | ${pad(r, 8)} | ${pad(s, 8)} | ${pad(w, 10)} |\n`;
+            return [
+                timeStr,
+                item.avgPressure ? item.avgPressure.toFixed(1) : 'N/A',
+                item.avgRain ? item.avgRain.toFixed(0) : 'N/A',
+                item.avgSoil ? item.avgSoil.toFixed(0) : 'N/A',
+                item.avgWaterDistance ? item.avgWaterDistance.toFixed(1) : 'N/A',
+            ];
         });
-        
-        content += `----------------------------------------------------------------------------------------\n`;
-        
-        reportElement.innerText = content;
 
-        // 2. Generate PDF
-        const doc = new jsPDF('p', 'mm', 'a4');
-        const margin = 10;
-        const textWidth = 190;
-        
-        doc.setFont('courier');
-        doc.setFontSize(10);
-        
-        const textLines = doc.splitTextToSize(reportElement.innerText, textWidth);
-        doc.text(textLines, margin, margin);
+        // --- 3. Generate Table using autoTable ---
+        doc.autoTable({
+            head: [tableHeaders],
+            body: tableBody,
+            startY: finalY,
+            theme: 'striped',
+            styles: { fontSize: 8, cellPadding: 2, overflow: 'linebreak' },
+            headStyles: { fillColor: [51, 65, 85], textColor: 255 }, // slate-700 color
+            margin: { left: margin, right: margin }
+        });
 
-        // 3. Add Chart Snapshot (using html2canvas)
+        // Get the final Y position after the table finishes
+        finalY = doc.lastAutoTable.finalY + 10;
+
+        // --- 4. Add Chart Snapshot (using html2canvas) ---
         if (dashboardRefs.historyChartRef.current && typeof window.html2canvas !== 'undefined') {
              const canvas = dashboardRefs.historyChartRef.current;
              
-             // Check if chart is initialized and visible
              if (canvas.width > 0 && canvas.height > 0) {
                  window.html2canvas(canvas, { scale: 1 }).then(chartCanvas => {
                      const chartDataURL = chartCanvas.toDataURL('image/png');
-                     doc.addPage();
-                     doc.setFontSize(14);
-                     doc.text("Historical Trend Chart", margin, margin);
-                     doc.addImage(chartDataURL, 'PNG', margin, margin + 5, 190, 100); 
+                     
+                     // Check if chart will fit on current page, if not, add page
+                     if (finalY + 100 > 280) { // Approx A4 height is 297mm
+                         doc.addPage();
+                         finalY = margin;
+                     }
+                     
+                     doc.setFontSize(12);
+                     doc.text("Historical Trend Chart (Last 7 Days)", margin, finalY);
+                     finalY += 3;
+                     
+                     // Add image below title
+                     doc.addImage(chartDataURL, 'PNG', margin, finalY, 190, 100); 
+                     
                      doc.save(`weather_report_${new Date().toISOString().substring(0, 10)}.pdf`);
                  }).catch(err => {
                     console.error("Error generating chart snapshot:", err);
-                    // Fallback save if chart fails
-                    doc.save(`weather_report_${new Date().toISOString().substring(0, 10)}.pdf`);
+                    doc.save(`weather_report_${new Date().toISOString().substring(0, 10)}.pdf`); // Fallback save
                  });
              } else {
-                 // Fallback save if chart is not rendered
-                 doc.save(`weather_report_${new Date().toISOString().substring(0, 10)}.pdf`);
+                 doc.save(`weather_report_${new Date().toISOString().substring(0, 10)}.pdf`); // Fallback save
              }
         } else {
              doc.save(`weather_report_${new Date().toISOString().substring(0, 10)}.pdf`);
@@ -143,9 +162,10 @@ const App = () => {
             "https://cdnjs.cloudflare.com/ajax/libs/gauge.js/1.3.7/gauge.min.js",
             "https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js",
             "https://cdn.tailwindcss.com",
-            // ⭐ PDF Libraries (Restored)
+            // ⭐ PDF Libraries
             "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js",
             "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js",
+            "https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.23/jspdf.plugin.autotable.min.js",
         ];
         
         const loadScript = (url) => new Promise(resolve => {
@@ -153,9 +173,8 @@ const App = () => {
             script.src = url; script.async = true; 
             
             // Special handling for jsPDF global setup
-            if (url.includes('jspdf')) {
+            if (url.includes('jspdf') && !url.includes('autotable')) {
                 script.onload = () => {
-                     // Attach jsPDF function to window directly
                      if (window.jspdf && window.jspdf.jsPDF) window.jsPDF = window.jspdf.jsPDF;
                      resolve();
                 };
@@ -163,7 +182,6 @@ const App = () => {
                  script.onload = resolve; 
             }
             
-            // Note: The imports below are correctly pointing to the relative paths of the Vercel structure
             if (url.includes('tailwindcss')) document.head.prepend(script); else document.head.appendChild(script);
             if (url.includes('tailwindcss')) resolve(); 
         });
@@ -205,7 +223,7 @@ const App = () => {
 
     // --- RENDER ---
     return (
-        <div className className="min-h-screen bg-slate-900 text-slate-100 p-4 sm:p-10 font-inter dark">
+        <div className="min-h-screen bg-slate-900 text-slate-100 p-4 sm:p-10 font-inter dark">
             <style>{`
                 .chart-container { height: 50vh; width: 100%; }
                 .gauges-container { display: grid; grid-template-columns: repeat(2, 1fr); gap: 2rem; }
@@ -245,7 +263,7 @@ const App = () => {
                 />
             </main>
             
-            {/* ⭐ NEW: Fetch & Download Button */}
+            {/* Fetch & Download Button */}
             {mode === 'Auto' && liveData.deviceMode === 'AUTO' && (
                 <div className="mt-8 p-4 bg-slate-800 rounded-2xl border border-slate-700 text-center">
                     <h3 className="text-xl font-bold mb-4 text-slate-200">Daily Report Generation</h3>
