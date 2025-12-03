@@ -1,18 +1,25 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import Script from 'next/script'; 
+import dynamic from 'next/dynamic'; // ⭐ Import Dynamic
+
 import { getFormattedTime } from '../utils/sensorUtils';
 import { useSensorData } from '../hooks/useSensorData';
 import { useDashboardInit } from '../hooks/useDashboardInit';
 import { ClockIcon, RefreshCcwIcon, CpuIcon } from '../utils/icons';
 import ModeView from '../components/ModeView';
 
-const App = () => {
+// ------------------------------------------------------------------
+// 1. Rename your main component to "DashboardComponent"
+//    This contains all your logic, hooks, and UI.
+// ------------------------------------------------------------------
+const DashboardComponent = () => {
     const [isClient, setIsClient] = useState(false);
     const [isDownloading, setIsDownloading] = useState(false);
     const [mode, setMode] = useState('Auto');
     const [currentTime, setCurrentTime] = useState('Loading...');
     
-    const { liveData, historyData, fetchError, rainPercent, soilPercent, waterPercent } = useSensorData(isClient, mode);
+    // Hooks are now safe because this component only loads in the browser
+    const { liveData, historyData, fetchError, rainPercent, soilPercent, waterPercent } = useSensorData(true, mode);
 
     useDashboardInit(liveData, historyData, mode, rainPercent, soilPercent, waterPercent);
 
@@ -20,7 +27,6 @@ const App = () => {
         rainPercent, soilPercent, waterPercent 
     }), [rainPercent, soilPercent, waterPercent]);
 
-    // PDF Download Logic
     const downloadReportPDF = useCallback((dataToDownload) => {
         // eslint-disable-next-line no-undef
         if (typeof window === 'undefined' || !window.jspdf) {
@@ -84,7 +90,7 @@ const App = () => {
 
     return (
         <div className="min-h-screen bg-gray-50 p-4 font-sans text-gray-800">
-            {/* ⭐ FIXED STRATEGY: using lazyOnload to prevent build errors */}
+            {/* Scripts load lazily to avoid blocking */}
             <Script 
                 src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" 
                 strategy="lazyOnload"
@@ -144,4 +150,10 @@ const App = () => {
     );
 };
 
-export default App;
+// ------------------------------------------------------------------
+// 2. The Solution: Dynamic Export with SSR Disabled
+//    This tells Vercel: "Don't compile this logic on the server."
+// ------------------------------------------------------------------
+export default dynamic(() => Promise.resolve(DashboardComponent), {
+  ssr: false,
+});
