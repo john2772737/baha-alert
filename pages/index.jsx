@@ -32,7 +32,7 @@ const App = () => {
 
     // ⭐ PDF Download Logic (Uses jsPDF and html2canvas)
     // This function now accepts the data array directly.
-    // ⭐ PDF Download Logic (Table Only - No Chart)
+    // ⭐ PDF Download Logic (Fixed: Displays Raw Analog Data correctly)
     const downloadReportPDF = useCallback((dataToDownload) => {
         if (typeof window.jsPDF === 'undefined') {
             console.error('PDF library jsPDF not loaded.');
@@ -98,8 +98,9 @@ const App = () => {
         
         doc.text('TIME', col1, currentY);
         doc.text('PRESSURE (hPa)', col2, currentY);
-        doc.text('RAIN %', col3, currentY);
-        doc.text('SOIL %', col4, currentY);
+        // ⭐ UPDATED: Changed headers to indicate Raw Analog Data
+        doc.text('RAIN (Raw)', col3, currentY);
+        doc.text('SOIL (Raw)', col4, currentY);
         doc.text('WATER (cm)', col5, currentY);
         
         currentY += 10; // Move down for data
@@ -113,18 +114,18 @@ const App = () => {
             if (currentY > pageHeight - 20) {
                 doc.addPage();
                 currentY = 20;
-                // Optional: You can re-draw headers here if you want headers on every page
             }
 
             // Zebra Striping
             if (index % 2 === 0) {
-                 doc.setFillColor(252, 252, 252); // Very faint gray
+                 doc.setFillColor(252, 252, 252);
                  doc.rect(margin, currentY - 5, pageWidth - (margin * 2), lineHeight, 'F');
             }
 
             // Parse Data
             const date = new Date(item.timestamp);
             const timeStr = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+            
             const p = item.avgPressure ? item.avgPressure.toFixed(1) : '-';
             const r = item.avgRain ? item.avgRain.toFixed(0) : '-';
             const s = item.avgSoil ? item.avgSoil.toFixed(0) : '-';
@@ -133,8 +134,11 @@ const App = () => {
             // Draw Row Data
             doc.text(timeStr, col1, currentY);
             doc.text(p, col2, currentY);
-            doc.text(r + '%', col3, currentY);
-            doc.text(s + '%', col4, currentY);
+            
+            // ⭐ UPDATED: Removed the '%' concatenation
+            doc.text(r, col3, currentY); 
+            doc.text(s, col4, currentY);
+            
             doc.text(w, col5, currentY);
 
             currentY += lineHeight;
@@ -144,10 +148,10 @@ const App = () => {
         doc.setDrawColor(200, 200, 200);
         doc.line(margin, currentY - 5, pageWidth - margin, currentY - 5);
 
-        // --- SAVE PDF (Immediate) ---
+        // --- SAVE PDF ---
         doc.save(`weather_report_${new Date().toISOString().substring(0, 10)}.pdf`);
 
-    }, [liveData.deviceMode]); // dependency array simplified
+    }, [liveData.deviceMode]);
 
 
     // ⭐ ORCHESTRATOR: Fetches and then immediately downloads
