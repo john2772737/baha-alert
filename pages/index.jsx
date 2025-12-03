@@ -32,7 +32,7 @@ const App = () => {
 
     // ⭐ PDF Download Logic (Uses jsPDF and html2canvas)
     // This function now accepts the data array directly.
-    // ⭐ PDF Download Logic (Responsive Layout)
+    // ⭐ PDF Download Logic (Table Only - No Chart)
     const downloadReportPDF = useCallback((dataToDownload) => {
         if (typeof window.jsPDF === 'undefined') {
             console.error('PDF library jsPDF not loaded.');
@@ -80,7 +80,7 @@ const App = () => {
         currentY += 15;
 
         // --- TABLE HEADER ---
-        // Define Column Positions (Responsive based on % of page width)
+        // Define Column Positions
         const col1 = margin;                   // Time
         const col2 = margin + 35;              // Pressure
         const col3 = margin + 75;              // Rain
@@ -113,10 +113,10 @@ const App = () => {
             if (currentY > pageHeight - 20) {
                 doc.addPage();
                 currentY = 20;
-                // Re-draw header on new page (Optional, simply resetting Y here)
+                // Optional: You can re-draw headers here if you want headers on every page
             }
 
-            // Zebra Striping (Optional visual aid)
+            // Zebra Striping
             if (index % 2 === 0) {
                  doc.setFillColor(252, 252, 252); // Very faint gray
                  doc.rect(margin, currentY - 5, pageWidth - (margin * 2), lineHeight, 'F');
@@ -144,41 +144,10 @@ const App = () => {
         doc.setDrawColor(200, 200, 200);
         doc.line(margin, currentY - 5, pageWidth - margin, currentY - 5);
 
+        // --- SAVE PDF (Immediate) ---
+        doc.save(`weather_report_${new Date().toISOString().substring(0, 10)}.pdf`);
 
-        // --- CHART SNAPSHOT (Existing Logic) ---
-        if (dashboardRefs.historyChartRef.current && typeof window.html2canvas !== 'undefined') {
-            const canvas = dashboardRefs.historyChartRef.current;
-
-            if (canvas.width > 0 && canvas.height > 0) {
-                window.html2canvas(canvas, { scale: 1 }).then(chartCanvas => {
-                    const chartDataURL = chartCanvas.toDataURL('image/png');
-                    
-                    // Add chart on a new page to ensure it fits cleanly
-                    doc.addPage();
-                    
-                    doc.setFontSize(14);
-                    doc.setFont('helvetica', 'bold');
-                    doc.setTextColor(22, 163, 74);
-                    doc.text("Historical Trend Chart", margin, 20);
-                    
-                    // Fit image to width
-                    const imgWidth = pageWidth - (margin * 2);
-                    const imgHeight = (canvas.height * imgWidth) / canvas.width;
-                    
-                    doc.addImage(chartDataURL, 'PNG', margin, 30, imgWidth, imgHeight); 
-                    doc.save(`weather_report_${new Date().toISOString().substring(0, 10)}.pdf`);
-                }).catch(err => {
-                    console.error("Error generating chart snapshot:", err);
-                    doc.save(`weather_report_${new Date().toISOString().substring(0, 10)}.pdf`);
-                });
-            } else {
-                doc.save(`weather_report_${new Date().toISOString().substring(0, 10)}.pdf`);
-            }
-        } else {
-            doc.save(`weather_report_${new Date().toISOString().substring(0, 10)}.pdf`);
-        }
-
-    }, [liveData.deviceMode, dashboardRefs.historyChartRef]);
+    }, [liveData.deviceMode]); // dependency array simplified
 
 
     // ⭐ ORCHESTRATOR: Fetches and then immediately downloads
