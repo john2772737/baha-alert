@@ -1,17 +1,22 @@
-// pages/index.jsx
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { getFormattedTime } from '../utils/sensorUtils';
 import { useSensorData } from '../hooks/useSensorData';
 import { useDashboardInit } from '../hooks/useDashboardInit';
 import { ClockIcon, RefreshCcwIcon, CpuIcon } from '../utils/icons';
-import ModeView from '../component/ModeView';
+import ModeView from '../components/ModeView'; // Corrected component path
+
+const REAL_API_ENDPOINT = 'https://baha-alert.vercel.app/api'; 
+const FETCH_TODAY_LOG_INTERVAL_MS = 600000; // 10 minutes (for passive background fetch)
 
 const App = () => {
     const [isClient, setIsClient] = useState(false);
     const [scriptsLoaded, setScriptsLoaded] = useState(false);
+    const [isDownloading, setIsDownloading] = useState(false); // ⭐ New state for download status
     const [mode, setMode] = useState('Auto');
     const modes = ['Auto', 'Maintenance', 'Sleep'];
     const [currentTime, setCurrentTime] = useState('Loading...');
+    
+    const [todayData, setTodayData] = useState([]); 
 
     // 1. Fetch Data & Calculate Percentages
     const { liveData, historyData, fetchError, rainPercent, soilPercent, waterPercent } = useSensorData(isClient, mode);
@@ -24,26 +29,149 @@ const App = () => {
     // Group percentages for easy passing to ModeView
     const percents = useMemo(() => ({ rainPercent, soilPercent, waterPercent }), [rainPercent, soilPercent, waterPercent]);
 
+
+    // ⭐ PDF Download Logic (Uses jsPDF and html2canvas)
+    // This function now accepts the data array directly.
+    const downloadReportPDF = useCallback((dataToDownload) => {
+        if (typeof window.jsPDF === 'undefined') {
+            console.error('PDF library jsPDF not loaded.');
+            return;
+        }
+
+        const { jsPDF } = window;
+        if (!dataToDownload || dataToDownload.length === 0) {
+            console.error('No data available to generate report.');
+            return;
+        }
+        
+        // 1. Prepare Monospace Text Content
+        const reportElement = document.createElement('div');
+        reportElement.style.fontFamily = 'monospace';
+        reportElement.style.fontSize = '10px';
+        
+        let content = `SMART WEATHER STATION - DAILY LOG REPORT\n`;
+        content += `Generated Time: ${getFormattedTime()}\n`;
+        content += `Device Mode: ${liveData.deviceMode}\n\n`;
+        content += `----------------------------------------------------------------------------------------\n`;
+        content += `| Time (HH:MM) | Pressure (hPa) | Rain (%) | Soil (%) | Water (cm) |\n`;
+        content += `----------------------------------------------------------------------------------------\n`;
+
+        dataToDownload.forEach(item => {
+            const date = new Date(item.timestamp);
+            const timeStr = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+            
+            const p = item.avgPressure ? item.avgPressure.toFixed(1) : 'N/A';
+            const r = item.avgRain ? item.avgRain.toFixed(0) : 'N/A';
+            const s = item.avgSoil ? item.avgSoil.toFixed(0) : 'N/A';
+            const w = item.avgWaterDistance ? item.avgWaterDistance.toFixed(1) : 'N/A';
+            
+            const pad = (str, len) => String(str).padEnd(len).substring(0, len);
+
+            content += `| ${pad(timeStr, 12)} | ${pad(p, 14)} | ${pad(r, 8)} | ${pad(s, 8)} | ${pad(w, 10)} |\n`;
+        });
+        
+        content += `----------------------------------------------------------------------------------------\n`;
+        
+        reportElement.innerText = content;
+
+        // 2. Generate PDF
+        const doc = new jsPDF('p', 'mm', 'a4');
+        const margin = 10;
+        const textWidth = 190;
+        
+        doc.setFont('courier');
+        doc.setFontSize(10);
+        
+        const textLines = doc.splitTextToSize(reportElement.innerText, textWidth);
+        doc.text(textLines, margin, margin);
+
+        // 3. Add Chart Snapshot (using html2canvas)
+        if (dashboardRefs.historyChartRef.current && typeof window.html2canvas !== 'undefined') {
+             const canvas = dashboardRefs.historyChartRef.current;
+             
+             // Check if chart is initialized and visible
+             if (canvas.width > 0 && canvas.height > 0) {
+                 window.html2canvas(canvas, { scale: 1 }).then(chartCanvas => {
+                     const chartDataURL = chartCanvas.toDataURL('image/png');
+                     doc.addPage();
+                     doc.setFontSize(14);
+                     doc.text("Historical Trend Chart", margin, margin);
+                     doc.addImage(chartDataURL, 'PNG', margin, margin + 5, 190, 100); 
+                     doc.save(`weather_report_${new Date().toISOString().substring(0, 10)}.pdf`);
+                 }).catch(err => {
+                    console.error("Error generating chart snapshot:", err);
+                    // Fallback save if chart fails
+                    doc.save(`weather_report_${new Date().toISOString().substring(0, 10)}.pdf`);
+                 });
+             } else {
+                 // Fallback save if chart is not rendered
+                 doc.save(`weather_report_${new Date().toISOString().substring(0, 10)}.pdf`);
+             }
+        } else {
+             doc.save(`weather_report_${new Date().toISOString().substring(0, 10)}.pdf`);
+        }
+        
+    }, [liveData.deviceMode, dashboardRefs.historyChartRef]);
+
+
+    // ⭐ ORCHESTRATOR: Fetches and then immediately downloads
+    const fetchAndDownloadLogs = useCallback(async () => {
+        if (!isClient || isDownloading) return;
+        setIsDownloading(true);
+        
+        try {
+            const response = await fetch(`${REAL_API_ENDPOINT}?today=true`);
+            if (!response.ok) throw new Error("Fetch failed.");
+            const result = await response.json();
+            
+            if (result.success && Array.isArray(result.data)) {
+                setTodayData(result.data); // Update state for passive viewing
+                downloadReportPDF(result.data); // Trigger immediate download
+            }
+        } catch (e) {
+            console.error("Download Orchestration Error:", e);
+        } finally {
+            setIsDownloading(false);
+        }
+    }, [isClient, isDownloading, downloadReportPDF]);
+    
     // 3. Client/CDN Init & Time update
     useEffect(() => {
         setIsClient(true);
-        // Load external libraries required for gauges and charts
+        // Load external libraries required for gauges, charts, and PDF
         const cdnUrls = [
             "https://cdnjs.cloudflare.com/ajax/libs/gauge.js/1.3.7/gauge.min.js",
             "https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js",
             "https://cdn.tailwindcss.com",
+            // ⭐ PDF Libraries (Restored)
+            "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js",
+            "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js",
         ];
         
         const loadScript = (url) => new Promise(resolve => {
             const script = document.createElement('script');
-            script.src = url; script.async = true; script.onload = resolve;
+            script.src = url; script.async = true; 
+            
+            // Special handling for jsPDF global setup
+            if (url.includes('jspdf')) {
+                script.onload = () => {
+                     // Attach jsPDF function to window directly
+                     if (window.jspdf && window.jspdf.jsPDF) window.jsPDF = window.jspdf.jsPDF;
+                     resolve();
+                };
+            } else {
+                 script.onload = resolve; 
+            }
+            
+            // Note: The imports below are correctly pointing to the relative paths of the Vercel structure
             if (url.includes('tailwindcss')) document.head.prepend(script); else document.head.appendChild(script);
             if (url.includes('tailwindcss')) resolve(); 
         });
 
         // Simplified dependency check for library loading
         Promise.all(cdnUrls.map(loadScript)).then(() => { 
-            if (typeof window.Gauge !== 'undefined' && typeof window.Chart !== 'undefined') {
+            // Check for core libraries + PDF libraries
+            if (typeof window.Gauge !== 'undefined' && typeof window.Chart !== 'undefined' && typeof window.jsPDF !== 'undefined' && typeof window.html2canvas !== 'undefined') {
                 setScriptsLoaded(true); 
             }
         });
@@ -52,13 +180,32 @@ const App = () => {
         const timeInterval = setInterval(() => setCurrentTime(getFormattedTime()), 10000);
         return () => clearInterval(timeInterval);
     }, []);
+    
+    // Passive background fetch (Kept for viewing logs)
+    useEffect(() => {
+        const fetchTodayDataPassive = async () => {
+             try {
+                const response = await fetch(`${REAL_API_ENDPOINT}?today=true`);
+                if (!response.ok) throw new Error("Passive fetch failed");
+                const result = await response.json();
+                if (result.success && Array.isArray(result.data)) {
+                    setTodayData(result.data);
+                }
+            } catch (e) {
+                console.error("Passive Fetch Error:", e);
+            }
+        };
+        fetchTodayDataPassive();
+        const interval = setInterval(fetchTodayDataPassive, FETCH_TODAY_LOG_INTERVAL_MS);
+        return () => clearInterval(interval);
+    }, [isClient]);
 
 
     if (!isClient || !scriptsLoaded) return <div className="flex justify-center items-center h-screen bg-slate-900 text-emerald-400 font-inter"><RefreshCcwIcon className="animate-spin w-8 h-8 mr-2" /> Initializing...</div>;
 
     // --- RENDER ---
     return (
-        <div className="min-h-screen bg-slate-900 text-slate-100 p-4 sm:p-10 font-inter dark">
+        <div className className="min-h-screen bg-slate-900 text-slate-100 p-4 sm:p-10 font-inter dark">
             <style>{`
                 .chart-container { height: 50vh; width: 100%; }
                 .gauges-container { display: grid; grid-template-columns: repeat(2, 1fr); gap: 2rem; }
@@ -97,6 +244,34 @@ const App = () => {
                     percents={percents}
                 />
             </main>
+            
+            {/* ⭐ NEW: Fetch & Download Button */}
+            {mode === 'Auto' && liveData.deviceMode === 'AUTO' && (
+                <div className="mt-8 p-4 bg-slate-800 rounded-2xl border border-slate-700 text-center">
+                    <h3 className="text-xl font-bold mb-4 text-slate-200">Daily Report Generation</h3>
+                    <button
+                        onClick={fetchAndDownloadLogs} // Calls the orchestrator
+                        disabled={isDownloading}
+                        className={`flex items-center justify-center mx-auto px-6 py-2 font-semibold rounded-lg shadow-md transition-colors 
+                            ${isDownloading 
+                                ? 'bg-indigo-400 text-white cursor-wait' 
+                                : 'bg-indigo-600 hover:bg-indigo-700 text-white'}`}
+                    >
+                        {isDownloading ? (
+                            <>
+                                <RefreshCcwIcon className='w-4 h-4 mr-2 animate-spin'/>
+                                Generating Report...
+                            </>
+                        ) : (
+                            <>
+                                <svg className='w-4 h-4 mr-2' xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                                Fetch & Download Today's Log
+                            </>
+                        )}
+                    </button>
+                    <p className='text-xs text-slate-500 mt-2'>Downloads sampled data (every 10 minutes) + chart snapshot.</p>
+                </div>
+            )}
         </div>
     );
 }

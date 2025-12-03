@@ -1,15 +1,14 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
-#include <WiFiClientSecure.h> // <--- 1. REQUIRED FOR HTTPS
+#include <WiFiClientSecure.h> 
 
 // ------------------------------------------------
 // CONFIGURATION
 // ------------------------------------------------
-// ⭐ CHANGE "/weather" IF YOUR API ROUTE NAME IS DIFFERENT
 const char* serverName = "https://baha-alert.vercel.app/api"; 
 
-// Use Serial2 for communication with Arduino (Pins 16 RX, 17 TX)
+// Pins for communication with Arduino
 #define RXD2 16
 #define TXD2 17
 
@@ -28,7 +27,7 @@ void setup() {
 }
 
 void loop() {
-  // Check if data is coming from Arduino on pins 16/17
+  // Check if data is coming from Arduino
   if (Serial2.available()) {
     
     String input = Serial2.readStringUntil('\n');
@@ -61,9 +60,11 @@ void handleArduinoMessage(String input) {
     connectToWiFi(ssid, pass);
   }
 
-  // --- SCENARIO 2: DATA ---
-  else if (doc.containsKey("pressure")) {
-    Serial.println("Type: Sensor Data found.");
+  // --- SCENARIO 2: DATA OR MODE CHANGE ---
+  // ⭐ UPDATED: Now checks for 'pressure' (Sensor Data) OR 'mode' (Status Change)
+  else if (doc.containsKey("pressure") || doc.containsKey("mode")) {
+    Serial.println("Type: Sensor Data or Mode Change found.");
+    
     if (WiFi.status() == WL_CONNECTED) {
       Serial.println("Sending to API...");
       sendDataToAPI(doc);
@@ -95,7 +96,6 @@ void connectToWiFi(const char* ssid, const char* pass) {
 
   if (connected) {
     Serial.println("WiFi Connected! IP: " + WiFi.localIP().toString());
-    // Small delay to ensure Arduino is listening
     delay(200); 
     Serial.println("Sending CONN_OK to Arduino...");
     Serial2.println("{\"status\":\"CONN_OK\"}");
@@ -106,11 +106,9 @@ void connectToWiFi(const char* ssid, const char* pass) {
 }
 
 void sendDataToAPI(JsonDocument& doc) {
-  // ⭐ 2. USE SECURE CLIENT
   WiFiClientSecure client;
-  client.setInsecure(); // This is the key to fixing 308/SSL errors on Vercel
+  client.setInsecure(); // Required for HTTPS (Vercel)
 
-  // Start connection
   if (http.begin(client, serverName)) {
     http.addHeader("Content-Type", "application/json");
 
@@ -120,7 +118,7 @@ void sendDataToAPI(JsonDocument& doc) {
     int httpResponseCode = http.POST(jsonString);
 
     Serial.print("API Response: ");
-    Serial.println(httpResponseCode); // Should now be 200 or 201
+    Serial.println(httpResponseCode); 
     
     if (httpResponseCode > 0) {
       String response = http.getString();
