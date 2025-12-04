@@ -1,11 +1,12 @@
-// components/ModeView.jsx
 import React, { useState } from 'react';
 import { getRainStatus, getSoilStatus, getWaterTankStatus, getPressureStatus } from '../utils/sensorUtils';
-import { CloudRainIcon, GaugeIcon, BoxIcon, LeafIcon, MoonIcon, RefreshCcwIcon, CpuIcon, CheckCircleIcon, XCircleIcon, ActivityIcon } from '../utils/icons';
+import { CloudRainIcon, GaugeIcon, BoxIcon, LeafIcon, MoonIcon, RefreshCcwIcon, CpuIcon, CheckCircleIcon, XCircleIcon, ActivityIcon, ArrowUpRightIcon } from '../utils/icons';
 
-// --- Reusable Status Card (Auto Mode) ---
+const API_ENDPOINT = 'https://baha-alert.vercel.app/api';
+
+// --- Helper: Status Card (Auto Mode) ---
 const StatusCard = ({ Icon, title, reading, status, className }) => (
-    <article className="p-5 bg-slate-800 rounded-xl shadow-lg border border-slate-700">
+    <article className="p-5 bg-slate-800 rounded-xl shadow-lg border border-slate-700 transition-transform hover:scale-105">
         <Icon className={`w-8 h-8 mb-3 p-1.5 rounded-lg ${className}`} />
         <h3 className="text-sm font-medium text-slate-400">{title}</h3>
         <p className="text-2xl font-black text-white">{reading}</p>
@@ -13,53 +14,51 @@ const StatusCard = ({ Icon, title, reading, status, className }) => (
     </article>
 );
 
-// --- New Maintenance Test Card ---
-const TestCard = ({ Icon, title, rawValue, percentValue, onTest, testState }) => {
+// --- New: Maintenance Test Button UI ---
+const TestControlCard = ({ Icon, title, sensorKey, rawData, onTest, testState }) => {
     return (
-        <div className="p-5 bg-slate-800 rounded-xl border border-slate-700 flex flex-col justify-between">
+        <div className="bg-slate-800 p-5 rounded-xl border border-slate-700 shadow-md flex flex-col justify-between">
             <div className="flex justify-between items-start mb-4">
                 <div className="flex items-center gap-3">
-                    <Icon className="w-10 h-10 p-2 bg-slate-700/50 rounded-lg text-indigo-400" />
+                    <Icon className="w-10 h-10 p-2 bg-slate-700 rounded-lg text-indigo-400" />
                     <div>
                         <h4 className="font-bold text-slate-200">{title}</h4>
-                        <span className="text-xs text-slate-500 font-mono">ID: {title.toUpperCase().slice(0, 3)}_01</span>
+                        <span className="text-xs text-slate-500 font-mono">STATUS: {testState.status.toUpperCase()}</span>
                     </div>
                 </div>
-                {/* Test Status Indicator */}
-                {testState.status === 'success' && <CheckCircleIcon className="w-6 h-6 text-emerald-500" />}
-                {testState.status === 'error' && <XCircleIcon className="w-6 h-6 text-red-500" />}
             </div>
 
-            <div className="space-y-2 mb-6">
-                <div className="flex justify-between text-sm">
-                    <span className="text-slate-400">Raw Input:</span>
-                    <span className="font-mono text-slate-200">{rawValue}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                    <span className="text-slate-400">Calibrated:</span>
-                    <span className="font-mono text-emerald-400 font-bold">{percentValue}</span>
-                </div>
+            {/* Raw Data Display (Useful for debugging) */}
+            <div className="bg-slate-900/50 p-3 rounded-lg mb-4 text-sm font-mono flex justify-between">
+                <span className="text-slate-500">Current Value:</span>
+                <span className="text-emerald-400">{rawData || 'N/A'}</span>
             </div>
 
+            {/* The POST Button */}
             <button
-                onClick={onTest}
+                onClick={() => onTest(sensorKey)}
                 disabled={testState.status === 'loading'}
-                className={`w-full py-2 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-2
+                className={`w-full py-3 rounded-lg font-bold text-sm flex items-center justify-center gap-2 transition-all
                     ${testState.status === 'loading' 
-                        ? 'bg-slate-700 text-slate-400 cursor-wait' 
-                        : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/20'}`}
+                        ? 'bg-slate-600 text-slate-400 cursor-not-allowed' 
+                        : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg hover:shadow-indigo-500/25 active:scale-95'}`}
             >
                 {testState.status === 'loading' ? (
                     <>
-                        <RefreshCcwIcon className="w-4 h-4 animate-spin" /> Testing...
+                        <RefreshCcwIcon className="w-4 h-4 animate-spin" /> Sending Command...
+                    </>
+                ) : testState.status === 'success' ? (
+                    <>
+                        <CheckCircleIcon className="w-4 h-4" /> Test Signal Sent
                     </>
                 ) : (
                     <>
-                        <ActivityIcon className="w-4 h-4" /> Run Diagnostic
+                        <ActivityIcon className="w-4 h-4" /> Trigger Test
                     </>
                 )}
             </button>
-            
+
+            {/* API Feedback Message */}
             {testState.message && (
                 <p className={`mt-3 text-xs text-center ${testState.status === 'error' ? 'text-red-400' : 'text-emerald-400'}`}>
                     {testState.message}
@@ -70,7 +69,7 @@ const TestCard = ({ Icon, title, rawValue, percentValue, onTest, testState }) =>
 };
 
 const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
-    // State for managing individual sensor tests
+    // State to track the API request for each button
     const [testStates, setTestStates] = useState({
         rain: { status: 'idle', message: '' },
         soil: { status: 'idle', message: '' },
@@ -78,168 +77,175 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
         pressure: { status: 'idle', message: '' },
     });
 
-    // Helper to calculate statuses for Auto View
+    // Helper functions for status text
     const rainStatus = getRainStatus(percents.rainPercent);
     const soilStatus = getSoilStatus(percents.soilPercent);
     const waterTankStatus = getWaterTankStatus(percents.waterPercent, liveData.waterDistanceCM);
     const pressureStatus = getPressureStatus(liveData.pressure);
 
-    // Mock Test Function (Replace with real API call later)
-    const runSensorTest = async (sensorKey) => {
+    // ⭐ REAL FUNCTION: Posts to Database
+    const postSensorTest = async (sensorKey) => {
+        // 1. Set Loading State
         setTestStates(prev => ({ ...prev, [sensorKey]: { status: 'loading', message: '' } }));
 
-        // Simulate network delay
-        setTimeout(() => {
-            // Random pass/fail logic for demonstration
-            const isSuccess = Math.random() > 0.1; 
-            setTestStates(prev => ({
-                ...prev,
-                [sensorKey]: {
-                    status: isSuccess ? 'success' : 'error',
-                    message: isSuccess ? 'Sensor responding normally.' : 'Timeout: Check wiring.'
-                }
+        try {
+            // 2. Send POST Request
+            const response = await fetch(API_ENDPOINT, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    type: 'MAINTENANCE_TEST',
+                    sensor: sensorKey,
+                    timestamp: new Date().toISOString(),
+                    userAction: 'MANUAL_TRIGGER'
+                })
+            });
+
+            const result = await response.json();
+
+            if (response.ok) {
+                // 3. Success State
+                setTestStates(prev => ({ 
+                    ...prev, 
+                    [sensorKey]: { status: 'success', message: 'Command logged to DB' } 
+                }));
+                
+                // Optional: Reset status after 3 seconds
+                setTimeout(() => {
+                    setTestStates(prev => ({ ...prev, [sensorKey]: { status: 'idle', message: '' } }));
+                }, 3000);
+
+            } else {
+                throw new Error(result.error || 'API Failed');
+            }
+        } catch (error) {
+            // 4. Error State
+            console.error("Test Post Error:", error);
+            setTestStates(prev => ({ 
+                ...prev, 
+                [sensorKey]: { status: 'error', message: 'Failed to post command' } 
             }));
-        }, 1500);
+        }
     };
 
-    // --- 1. AUTO MODE VIEW ---
+    // --- VIEW 1: AUTO DASHBOARD ---
     if (mode === 'Auto' && liveData.deviceMode === 'AUTO') {
         return (
             <>
-                {fetchError && <div className="p-3 bg-red-900/30 text-red-300 rounded-lg border border-red-800 text-center font-semibold text-sm">{fetchError}</div>}
+                {fetchError && <div className="p-3 bg-red-900/30 text-red-300 rounded-lg border border-red-800 text-center font-semibold text-sm mb-4">{fetchError}</div>}
 
-                <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <section className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                     <StatusCard Icon={CloudRainIcon} title="Rain Sensor" reading={rainStatus.reading} status={rainStatus.status} className="text-sky-400 bg-sky-900/30" />
                     <StatusCard Icon={GaugeIcon} title="Pressure" reading={`${liveData.pressure.toFixed(1)} hPa`} status={pressureStatus.status} className="text-purple-400 bg-purple-900/30" />
                     <StatusCard Icon={BoxIcon} title="Water Level" reading={waterTankStatus.reading} status={waterTankStatus.status} className="text-cyan-400 bg-cyan-900/30" />
                     <StatusCard Icon={LeafIcon} title="Soil Moisture" reading={soilStatus.reading} status={soilStatus.status} className="text-orange-400 bg-orange-900/30" />
                 </section>
                 
-                <section className="grid grid-cols-1 gap-6">
-                    <article className="p-6 bg-slate-800 rounded-2xl shadow-lg border border-slate-700">
-                        <h3 className="text-xl font-bold mb-6 text-slate-200">Live Sensors (Percent)</h3>
-                        <div className="gauges-container">
-                            <div className="gauge-wrapper flex flex-col items-center"><canvas ref={refs.rainGaugeRef}></canvas><p className="mt-2 text-sm font-bold text-slate-300">Wetness: <span className="text-sky-400">{percents.rainPercent}%</span></p></div>
-                            <div className="gauge-wrapper flex flex-col items-center"><canvas ref={refs.pressureGaugeRef}></canvas><p className="mt-2 text-sm font-bold text-slate-300">Pressure: <span className="text-purple-400">{liveData.pressure.toFixed(0)} hPa</span></p></div>
-                            <div className="gauge-wrapper flex flex-col items-center"><canvas ref={refs.waterTankGaugeRef}></canvas><p className="mt-2 text-sm font-bold text-slate-300">Tank Level: <span className="text-cyan-400">{percents.waterPercent}%</span></p>{liveData.waterDistanceCM >= 400 && <span className="text-[10px] text-red-500 font-bold uppercase tracking-wider">Check Sensor</span>}</div>
-                            <div className="gauge-wrapper flex flex-col items-center"><canvas ref={refs.soilGaugeRef}></canvas><p className="mt-2 text-sm font-bold text-slate-300">Moisture: <span className="text-orange-400">{percents.soilPercent}%</span></p></div>
-                        </div>
+                <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <article className="lg:col-span-2 p-6 bg-slate-800 rounded-2xl shadow-lg border border-slate-700">
+                        <h3 className="text-xl font-bold mb-6 text-slate-200">Historical Trends</h3>
+                        <div className="chart-container h-64"><canvas ref={refs.historyChartRef}></canvas></div>
                     </article>
+
                     <article className="p-6 bg-slate-800 rounded-2xl shadow-lg border border-slate-700">
-                        <h3 className="text-xl font-bold mb-4 text-slate-200">Historical Trends</h3>
-                        <div className="chart-container"><canvas ref={refs.historyChartRef}></canvas></div>
+                        <h3 className="text-xl font-bold mb-6 text-slate-200">Live Gauges</h3>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="flex flex-col items-center"><canvas ref={refs.rainGaugeRef} className="w-full"></canvas><span className="text-xs mt-1 text-slate-400">Rain</span></div>
+                            <div className="flex flex-col items-center"><canvas ref={refs.pressureGaugeRef} className="w-full"></canvas><span className="text-xs mt-1 text-slate-400">Pressure</span></div>
+                            <div className="flex flex-col items-center"><canvas ref={refs.waterTankGaugeRef} className="w-full"></canvas><span className="text-xs mt-1 text-slate-400">Water</span></div>
+                            <div className="flex flex-col items-center"><canvas ref={refs.soilGaugeRef} className="w-full"></canvas><span className="text-xs mt-1 text-slate-400">Soil</span></div>
+                        </div>
                     </article>
                 </section>
             </>
         );
     }
 
-    // --- 2. MAINTENANCE MODE VIEW ---
+    // --- VIEW 2: MAINTENANCE / TEST MODE ---
     if (mode === 'Maintenance') {
         return (
             <section className="space-y-6">
-                <div className="p-6 bg-yellow-900/20 rounded-2xl border border-yellow-700/50 flex items-center justify-between">
+                {/* Header Panel */}
+                <div className="p-6 bg-yellow-900/10 rounded-2xl border border-yellow-600/30 flex flex-col sm:flex-row items-center justify-between gap-4">
                     <div className="flex items-center gap-4">
-                        <div className="p-3 bg-yellow-600/20 rounded-xl">
-                            <RefreshCcwIcon className="w-8 h-8 text-yellow-500 animate-spin-slow" />
+                        <div className="p-3 bg-yellow-500/10 rounded-xl">
+                            <CpuIcon className="w-8 h-8 text-yellow-500" />
                         </div>
                         <div>
-                            <h2 className="text-xl font-bold text-yellow-100">System Maintenance Mode</h2>
-                            <p className="text-yellow-400/80 text-sm">Automatic data logging is paused. Manual testing enabled.</p>
+                            <h2 className="text-xl font-bold text-yellow-100">Maintenance Console</h2>
+                            <p className="text-yellow-400/70 text-sm">Click buttons below to log test commands to the database.</p>
                         </div>
                     </div>
                     <button 
                         onClick={() => setMode('Auto')}
-                        className="px-5 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 rounded-lg font-semibold transition-colors"
+                        className="px-5 py-2 bg-slate-700 hover:bg-slate-600 border border-slate-600 text-slate-200 rounded-lg font-semibold transition-colors flex items-center gap-2"
                     >
-                        Exit Maintenance
+                        <ArrowUpRightIcon className="w-4 h-4" /> Exit Mode
                     </button>
                 </div>
 
+                {/* Test Control Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <TestCard 
+                    <TestControlCard 
                         Icon={CloudRainIcon} 
                         title="Rain Sensor" 
-                        rawValue={liveData.rainAnalog} // Assuming these exist in liveData
-                        percentValue={`${percents.rainPercent}%`}
+                        sensorKey="rain"
+                        rawData={liveData.rainAnalog}
                         testState={testStates.rain}
-                        onTest={() => runSensorTest('rain')}
+                        onTest={postSensorTest}
                     />
-                    <TestCard 
+                    <TestControlCard 
                         Icon={LeafIcon} 
                         title="Soil Sensor" 
-                        rawValue={liveData.soilAnalog}
-                        percentValue={`${percents.soilPercent}%`}
+                        sensorKey="soil"
+                        rawData={liveData.soilAnalog}
                         testState={testStates.soil}
-                        onTest={() => runSensorTest('soil')}
+                        onTest={postSensorTest}
                     />
-                    <TestCard 
+                    <TestControlCard 
                         Icon={BoxIcon} 
                         title="Water Sensor" 
-                        rawValue={`${liveData.waterDistanceCM}cm`}
-                        percentValue={`${percents.waterPercent}%`}
+                        sensorKey="water"
+                        rawData={`${liveData.waterDistanceCM} cm`}
                         testState={testStates.water}
-                        onTest={() => runSensorTest('water')}
+                        onTest={postSensorTest}
                     />
-                    <TestCard 
+                    <TestControlCard 
                         Icon={GaugeIcon} 
                         title="Barometer" 
-                        rawValue={`${liveData.pressure}hPa`}
-                        percentValue="N/A"
+                        sensorKey="pressure"
+                        rawData={`${liveData.pressure} hPa`}
                         testState={testStates.pressure}
-                        onTest={() => runSensorTest('pressure')}
+                        onTest={postSensorTest}
                     />
                 </div>
-
-                {/* Additional Raw Data Panel */}
-                <article className="p-6 bg-slate-800 rounded-2xl border border-slate-700">
-                    <h3 className="text-lg font-bold text-slate-300 mb-4 flex items-center gap-2">
-                        <CpuIcon className="w-5 h-5 text-indigo-400" />
-                        System Health Diagnostics
-                    </h3>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm font-mono text-slate-400">
-                        <div className="p-3 bg-slate-900 rounded-lg">
-                            <span className="block text-xs text-slate-500 mb-1">UPTIME</span>
-                            <span className="text-emerald-400">04:22:11</span>
-                        </div>
-                        <div className="p-3 bg-slate-900 rounded-lg">
-                            <span className="block text-xs text-slate-500 mb-1">WIFI SIGNAL</span>
-                            <span className="text-emerald-400">-42 dBm</span>
-                        </div>
-                        <div className="p-3 bg-slate-900 rounded-lg">
-                            <span className="block text-xs text-slate-500 mb-1">MEMORY</span>
-                            <span className="text-emerald-400">142 KB Free</span>
-                        </div>
-                        <div className="p-3 bg-slate-900 rounded-lg">
-                            <span className="block text-xs text-slate-500 mb-1">API LATENCY</span>
-                            <span className="text-emerald-400">45ms</span>
-                        </div>
-                    </div>
-                </article>
+                
+                <div className="text-center text-xs text-slate-500 mt-4">
+                    * Commands are sent to /api with type: MAINTENANCE_TEST
+                </div>
             </section>
         );
     }
-    
-    // --- 3. SLEEP / CONFLICT FALLBACK ---
+
+    // --- VIEW 3: SLEEP / FALLBACK ---
     const isConflict = liveData.deviceMode !== 'AUTO';
     const displayMode = isConflict ? liveData.deviceMode : mode;
-    const Icon = displayMode === 'SLEEP' ? MoonIcon : CpuIcon;
+    const FallbackIcon = displayMode === 'SLEEP' ? MoonIcon : CpuIcon;
 
     return (
         <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center">
-            <Icon className={`w-12 h-12 mb-4 ${isConflict ? 'text-yellow-400' : 'text-indigo-400'}`} />
+            <FallbackIcon className={`w-16 h-16 mb-4 ${isConflict ? 'text-yellow-400' : 'text-indigo-400'}`} />
             <h3 className="text-2xl font-bold text-slate-200 mb-2">
-                {isConflict ? 'Device Mode Conflict' : `System is Sleeping`}
+                {isConflict ? `Device is in ${liveData.deviceMode}` : `System Sleeping`}
             </h3>
-            <p className="text-slate-400 max-w-md">
-                The device is currently in <strong>{liveData.deviceMode}</strong> mode. 
-                {displayMode === 'SLEEP' && " Sensors are powered down to save battery. Wake device to view data."}
+            <p className="text-slate-400 max-w-md mb-6">
+                {isConflict 
+                    ? `The physical device switch is set to ${liveData.deviceMode}. To control it here, please switch the physical device to AUTO.` 
+                    : "Low power mode active. Sensors are currently offline to save battery."}
             </p>
-            <div className="flex space-x-4 mt-6">
-                 <button onClick={() => setMode('Auto')} className="px-6 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg shadow-md transition-colors">
-                    Wake / View Auto
-                </button>
-            </div>
+            <button onClick={() => setMode('Auto')} className="px-8 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg transition-colors">
+                Return to Dashboard
+            </button>
         </div>
     );
 };
