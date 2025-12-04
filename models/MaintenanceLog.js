@@ -7,16 +7,21 @@ const MaintenanceLogSchema = new mongoose.Schema({
     default: Date.now,
   },
   sensor: {
-    type: String, // e.g., "rain", "soil"
+    type: String, 
     required: true,
   },
   command: {
-    type: String, // The character sent to Arduino: 'R', 'S', 'P', 'U'
+    type: String, 
     required: true,
   },
   status: {
     type: String, 
-    default: "PENDING" // Options: PENDING, FETCHED
+    default: "PENDING" // Options: PENDING, FETCHED, COMPLETED
+  },
+  // ⭐ NEW FIELD: Stores the sensor reading
+  value: {
+    type: String, 
+    default: null
   },
   deviceMode: {
     type: String,
@@ -24,5 +29,4 @@ const MaintenanceLogSchema = new mongoose.Schema({
   }
 });
 
-// Prevent recompilation error in Next.js
 export default mongoose.models.MaintenanceLog || mongoose.model('MaintenanceLog', MaintenanceLogSchema);

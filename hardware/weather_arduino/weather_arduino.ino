@@ -4,7 +4,6 @@
 #include "Sensor.h" 
 #include "Communication.h"
 #include "WifiConfig.h"
-// Removed ServoGauge.h
 
 // --- 2. SYSTEM MODES ---
 enum SystemState {
@@ -16,36 +15,34 @@ enum SystemState {
 volatile SystemState currentState = AUTO_MODE;
 volatile bool modeChangeFlag = false; 
 
-// --- 3. HANDSHAKE & CONNECTION FLAGS ---
+// --- 3. FLAGS ---
 bool isWifiConnected = false;        
 unsigned long lastWifiConfigSent = 0; 
 bool configSentInAttempt = false; 
 
-// --- 4. OBJECT INITIALIZATION ---
+// --- 4. OBJECTS ---
+// ESP32 TX (Pin 17) -> Arduino Pin 4 (RX)
+// ESP32 RX (Pin 16) -> Arduino Pin 5 (TX)
+Communication comms(4, 5); 
 
-// Communication (RX=4, TX=5)
-Communication comms(4, 5);
-
-// Sensor (Trig=6, Echo=7, Soil=A3, Rain=A2)
 Sensor mySensor(6, 7, A3, A2);
-
-// WiFi Storage
 WifiConfig wifiStore;
 
-// --- 5. TIMERS & PINS ---
+// --- 5. PINS & TIMERS ---
 const int BUTTON_PIN = 2; 
 unsigned long previousMillis = 0;
 const long INTERVAL = 2000;    
 const long RESEND_INTERVAL = 3000; 
 
-// --- FUNCTION PROTOTYPES ---
+// --- PROTOTYPES ---
+void executeMaintenanceCommand(char cmd);
 void loadWifiCredentials();
 void saveWifiCredentials(String s, String p);
 void runAutoMode();
 void runMaintenanceMode();
 void runSleepMode();
 void changeModeISR();
-void wakeISR(); // New prototype for sleep wake up
+void wakeISR();
 void updateConnectionStatus(); 
 
 void setup() {
@@ -57,14 +54,9 @@ void setup() {
   mySensor.begin();
   mySensor.BMP180(); 
 
-  // --- DISABLE UNUSED PINS ---
+  // Pins Setup
+  for (int i = 8; i <= 13; i++) pinMode(i, INPUT_PULLUP);
   pinMode(3, INPUT_PULLUP);
-  pinMode(8, INPUT_PULLUP);
-  pinMode(9, INPUT_PULLUP);
-  pinMode(10, INPUT_PULLUP);
-  pinMode(11, INPUT_PULLUP);
-  pinMode(12, INPUT_PULLUP);
-  pinMode(13, INPUT_PULLUP);
   pinMode(A0, INPUT_PULLUP);
   pinMode(A1, INPUT_PULLUP);
 
@@ -78,17 +70,25 @@ void setup() {
 void loop() {
   delay(10); 
   
-  updateConnectionStatus();
+  // 1. Connection Check (Priority 1)
+  // We check this first to ensure flags like isWifiConnected are up to date.
+  if (currentState != MAINTENANCE_MODE) {
+     updateConnectionStatus();
+  }
   
+  // 2. Handle Mode Change (Manual Button Press)
   if (modeChangeFlag) {
     String modeName = (currentState == AUTO_MODE) ? "AUTO" : 
                       (currentState == MAINTENANCE_MODE) ? "MAINTENANCE" : "SLEEP";
+    Serial.print(F("Mode Changed to: ")); Serial.println(modeName);
     comms.sendMode(modeName);
     modeChangeFlag = false; 
   }
 
-  // Handshake Logic
-  if (!isWifiConnected) {
+  // 3. Handshake Retry Logic (Block modes until connected)
+  // Note: We skip this block in Maintenance Mode to allow debugging even without WiFi if needed,
+  // but generally, you want WiFi for the commands to arrive.
+  if (!isWifiConnected && currentState != MAINTENANCE_MODE) {
       if (!configSentInAttempt) {
           Serial.println(F("[HANDSHAKE] Sending Credentials..."));
           loadWifiCredentials(); 
@@ -99,17 +99,20 @@ void loop() {
           loadWifiCredentials(); 
           lastWifiConfigSent = millis();
       }
-      return; 
+      return; // Stop here if not connected
   }
 
-  // Run Modes
+  // 4. Run State Machine
   switch (currentState) {
     case AUTO_MODE:
       runAutoMode();
       break;
+    
+    // ⭐ LOGIC UPDATE: This is where we listen for "R", "S", "U", "P"
     case MAINTENANCE_MODE:
-      runMaintenanceMode();
+      runMaintenanceMode(); 
       break;
+      
     case SLEEP_MODE:
       runSleepMode();
       break;
@@ -117,7 +120,7 @@ void loop() {
 }
 
 // ==========================================
-//           MODE FUNCTIONS
+//    MODE FUNCTIONS
 // ==========================================
 
 void runAutoMode() {
@@ -126,7 +129,6 @@ void runAutoMode() {
   if (currentMillis - previousMillis >= INTERVAL) {
     previousMillis = currentMillis;
 
-    // 1. Get Sensor Data
     float pressure = mySensor.bmpPressure() / 100.0; 
     int rainValue = mySensor.rainAnalog(); 
     int soilValue = mySensor.soilAnalog(); 
@@ -137,53 +139,74 @@ void runAutoMode() {
         return;
     }
 
-    // 2. Send Data to ESP
     comms.sendSensorReport("AUTO", pressure, rainValue, soilValue, waterDistanceCM);
     Serial.println(F("AUTO LOG: Data Sent.")); 
   }
 }
 
+// ⭐ UPDATED: Listens for commands and SENDS VALUES BACK
 void runMaintenanceMode() {
   char cmd = 0;
   
-  if (Serial.available() > 0) cmd = Serial.read();
-  else if (comms.available() > 0) cmd = comms.read();
+  // 1. Check Software Serial (Signal from ESP32)
+  if (comms.available() > 0) {
+    cmd = comms.read();
+    Serial.print(F("[MAINTENANCE] Received: "));
+    Serial.println(cmd);
+  }
+  // 2. Check USB Serial (Debug)
+  else if (Serial.available() > 0) {
+    cmd = Serial.read();
+  }
 
-  if (cmd == 0 || cmd == '\n' || cmd == '\r' || cmd == ' ') return; 
-  
-  static char lastCmd = 0;
-  static unsigned long lastCmdTime = 0;
-  if (cmd == lastCmd && millis() - lastCmdTime < 1000) return;
-  lastCmd = cmd;
-  lastCmdTime = millis();
+  // If valid command, execute
+  if (cmd == 'R' || cmd == 'r' || cmd == 'S' || cmd == 's' || 
+      cmd == 'U' || cmd == 'u' || cmd == 'P' || cmd == 'p' || 
+      cmd == 'W' || cmd == 'w') {
+      
+      executeMaintenanceCommand(cmd);
+  }
+}
 
-  Serial.print(F("CMD: ")); Serial.println(cmd);
+void executeMaintenanceCommand(char cmd) {
+  Serial.print(F("EXECUTING: ")); Serial.println(cmd);
 
   switch (cmd) {
+    // ----------------------------------------------
+    // ⭐ SENSOR TESTS: Read & Send Value to ESP
+    // ----------------------------------------------
     case 'U': case 'u': 
       {
         long val = mySensor.ultrasonicDistance();
-        Serial.print(F("WATER: ")); Serial.println(val);
+        Serial.print(F("Reading WATER: ")); Serial.println(val);
+        // Sends: {"waterDistanceCM": val}
         comms.sendSingleResponse("waterDistanceCM", (float)val);
       } break;
+
     case 'R': case 'r': 
       {
         int val = mySensor.rainAnalog();
-        Serial.print(F("RAIN: ")); Serial.println(val);
+        Serial.print(F("Reading RAIN: ")); Serial.println(val);
+        // Sends: {"rainRaw": val}
         comms.sendSingleResponse("rainRaw", (float)val);
       } break;
+
     case 'S': case 's': 
       {
         int val = mySensor.soilAnalog();
-        Serial.print(F("SOIL: ")); Serial.println(val);
+        Serial.print(F("Reading SOIL: ")); Serial.println(val);
+        // Sends: {"soilRaw": val}
         comms.sendSingleResponse("soilRaw", (float)val);
       } break;
+
     case 'P': case 'p': 
       {
         float val = mySensor.bmpPressure() / 100.0;
-        Serial.print(F("PRESSURE: ")); Serial.println(val);
+        Serial.print(F("Reading PRESSURE: ")); Serial.println(val);
+        // Sends: {"pressureHPA": val}
         comms.sendSingleResponse("pressureHPA", val);
       } break;
+
     case 'W': case 'w':
       Serial.println(F("=== WI-FI SETUP ==="));
       while (Serial.available()) { Serial.read(); delay(2); } 
@@ -215,69 +238,48 @@ void runSleepMode() {
   Serial.println(F("Sleeping..."));
   Serial.flush(); 
   
-  // 1. Detach Interrupts to prevent mode jumping
   detachInterrupt(digitalPinToInterrupt(BUTTON_PIN));
 
-  // 2. Wait for Button Release (Essential)
   while (digitalRead(BUTTON_PIN) == LOW) { delay(50); }
-  delay(500); // Increased Debounce to 500ms
+  delay(500); 
   
-  // 3. Clear existing interrupt flags
   EIFR = bit(INTF0); 
 
-  // 4. Configure Sleep
   set_sleep_mode(SLEEP_MODE_PWR_DOWN);
   sleep_enable();
   
-  // 5. Attach Wake Interrupt (LOW level)
   attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), wakeISR, LOW);
 
-  // 6. SLEEP LOOP (Prevention for False Wakeups)
   while (true) {
-    sleep_mode(); // Go to sleep
-    
-    // --- WAKE UP POINT ---
-    
-    sleep_disable(); // Temporarily disable sleep logic
-
-    // Check: Did we wake up because the button is REALLY pressed?
-    if (digitalRead(BUTTON_PIN) == LOW) {
-      // Yes, button is held down. This is a real wake up.
-      break; 
-    } else {
-      // No, button is HIGH. This was noise or a glitch.
-      // Re-enable sleep and go back to bed.
-      sleep_enable();
-    }
+    sleep_mode(); 
+    sleep_disable(); 
+    if (digitalRead(BUTTON_PIN) == LOW) break; 
+    else sleep_enable();
   }
 
-  // 7. Full Wake Up Logic
   detachInterrupt(digitalPinToInterrupt(BUTTON_PIN));
   Serial.println(F("Woke up!"));
 
-  // 8. Wait for Wake Button Release
   while (digitalRead(BUTTON_PIN) == LOW) { delay(50); }
   delay(200);
 
-  // 9. Restore Normal Operation
   currentState = AUTO_MODE; 
   modeChangeFlag = true;
   
-  EIFR = bit(INTF0); // Clear flags again
+  EIFR = bit(INTF0); 
   attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), changeModeISR, FALLING);
 }
 
-// Dummy ISR just to wake the CPU
-void wakeISR() {
-  // Do nothing
-}
+void wakeISR() { }
 
 // ==========================================
 //    HELPER FUNCTIONS
 // ==========================================
 
 void updateConnectionStatus() {
+  // Read from ESP to see if we are connected
   String status = comms.listenForStatus();
+  
   if (status != "") {
     if (status == "CONN_OK") {
       if (!isWifiConnected) {
