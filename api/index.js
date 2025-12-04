@@ -17,7 +17,7 @@ export default async function handler(req, res) {
     if (!req.body) return res.status(400).json({ success: false, message: 'No payload.' });
 
     try {
-      // 1. Maintenance Queue
+      // 1. Maintenance Queue (Web UI -> Database)
       if (req.body.type === 'MAINTENANCE_TEST') {
           const maintenanceEntry = await MaintenanceLog.create({
               sensor: req.body.sensor,
@@ -29,7 +29,7 @@ export default async function handler(req, res) {
           return res.status(201).json({ success: true, data: maintenanceEntry });
       }
 
-      // 2. Maintenance Result
+      // 2. Maintenance Result (ESP32 -> Database)
       if (req.body.type === 'MAINTENANCE_RESULT') {
           const updatedLog = await MaintenanceLog.findOneAndUpdate(
               { status: 'FETCHED' }, 
@@ -49,7 +49,7 @@ export default async function handler(req, res) {
           return res.status(200).json({ success: true, message: 'Result Saved' });
       }
 
-      // 3. Normal Data
+      // 3. Normal Data (Auto Mode)
       const newAlert = await Alert.create({ payload: req.body });
       return res.status(201).json({ success: true, message: 'Data Logged', id: newAlert._id });
 
@@ -64,7 +64,7 @@ export default async function handler(req, res) {
   // ---------------------------------------------------------
   else if (req.method === 'GET') {
     try {
-        // 1. ESP32 Polling
+        // 1. ESP32 Polling (Give Commands)
         if (req.query.maintenance === 'true') {
             const pendingCmd = await MaintenanceLog.findOneAndUpdate(
                 { status: 'PENDING' },
@@ -89,7 +89,7 @@ export default async function handler(req, res) {
             });
         }
 
-        // ⭐ 3. THIS IS THE MISSING PART: TODAY'S LOGS (For PDF)
+        // 3. PDF REPORT: TODAY'S LOGS (10-minute samples)
         if (req.query.today === 'true') {
             const startOfDay = new Date();
             startOfDay.setHours(0, 0, 0, 0);
@@ -118,7 +118,28 @@ export default async function handler(req, res) {
             return res.status(200).json({ success: true, data: todayData });
         }
 
-        // 4. Default: Latest Alert
+        // 4. CHART: 7-DAY HISTORY (Daily Averages) -- ⭐ RESTORED
+        if (req.query.history === 'true') {
+            const sevenDaysAgo = new Date();
+            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+            const historyData = await Alert.aggregate([
+                { $match: { createdAt: { $gte: sevenDaysAgo } } },
+                {
+                    $group: {
+                        _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
+                        avgPressure: { $avg: "$payload.pressure" },
+                        avgRain: { $avg: "$payload.rain" }, 
+                        avgSoil: { $avg: "$payload.soil" },
+                        avgWaterDistance: { $avg: "$payload.waterDistanceCM" }
+                    }
+                },
+                { $sort: { _id: 1 } }
+            ]);
+            return res.status(200).json({ success: true, data: historyData });
+        }
+
+        // 5. Default: Latest Alert (Live Dashboard)
         const latestAlert = await Alert.findOne({}).sort({ createdAt: -1 }).exec();
         return res.status(200).json({ success: true, data: latestAlert });
 
