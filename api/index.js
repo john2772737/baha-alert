@@ -1,11 +1,11 @@
-import dbConnect from "../lib/dbConnect"
-import Alert from '../models/Alert';
-import MaintenanceLog from '../models/MaintenanceLog';
+import dbConnect from '../../lib/dbConnect';
+import Alert from '../../models/Alert';
+import MaintenanceLog from '../../models/MaintenanceLog';
 
 export default async function handler(req, res) {
   await dbConnect();
 
-  // ⭐ FIX 1: Handle CORS Preflight (OPTIONS)
+  // ⭐ FIX 1: Handle CORS Preflight
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
@@ -29,7 +29,7 @@ export default async function handler(req, res) {
           return res.status(201).json({ success: true, data: maintenanceEntry });
       }
 
-      // 2. Maintenance Result (From ESP32)
+      // 2. Maintenance Result
       if (req.body.type === 'MAINTENANCE_RESULT') {
           const updatedLog = await MaintenanceLog.findOneAndUpdate(
               { status: 'FETCHED' }, 
@@ -37,7 +37,6 @@ export default async function handler(req, res) {
               { sort: { timestamp: -1 }, new: true } 
           );
           
-          // Safety fallback if no FETCHED task found
           if (!updatedLog) {
              await MaintenanceLog.create({
                  sensor: req.body.sensor || 'unknown',
@@ -47,11 +46,10 @@ export default async function handler(req, res) {
                  deviceMode: 'MAINTENANCE'
              });
           }
-
           return res.status(200).json({ success: true, message: 'Result Saved' });
       }
 
-      // 3. Normal Data (Auto Mode)
+      // 3. Normal Data
       const newAlert = await Alert.create({ payload: req.body });
       return res.status(201).json({ success: true, message: 'Data Logged', id: newAlert._id });
 
@@ -66,7 +64,7 @@ export default async function handler(req, res) {
   // ---------------------------------------------------------
   else if (req.method === 'GET') {
     try {
-        // 1. ESP32 Polling (Give Commands)
+        // 1. ESP32 Polling
         if (req.query.maintenance === 'true') {
             const pendingCmd = await MaintenanceLog.findOneAndUpdate(
                 { status: 'PENDING' },
@@ -77,13 +75,13 @@ export default async function handler(req, res) {
             else return res.status(200).json({ success: true, hasCommand: false });
         }
 
-        // ⭐ 2. NEW: UI Polling (Get Result for a specific sensor)
+        // 2. UI Polling (Live Test Results)
         if (req.query.latest_result === 'true') {
             const result = await MaintenanceLog.findOne({
                 sensor: req.query.sensor,
-                status: 'COMPLETED', // Only get finished tests
-                value: { $ne: null } // Ensure value exists
-            }).sort({ timestamp: -1 }); // Get newest
+                status: 'COMPLETED',
+                value: { $ne: null }
+            }).sort({ timestamp: -1 });
 
             return res.status(200).json({ 
                 success: true, 
@@ -91,7 +89,36 @@ export default async function handler(req, res) {
             });
         }
 
-        // 3. Default: Latest Alert
+        // ⭐ 3. THIS IS THE MISSING PART: TODAY'S LOGS (For PDF)
+        if (req.query.today === 'true') {
+            const startOfDay = new Date();
+            startOfDay.setHours(0, 0, 0, 0);
+
+            const todayData = await Alert.aggregate([
+                { $match: { createdAt: { $gte: startOfDay } } },
+                {
+                    $group: {
+                        _id: {
+                            year: { $year: "$createdAt" },
+                            month: { $month: "$createdAt" },
+                            day: { $dayOfMonth: "$createdAt" },
+                            hour: { $hour: "$createdAt" },
+                            minute: { $multiply: [{ $floor: { $divide: [{ $minute: "$createdAt" }, 10] } }, 10] }
+                        },
+                        avgPressure: { $avg: "$payload.pressure" },
+                        avgRain: { $avg: "$payload.rain" }, 
+                        avgSoil: { $avg: "$payload.soil" },
+                        avgWaterDistance: { $avg: "$payload.waterDistanceCM" },
+                        timestamp: { $min: "$createdAt" }
+                    }
+                },
+                { $sort: { timestamp: 1 } },
+                { $project: { _id: 0, timestamp: 1, avgPressure: 1, avgRain: 1, avgSoil: 1, avgWaterDistance: 1 } }
+            ]);
+            return res.status(200).json({ success: true, data: todayData });
+        }
+
+        // 4. Default: Latest Alert
         const latestAlert = await Alert.findOne({}).sort({ createdAt: -1 }).exec();
         return res.status(200).json({ success: true, data: latestAlert });
 
@@ -100,14 +127,7 @@ export default async function handler(req, res) {
     }
   } 
   
-  // ---------------------------------------------------------
-  // ❌ ERROR HANDLER
-  // ---------------------------------------------------------
   else {
-    console.log("Blocked Method:", req.method); 
-    return res.status(405).json({ 
-        success: false, 
-        message: `Method not allowed. Server received: ${req.method}` 
-    });
+    return res.status(405).json({ success: false, message: `Method not allowed.` });
   }
 }
