@@ -1,6 +1,6 @@
-import dbConnect from '../../lib/dbConnect';
-import Alert from '../../models/Alert';
-import MaintenanceLog from '../../models/MaintenanceLog';
+import dbConnect from '../lib/dbConnect';
+import Alert from '../models/Alert';
+import MaintenanceLog from '../models/MaintenanceLog';
 
 export default async function handler(req, res) {
   await dbConnect();
