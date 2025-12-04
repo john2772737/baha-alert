@@ -1,4 +1,3 @@
-// models/MaintenanceLog.js
 import mongoose from 'mongoose';
 
 const MaintenanceLogSchema = new mongoose.Schema({
@@ -12,12 +11,12 @@ const MaintenanceLogSchema = new mongoose.Schema({
     required: true,
   },
   command: {
-    type: String, // The Arduino Character: 'R', 'S', 'P', 'U'
+    type: String, // The character sent to Arduino: 'R', 'S', 'P', 'U'
     required: true,
   },
   status: {
     type: String, 
-    default: "PENDING" // ESP32 will look for this status
+    default: "PENDING" // Options: PENDING, FETCHED
   },
   deviceMode: {
     type: String,

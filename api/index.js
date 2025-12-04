@@ -1,42 +1,65 @@
-// pages/api/index.js
 import dbConnect from '../lib/dbConnect';
 import Alert from '../models/Alert';
-import MaintenanceLog from '../models/MaintenanceLog'; // Import the new model
+import MaintenanceLog from '../models/MaintenanceLog';
 
 export default async function handler(req, res) {
   await dbConnect();
 
-  // --- 💾 POST: Save Data ---
+  // ---------------------------------------------------------
+  // 💾 POST: SAVE DATA (From Web UI or Sensors)
+  // ---------------------------------------------------------
   if (req.method === 'POST') {
-    if (!req.body) return res.status(400).json({ success: false, message: 'No data payload.' });
+    if (!req.body) return res.status(400).json({ success: false, message: 'No payload.' });
 
     try {
-      // ⭐ INTERCEPT MAINTENANCE TESTS
-      // If the frontend sends type: 'MAINTENANCE_TEST', save to the Log collection.
+      // SCENARIO A: User clicked a Test Button (Queue a Command)
       if (req.body.type === 'MAINTENANCE_TEST') {
           const maintenanceEntry = await MaintenanceLog.create({
               sensor: req.body.sensor,
-              command: req.body.command, // Save the 'R', 'U', etc.
-              status: 'PENDING',         // Mark as pending for ESP32
+              command: req.body.command, // 'R', 'S', etc.
+              status: 'PENDING',
               timestamp: req.body.timestamp || new Date(),
               deviceMode: 'MAINTENANCE'
           });
-          return res.status(201).json({ success: true, message: 'Command Queued', data: maintenanceEntry });
+          return res.status(201).json({ success: true, data: maintenanceEntry });
       }
 
-      // ⭐ DEFAULT LOGIC (Normal Sensor Data)
+      // SCENARIO B: Normal Sensor Data (From ESP32)
       const newAlert = await Alert.create({ payload: req.body });
-      return res.status(201).json({ success: true, message: 'Logged.', documentId: newAlert._id });
+      return res.status(201).json({ success: true, documentId: newAlert._id });
 
     } catch (error) {
-      console.error("Save Error:", error);
+      console.error("API Error:", error);
       return res.status(500).json({ success: false, error: error.message });
     }
-
-  // --- 🔍 GET: Fetch Data ---
-  } else if (req.method === 'GET') {
+  } 
+  
+  // ---------------------------------------------------------
+  // 🔍 GET: FETCH DATA (For Dashboard or ESP32 Polling)
+  // ---------------------------------------------------------
+  else if (req.method === 'GET') {
     try {
-        // 1. TODAY'S SAMPLED LOGS
+        // ⭐ ESP32 POLLING ENDPOINT
+        if (req.query.maintenance === 'true') {
+            // Find the oldest PENDING command and mark it FETCHED immediately
+            const pendingCmd = await MaintenanceLog.findOneAndUpdate(
+                { status: 'PENDING' },
+                { $set: { status: 'FETCHED' } }, 
+                { sort: { timestamp: 1 }, new: true }
+            );
+
+            if (pendingCmd) {
+                return res.status(200).json({ 
+                    success: true, 
+                    hasCommand: true, 
+                    command: pendingCmd.command // Returns 'R', 'S', etc.
+                });
+            } else {
+                return res.status(200).json({ success: true, hasCommand: false });
+            }
+        }
+
+        // 1. TODAY'S LOGS (Sampled)
         if (req.query.today === 'true') {
             const startOfDay = new Date();
             startOfDay.setHours(0, 0, 0, 0);
@@ -65,7 +88,7 @@ export default async function handler(req, res) {
             return res.status(200).json({ success: true, data: todayData });
         }
         
-        // 2. HISTORY MODE
+        // 2. HISTORY MODE (7 Days)
         else if (req.query.history === 'true') {
             const sevenDaysAgo = new Date();
             sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
@@ -86,10 +109,10 @@ export default async function handler(req, res) {
             return res.status(200).json({ success: true, data: historyData });
         }
         
-        // 3. DEFAULT MODE (Latest Alert)
+        // 3. DEFAULT (Latest Alert)
         else {
             const latestAlert = await Alert.findOne({}).sort({ createdAt: -1 }).exec();
-            if (!latestAlert) return res.status(404).json({ success: false, message: 'No data found.' });
+            if (!latestAlert) return res.status(404).json({ success: false, message: 'No data.' });
             return res.status(200).json({ success: true, data: latestAlert });
         }
 

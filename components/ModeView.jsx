@@ -1,11 +1,10 @@
-// components/ModeView.jsx
 import React, { useState } from 'react';
 import { getRainStatus, getSoilStatus, getWaterTankStatus, getPressureStatus } from '../utils/sensorUtils';
 import { CloudRainIcon, GaugeIcon, BoxIcon, LeafIcon, MoonIcon, RefreshCcwIcon, CpuIcon, CheckCircleIcon, XCircleIcon, ActivityIcon, ArrowUpRightIcon } from '../utils/icons';
 
 const API_ENDPOINT = 'https://baha-alert.vercel.app/api';
 
-// --- Helper: Status Card (Auto Mode) ---
+// --- Card Components ---
 const StatusCard = ({ Icon, title, reading, status, className }) => (
     <article className="p-5 bg-slate-800 rounded-xl shadow-lg border border-slate-700 transition-transform hover:scale-105">
         <Icon className={`w-8 h-8 mb-3 p-1.5 rounded-lg ${className}`} />
@@ -15,56 +14,27 @@ const StatusCard = ({ Icon, title, reading, status, className }) => (
     </article>
 );
 
-// --- Maintenance Test Button UI ---
-const TestControlCard = ({ Icon, title, sensorKey, rawData, onTest, testState }) => {
-    return (
-        <div className="bg-slate-800 p-5 rounded-xl border border-slate-700 shadow-md flex flex-col justify-between">
-            <div className="flex justify-between items-start mb-4">
-                <div className="flex items-center gap-3">
-                    <Icon className="w-10 h-10 p-2 bg-slate-700 rounded-lg text-indigo-400" />
-                    <div>
-                        <h4 className="font-bold text-slate-200">{title}</h4>
-                        <span className="text-xs text-slate-500 font-mono">STATUS: {testState.status.toUpperCase()}</span>
-                    </div>
+const TestControlCard = ({ Icon, title, sensorKey, rawData, onTest, testState }) => (
+    <div className="bg-slate-800 p-5 rounded-xl border border-slate-700 shadow-md flex flex-col justify-between">
+        <div className="flex justify-between items-start mb-4">
+            <div className="flex items-center gap-3">
+                <Icon className="w-10 h-10 p-2 bg-slate-700 rounded-lg text-indigo-400" />
+                <div>
+                    <h4 className="font-bold text-slate-200">{title}</h4>
+                    <span className="text-xs text-slate-500 font-mono">STATUS: {testState.status.toUpperCase()}</span>
                 </div>
             </div>
-
-            <div className="bg-slate-900/50 p-3 rounded-lg mb-4 text-sm font-mono flex justify-between">
-                <span className="text-slate-500">Current Value:</span>
-                <span className="text-emerald-400">{rawData || 'N/A'}</span>
-            </div>
-
-            <button
-                onClick={() => onTest(sensorKey)}
-                disabled={testState.status === 'loading'}
-                className={`w-full py-3 rounded-lg font-bold text-sm flex items-center justify-center gap-2 transition-all
-                    ${testState.status === 'loading' 
-                        ? 'bg-slate-600 text-slate-400 cursor-not-allowed' 
-                        : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg hover:shadow-indigo-500/25 active:scale-95'}`}
-            >
-                {testState.status === 'loading' ? (
-                    <>
-                        <RefreshCcwIcon className="w-4 h-4 animate-spin" /> Queuing...
-                    </>
-                ) : testState.status === 'success' ? (
-                    <>
-                        <CheckCircleIcon className="w-4 h-4" /> Command Sent
-                    </>
-                ) : (
-                    <>
-                        <ActivityIcon className="w-4 h-4" /> Trigger Test
-                    </>
-                )}
-            </button>
-
-            {testState.message && (
-                <p className={`mt-3 text-xs text-center ${testState.status === 'error' ? 'text-red-400' : 'text-emerald-400'}`}>
-                    {testState.message}
-                </p>
-            )}
         </div>
-    );
-};
+        <div className="bg-slate-900/50 p-3 rounded-lg mb-4 text-sm font-mono flex justify-between">
+            <span className="text-slate-500">Current Value:</span>
+            <span className="text-emerald-400">{rawData || 'N/A'}</span>
+        </div>
+        <button onClick={() => onTest(sensorKey)} disabled={testState.status === 'loading'} className={`w-full py-3 rounded-lg font-bold text-sm flex items-center justify-center gap-2 transition-all ${testState.status === 'loading' ? 'bg-slate-600 text-slate-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg'}`}>
+            {testState.status === 'loading' ? <><RefreshCcwIcon className="w-4 h-4 animate-spin" /> Queuing...</> : testState.status === 'success' ? <><CheckCircleIcon className="w-4 h-4" /> Command Sent</> : <><ActivityIcon className="w-4 h-4" /> Trigger Test</>}
+        </button>
+        {testState.message && <p className={`mt-3 text-xs text-center ${testState.status === 'error' ? 'text-red-400' : 'text-emerald-400'}`}>{testState.message}</p>}
+    </div>
+);
 
 const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
     const [testStates, setTestStates] = useState({
@@ -79,18 +49,11 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
     const waterTankStatus = getWaterTankStatus(percents.waterPercent, liveData.waterDistanceCM);
     const pressureStatus = getPressureStatus(liveData.pressure);
 
-    // ⭐ MAPPING: Sensor Name -> Arduino Command Character
-    const commandMap = {
-        rain: 'R',
-        soil: 'S',
-        water: 'U',
-        pressure: 'P'
-    };
+    // MAPPING: Sensor Key -> Arduino Character
+    const commandMap = { rain: 'R', soil: 'S', water: 'U', pressure: 'P' };
 
-    // ⭐ FUNCTION: Posts Command to Database
     const postSensorTest = async (sensorKey) => {
         setTestStates(prev => ({ ...prev, [sensorKey]: { status: 'loading', message: '' } }));
-
         try {
             const response = await fetch(API_ENDPOINT, {
                 method: 'POST',
@@ -98,35 +61,20 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
                 body: JSON.stringify({
                     type: 'MAINTENANCE_TEST',
                     sensor: sensorKey,
-                    command: commandMap[sensorKey], // Sends 'R', 'S', etc.
+                    command: commandMap[sensorKey], 
                     timestamp: new Date().toISOString(),
                     userAction: 'MANUAL_TRIGGER'
                 })
             });
-
             if (response.ok) {
-                setTestStates(prev => ({ 
-                    ...prev, 
-                    [sensorKey]: { status: 'success', message: 'Command Queued for ESP' } 
-                }));
-                
-                setTimeout(() => {
-                    setTestStates(prev => ({ ...prev, [sensorKey]: { status: 'idle', message: '' } }));
-                }, 3000);
-
-            } else {
-                throw new Error('API Failed');
-            }
+                setTestStates(prev => ({ ...prev, [sensorKey]: { status: 'success', message: 'Command Queued for ESP' } }));
+                setTimeout(() => setTestStates(prev => ({ ...prev, [sensorKey]: { status: 'idle', message: '' } })), 3000);
+            } else throw new Error('API Failed');
         } catch (error) {
-            console.error("Test Post Error:", error);
-            setTestStates(prev => ({ 
-                ...prev, 
-                [sensorKey]: { status: 'error', message: 'Failed to post command' } 
-            }));
+            setTestStates(prev => ({ ...prev, [sensorKey]: { status: 'error', message: 'Failed to post command' } }));
         }
     };
 
-    // --- VIEW 1: AUTO DASHBOARD ---
     if (mode === 'Auto' && liveData.deviceMode === 'AUTO') {
         return (
             <>
@@ -156,7 +104,6 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
         );
     }
 
-    // --- VIEW 2: MAINTENANCE / TEST MODE ---
     if (mode === 'Maintenance') {
         return (
             <section className="space-y-6">
@@ -184,7 +131,6 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
         );
     }
 
-    // --- VIEW 3: SLEEP / FALLBACK ---
     const isConflict = liveData.deviceMode !== 'AUTO';
     const displayMode = isConflict ? liveData.deviceMode : mode;
     const FallbackIcon = displayMode === 'SLEEP' ? MoonIcon : CpuIcon;
