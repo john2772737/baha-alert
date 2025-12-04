@@ -1,4 +1,4 @@
-import dbConnect from "../../lib/dbConnect"
+import dbConnect from "../lib/dbConnect"
 import Alert from '../models/Alert';
 import MaintenanceLog from '../models/MaintenanceLog';
 
