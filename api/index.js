@@ -1,4 +1,4 @@
-import dbConnect from "../lib/dbConnect"
+import dbConnect from "../../lib/dbConnect"
 import Alert from '../models/Alert';
 import MaintenanceLog from '../models/MaintenanceLog';
 
@@ -36,11 +36,22 @@ export default async function handler(req, res) {
               { status: 'COMPLETED', value: req.body.val, timestamp: new Date() },
               { sort: { timestamp: -1 }, new: true } 
           );
+          
+          // Safety fallback if no FETCHED task found
+          if (!updatedLog) {
+             await MaintenanceLog.create({
+                 sensor: req.body.sensor || 'unknown',
+                 command: 'RESULT',
+                 status: 'COMPLETED',
+                 value: req.body.val,
+                 deviceMode: 'MAINTENANCE'
+             });
+          }
+
           return res.status(200).json({ success: true, message: 'Result Saved' });
       }
 
       // 3. Normal Data (Auto Mode)
-      // ⭐ THIS IS WHERE YOUR DATA SHOULD GO
       const newAlert = await Alert.create({ payload: req.body });
       return res.status(201).json({ success: true, message: 'Data Logged', id: newAlert._id });
 
@@ -55,6 +66,7 @@ export default async function handler(req, res) {
   // ---------------------------------------------------------
   else if (req.method === 'GET') {
     try {
+        // 1. ESP32 Polling (Give Commands)
         if (req.query.maintenance === 'true') {
             const pendingCmd = await MaintenanceLog.findOneAndUpdate(
                 { status: 'PENDING' },
@@ -65,7 +77,21 @@ export default async function handler(req, res) {
             else return res.status(200).json({ success: true, hasCommand: false });
         }
 
-        // Default: Latest Alert
+        // ⭐ 2. NEW: UI Polling (Get Result for a specific sensor)
+        if (req.query.latest_result === 'true') {
+            const result = await MaintenanceLog.findOne({
+                sensor: req.query.sensor,
+                status: 'COMPLETED', // Only get finished tests
+                value: { $ne: null } // Ensure value exists
+            }).sort({ timestamp: -1 }); // Get newest
+
+            return res.status(200).json({ 
+                success: true, 
+                value: result ? result.value : 'Waiting...' 
+            });
+        }
+
+        // 3. Default: Latest Alert
         const latestAlert = await Alert.findOne({}).sort({ createdAt: -1 }).exec();
         return res.status(200).json({ success: true, data: latestAlert });
 
@@ -78,7 +104,6 @@ export default async function handler(req, res) {
   // ❌ ERROR HANDLER
   // ---------------------------------------------------------
   else {
-    // ⭐ FIX 2: Print the method received so we can see why it failed
     console.log("Blocked Method:", req.method); 
     return res.status(405).json({ 
         success: false, 
