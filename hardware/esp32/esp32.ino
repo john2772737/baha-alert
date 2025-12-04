@@ -60,29 +60,16 @@ void handleArduinoMessage(String input) {
     connectToWiFi(ssid, pass);
   }
 
-  // --- SCENARIO 2: ⭐ MAINTENANCE TEST RESULT ---
-  // Arduino sends: {"sensor":"rainRaw","val":961.00}
-  else if (doc.containsKey("sensor") && doc.containsKey("val")) {
-    Serial.println("Type: Maintenance Result Found.");
-    
-    // Add the TYPE tag so the API knows what to do
-    doc["type"] = "MAINTENANCE_RESULT"; 
-
-    if (WiFi.status() == WL_CONNECTED) {
-      Serial.println("Sending Result to API...");
-      sendDataToAPI(doc);
-    } else {
-      Serial.println("WiFi not connected! Cannot send result.");
-    }
-  }
-
-  // --- SCENARIO 3: NORMAL AUTO DATA ---
+  // --- SCENARIO 2: DATA OR MODE CHANGE ---
+  // ⭐ UPDATED: Now checks for 'pressure' (Sensor Data) OR 'mode' (Status Change)
   else if (doc.containsKey("pressure") || doc.containsKey("mode")) {
-    Serial.println("Type: Auto Data found.");
+    Serial.println("Type: Sensor Data or Mode Change found.");
     
     if (WiFi.status() == WL_CONNECTED) {
+      Serial.println("Sending to API...");
       sendDataToAPI(doc);
     } else {
+      Serial.println("WiFi not connected! Requesting Re-handshake.");
       Serial2.println("{\"status\":\"CONN_LOST\"}"); 
     }
   }
