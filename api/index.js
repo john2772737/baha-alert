@@ -7,7 +7,7 @@ export default async function handler(req, res) {
 
   // ⭐ FIX 1: Handle CORS Preflight
   if (req.method === 'OPTIONS') {
-    return res.status(200).end();
+    return res.status(200).end(); 
   }
 
   // ---------------------------------------------------------
