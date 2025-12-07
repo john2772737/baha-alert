@@ -22,7 +22,7 @@ export const STATE_MAPPINGS = {
 
 // --- Status Logic (Percentage/Value -> Display) ---
 export const getRainStatus = (percent) => {
-    if (percent < 10) return { reading: 'No Rain', status: 'STATUS: Clear', className: 'text-emerald-400 font-bold' };
+    if (percent < 5) return { reading: 'No Rain', status: 'STATUS: Clear', className: 'text-emerald-400 font-bold' };
     if (percent < 40) return { reading: 'Light Rain', status: 'STATUS: Drizzling', className: 'text-yellow-400 font-bold' };
     if (percent < 70) return { reading: 'Moderate Rain', status: 'STATUS: Raining', className: 'text-orange-400 font-bold' };
     return { reading: 'Heavy Rain', status: 'ALERT: Storm Conditions', className: 'text-red-400 font-bold' };
