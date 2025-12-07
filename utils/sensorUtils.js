@@ -1,11 +1,9 @@
-// utils/sensorUtils.js
-
 export const initialSensorData = {
-  pressure: 1012.0, // hPa
-  rainRaw: 1023, // Analog value (1023 = dry, 0 = wet)
-  soilRaw: 1023, // Analog value (1023 = dry, 0 = wet)
-  waterDistanceCM: 50.0, // Ultrasonic distance (cm)
-  deviceMode: "---", // Mode reported by hardware
+  pressure: 1012.0, 
+  rainRaw: 1023, 
+  soilRaw: 1023, 
+  waterDistanceCM: 50.0, 
+  deviceMode: "---", 
 };
 
 // --- Helpers ---
@@ -20,118 +18,79 @@ export const getFormattedTime = () =>
     minute: "2-digit",
   });
 
-// --- Mappings (Raw -> Percentage) ---
+// --- Mappings ---
+// Note: We map raw 1023 (Max) to 0%. 
 export const STATE_MAPPINGS = {
-  rain: (rainRaw) => clamp(100 - (rainRaw / 1023.0) * 100),
-  soil: (soilRaw) => clamp(100 - (soilRaw / 1023.0) * 100),
-  // Tank max depth 50cm
+  rain: (rainRaw) => (rainRaw === -1 ? -1 : clamp(100 - (rainRaw / 1023.0) * 100)), 
+  soil: (soilRaw) => (soilRaw === -1 ? -1 : clamp(100 - (soilRaw / 1023.0) * 100)), 
   waterTank: (distanceCM) =>
-    distanceCM > 100 ? 0 : clamp(100.0 - (distanceCM / 50.0) * 100.0),
+    distanceCM === -1 ? -1 : (distanceCM > 100 ? 0 : clamp(100.0 - (distanceCM / 50.0) * 100.0)),
 };
 
-// --- Status Logic (Percentage/Value -> Display) ---
-// ... (Your existing initialSensorData and helpers) ...
+// --- Status Logic ---
 
 export const getRainStatus = (percent) => {
-  // 0% - 25%: Ignored as noise/dry
-  if (percent < 25)
+  // ⭐ UPDATED ERROR CHECK: 
+  // If percent is 0 (meaning Raw value was 1023/Max), treat as Disconnected/Error.
+  if (percent === 0 || percent === -1 || percent === undefined || isNaN(percent)) {
     return {
-      reading: "No Rain",
-      status: "STATUS: Clear",
-      className: "text-emerald-400 font-bold",
+      reading: "Error",
+      status: "SENSOR ERROR",
+      className: "text-red-500 font-black animate-pulse",
     };
+  }
 
-  // 25% - 50%: Light Rain
-  if (percent < 50)
-    return {
-      reading: "Light Rain",
-      status: "STATUS: Drizzling",
-      className: "text-yellow-400 font-bold",
-    };
-
-  // 50% - 70%: Moderate Rain (Lowered max threshold)
-  if (percent < 70)
-    return {
-      reading: "Moderate Rain",
-      status: "STATUS: Raining",
-      className: "text-orange-400 font-bold",
-    };
-
-  // 70% - 100%: Heavy Rain (Now triggers earlier)
-  return {
-    reading: "Heavy Rain",
-    status: "ALERT: Storm Conditions",
-    className: "text-red-400 font-bold",
-  };
+  // Normal Logic
+  if (percent < 25) return { reading: "No Rain", status: "STATUS: Clear", className: "text-emerald-400 font-bold" };
+  if (percent < 50) return { reading: "Light Rain", status: "STATUS: Drizzling", className: "text-yellow-400 font-bold" };
+  if (percent < 70) return { reading: "Moderate Rain", status: "STATUS: Raining", className: "text-orange-400 font-bold" };
+  return { reading: "Heavy Rain", status: "ALERT: Storm Conditions", className: "text-red-400 font-bold" };
 };
 
-// ... (Rest of your status functions) ...
 export const getSoilStatus = (percent) => {
-    // 0% - 40%: Dry
-    // Meaning: The soil is dry and needs rain/watering.
-    if (percent < 20) return { 
-        reading: 'Dry', 
-        status: 'STATUS: Low Moisture', 
-        className: 'text-red-400 font-bold' 
+  // ⭐ UPDATED ERROR CHECK:
+  // If percent is 0 (Raw 1023), treat as Disconnected/Error.
+  if (percent === 0 || percent === -1 || percent === undefined || isNaN(percent)) {
+    return {
+      reading: "Error",
+      status: "SENSOR ERROR",
+      className: "text-red-500 font-black animate-pulse",
     };
-    
-    // 40% - 80%: Moist
-    // Meaning: Ideal conditions, holding water but not flooding.
-    if (percent < 50) return { 
-        reading: 'Moist', 
-        status: 'STATUS: Healthy', 
-        className: 'text-emerald-400 font-bold' 
-    };
-    
-    // 80% - 100%: Wet
-    // Meaning: Saturated, likely currently raining or just finished raining.
-    return { 
-        reading: 'Wet', 
-        status: 'STATUS: Saturated', 
-        className: 'text-cyan-400 font-bold' 
-    };
+  }
+
+  // Normal Logic
+  if (percent < 20) return { reading: 'Dry', status: 'STATUS: Low Moisture', className: 'text-red-400 font-bold' };
+  if (percent < 50) return { reading: 'Moist', status: 'STATUS: Healthy', className: 'text-emerald-400 font-bold' };
+  return { reading: 'Wet', status: 'STATUS: Saturated', className: 'text-cyan-400 font-bold' };
 };
+
 export const getWaterTankStatus = (percent, distance) => {
-    // 1. Error Check (Sensor disconnected/out of range)
-    if (distance >= 400 || distance < 0) return { 
-        reading: 'Error', 
-        status: 'SENSOR ERROR', 
-        className: 'text-red-500 font-black animate-pulse' 
-    };
+  // Error Check: Catches -1, timeout (0), or out of range (>400)
+  if (distance === -1 || distance === 0 || distance >= 400 || distance === undefined) { 
+      return { 
+          reading: 'Error', 
+          status: 'SENSOR ERROR', 
+          className: 'text-red-500 font-black animate-pulse' 
+      };
+  }
 
-    // 2. High Level (Water is very close to top, 4cm or less air gap)
-    if (distance <= 3) return { 
-        reading: 'High', 
-        status: 'STATUS: High Capacity', 
-        className: 'text-yellow-400 font-bold' 
-    };
-
-    // 3. Normal Level (Water is between 4cm and 15cm from top)
-    // Note: 15cm gap means the tank is roughly 70% full (35cm water in 50cm tank)
-    if (distance <= 5) return { 
-        reading: 'Normal', 
-        status: 'STATUS: Stable Level', 
-        className: 'text-emerald-400 font-bold' 
-    };
-
-    // 4. Low Level (Water is more than 15cm from top)
-    return { 
-        reading: 'Low', 
-        status: 'STATUS: Low Reserves', 
-        className: 'text-red-400 font-bold' 
-    };
+  // Normal Logic
+  if (distance <= 3) return { reading: 'High', status: 'STATUS: High Capacity', className: 'text-yellow-400 font-bold' };
+  if (distance <= 15) return { reading: 'Normal', status: 'STATUS: Stable Level', className: 'text-emerald-400 font-bold' };
+  return { reading: 'Low', status: 'STATUS: Low Reserves', className: 'text-red-400 font-bold' };
 };
 
 export const getPressureStatus = (pressure) => {
-  if (pressure < 990)
+  // Error Check: Catches -1 or impossible 0 pressure
+  if (pressure <= 0 || pressure === -1 || pressure === undefined) {
     return {
-      status: "WARNING: Low Pressure",
-      className: "text-red-400 font-bold",
+      status: "SENSOR ERROR",
+      className: "text-red-500 font-black animate-pulse",
     };
-  if (pressure > 1030)
-    return {
-      status: "STATUS: High Pressure",
-      className: "text-yellow-400 font-bold",
-    };
+  }
+
+  // Normal Logic
+  if (pressure < 990) return { status: "WARNING: Low Pressure", className: "text-red-400 font-bold" };
+  if (pressure > 1030) return { status: "STATUS: High Pressure", className: "text-yellow-400 font-bold" };
   return { status: "STATUS: Stable", className: "text-emerald-400 font-bold" };
 };

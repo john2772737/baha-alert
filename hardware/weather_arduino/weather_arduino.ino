@@ -21,11 +21,11 @@ unsigned long lastWifiConfigSent = 0;
 bool configSentInAttempt = false; 
 
 // --- 4. OBJECTS ---
-// ESP32 TX (Pin 17) -> Arduino Pin 4 (RX)
-// ESP32 RX (Pin 16) -> Arduino Pin 5 (TX)
 Communication comms(4, 5); 
 
-Sensor mySensor(6, 7, A3, A2);
+// Sensor Pin Definitions: 
+// Trig=6, Echo=7, Rain=A3, Soil=A2
+Sensor mySensor(6, 7, A3, A2); 
 WifiConfig wifiStore;
 
 // --- 5. PINS & TIMERS ---
@@ -54,11 +54,17 @@ void setup() {
   mySensor.begin();
   mySensor.BMP180(); 
 
-  // Pins Setup
-  for (int i = 8; i <= 13; i++) pinMode(i, INPUT_PULLUP);
-  pinMode(3, INPUT_PULLUP);
+  // --- ⭐ PIN SETUP FIX ---
+  // Enable PULLUP on the ACTUAL sensor pins (A2, A3).
+  // This ensures they read ~1023 (Dry) when disconnected, not random noise.
+  pinMode(A2, INPUT_PULLUP); // Soil Sensor
+  pinMode(A3, INPUT_PULLUP); // Rain Sensor
+  
+  // Set unused pins to pullup to reduce overall noise (optional)
   pinMode(A0, INPUT_PULLUP);
   pinMode(A1, INPUT_PULLUP);
+  for (int i = 8; i <= 13; i++) pinMode(i, INPUT_PULLUP);
+  pinMode(3, INPUT_PULLUP);
 
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), changeModeISR, FALLING);
@@ -70,13 +76,10 @@ void setup() {
 void loop() {
   delay(10); 
   
-  // 1. Connection Check (Priority 1)
-  // We check this first to ensure flags like isWifiConnected are up to date.
   if (currentState != MAINTENANCE_MODE) {
      updateConnectionStatus();
   }
   
-  // 2. Handle Mode Change (Manual Button Press)
   if (modeChangeFlag) {
     String modeName = (currentState == AUTO_MODE) ? "AUTO" : 
                       (currentState == MAINTENANCE_MODE) ? "MAINTENANCE" : "SLEEP";
@@ -85,9 +88,6 @@ void loop() {
     modeChangeFlag = false; 
   }
 
-  // 3. Handshake Retry Logic (Block modes until connected)
-  // Note: We skip this block in Maintenance Mode to allow debugging even without WiFi if needed,
-  // but generally, you want WiFi for the commands to arrive.
   if (!isWifiConnected && currentState != MAINTENANCE_MODE) {
       if (!configSentInAttempt) {
           Serial.println(F("[HANDSHAKE] Sending Credentials..."));
@@ -99,23 +99,13 @@ void loop() {
           loadWifiCredentials(); 
           lastWifiConfigSent = millis();
       }
-      return; // Stop here if not connected
+      return; 
   }
 
-  // 4. Run State Machine
   switch (currentState) {
-    case AUTO_MODE:
-      runAutoMode();
-      break;
-    
-    // ⭐ LOGIC UPDATE: This is where we listen for "R", "S", "U", "P"
-    case MAINTENANCE_MODE:
-      runMaintenanceMode(); 
-      break;
-      
-    case SLEEP_MODE:
-      runSleepMode();
-      break;
+    case AUTO_MODE: runAutoMode(); break;
+    case MAINTENANCE_MODE: runMaintenanceMode(); break;
+    case SLEEP_MODE: runSleepMode(); break;
   }
 }
 
@@ -129,41 +119,37 @@ void runAutoMode() {
   if (currentMillis - previousMillis >= INTERVAL) {
     previousMillis = currentMillis;
 
+    // 1. Force pins high before reading (Anti-float measure)
+    pinMode(A3, INPUT_PULLUP); 
+    pinMode(A2, INPUT_PULLUP);
+
     float pressure = mySensor.bmpPressure() / 100.0; 
     int rainValue = mySensor.rainAnalog(); 
     int soilValue = mySensor.soilAnalog(); 
     long waterDistanceCM = mySensor.ultrasonicDistance(); 
 
-    if (pressure < 1.0) {
-        Serial.println(F("AUTO LOG: Sensor Error. Skipping."));
-        return;
-    }
+    // 2. Error Checks
+    if (pressure < 10.0) pressure = -1.0; 
+    if (waterDistanceCM == 0 || waterDistanceCM > 400) waterDistanceCM = -1;
 
     comms.sendSensorReport("AUTO", pressure, rainValue, soilValue, waterDistanceCM);
     Serial.println(F("AUTO LOG: Data Sent.")); 
   }
 }
 
-// ⭐ UPDATED: Listens for commands and SENDS VALUES BACK
 void runMaintenanceMode() {
   char cmd = 0;
   
-  // 1. Check Software Serial (Signal from ESP32)
   if (comms.available() > 0) {
     cmd = comms.read();
-    Serial.print(F("[MAINTENANCE] Received: "));
-    Serial.println(cmd);
-  }
-  // 2. Check USB Serial (Debug)
-  else if (Serial.available() > 0) {
+    Serial.print(F("[MAINTENANCE] Received: ")); Serial.println(cmd);
+  } else if (Serial.available() > 0) {
     cmd = Serial.read();
   }
 
-  // If valid command, execute
   if (cmd == 'R' || cmd == 'r' || cmd == 'S' || cmd == 's' || 
       cmd == 'U' || cmd == 'u' || cmd == 'P' || cmd == 'p' || 
       cmd == 'W' || cmd == 'w') {
-      
       executeMaintenanceCommand(cmd);
   }
 }
@@ -172,38 +158,35 @@ void executeMaintenanceCommand(char cmd) {
   Serial.print(F("EXECUTING: ")); Serial.println(cmd);
 
   switch (cmd) {
-    // ----------------------------------------------
-    // ⭐ SENSOR TESTS: Read & Send Value to ESP
-    // ----------------------------------------------
     case 'U': case 'u': 
       {
         long val = mySensor.ultrasonicDistance();
+        if (val == 0 || val > 400) val = -1;
         Serial.print(F("Reading WATER: ")); Serial.println(val);
-        // Sends: {"waterDistanceCM": val}
         comms.sendSingleResponse("waterDistanceCM", (float)val);
       } break;
 
     case 'R': case 'r': 
       {
+        pinMode(A3, INPUT_PULLUP); // Force stable read
         int val = mySensor.rainAnalog();
         Serial.print(F("Reading RAIN: ")); Serial.println(val);
-        // Sends: {"rainRaw": val}
         comms.sendSingleResponse("rainRaw", (float)val);
       } break;
 
     case 'S': case 's': 
       {
+        pinMode(A2, INPUT_PULLUP); // Force stable read
         int val = mySensor.soilAnalog();
         Serial.print(F("Reading SOIL: ")); Serial.println(val);
-        // Sends: {"soilRaw": val}
         comms.sendSingleResponse("soilRaw", (float)val);
       } break;
 
     case 'P': case 'p': 
       {
         float val = mySensor.bmpPressure() / 100.0;
+        if (val < 10.0) val = -1.0;
         Serial.print(F("Reading PRESSURE: ")); Serial.println(val);
-        // Sends: {"pressureHPA": val}
         comms.sendSingleResponse("pressureHPA", val);
       } break;
 
@@ -224,11 +207,8 @@ void executeMaintenanceCommand(char cmd) {
       if (commaIndex > 0) {
         String newSSID = input.substring(0, commaIndex);
         String newPass = input.substring(commaIndex + 1);
-        if (newSSID.length() >= 32) {
-           Serial.println(F("Error: Name too long."));
-        } else {
-           saveWifiCredentials(newSSID, newPass);
-        }
+        if (newSSID.length() >= 32) Serial.println(F("Error: Name too long."));
+        else saveWifiCredentials(newSSID, newPass);
       }
       break;
   }
@@ -239,15 +219,12 @@ void runSleepMode() {
   Serial.flush(); 
   
   detachInterrupt(digitalPinToInterrupt(BUTTON_PIN));
-
   while (digitalRead(BUTTON_PIN) == LOW) { delay(50); }
   delay(500); 
-  
   EIFR = bit(INTF0); 
 
   set_sleep_mode(SLEEP_MODE_PWR_DOWN);
   sleep_enable();
-  
   attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), wakeISR, LOW);
 
   while (true) {
@@ -259,13 +236,11 @@ void runSleepMode() {
 
   detachInterrupt(digitalPinToInterrupt(BUTTON_PIN));
   Serial.println(F("Woke up!"));
-
   while (digitalRead(BUTTON_PIN) == LOW) { delay(50); }
   delay(200);
 
   currentState = AUTO_MODE; 
   modeChangeFlag = true;
-  
   EIFR = bit(INTF0); 
   attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), changeModeISR, FALLING);
 }
@@ -277,9 +252,7 @@ void wakeISR() { }
 // ==========================================
 
 void updateConnectionStatus() {
-  // Read from ESP to see if we are connected
   String status = comms.listenForStatus();
-  
   if (status != "") {
     if (status == "CONN_OK") {
       if (!isWifiConnected) {
