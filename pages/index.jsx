@@ -276,7 +276,7 @@ const App = () => {
             {/* Header */}
             <header className="mb-8 p-5 bg-slate-800 rounded-3xl shadow-lg border-b-4 border-emerald-500/50 flex flex-col md:flex-row justify-between items-center">
                 <div className="flex flex-col">
-                    <h1 className="text-3xl font-extrabold text-emerald-400 mb-2 md:mb-0">Smart Weather Station</h1>
+                    <h1 className="text-3xl font-extrabold text-emerald-400 mb-2 md:mb-0">Baha-Alert</h1>
                     <div className="flex flex-wrap items-center gap-2 mt-2">
                         {/* Device Mode Badge */}
                         <div className="flex items-center text-xs text-slate-400 bg-slate-900 px-2 py-1 rounded-md border border-slate-700 w-fit">
