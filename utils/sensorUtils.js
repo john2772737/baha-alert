@@ -91,31 +91,35 @@ export const getSoilStatus = (percent) => {
         className: 'text-cyan-400 font-bold' 
     };
 };
-
 export const getWaterTankStatus = (percent, distance) => {
-  if (distance >= 400)
-    return {
-      reading: "Error",
-      status: "SENSOR ERROR",
-      className: "text-red-500 font-black animate-pulse",
+    // 1. Error Check (Sensor disconnected/out of range)
+    if (distance >= 400 || distance < 0) return { 
+        reading: 'Error', 
+        status: 'SENSOR ERROR', 
+        className: 'text-red-500 font-black animate-pulse' 
     };
-  if (percent > 90)
-    return {
-      reading: "High",
-      status: "STATUS: High Capacity",
-      className: "text-yellow-400 font-bold",
+
+    // 2. High Level (Water is very close to top, 4cm or less air gap)
+    if (distance <= 4) return { 
+        reading: 'High', 
+        status: 'STATUS: High Capacity', 
+        className: 'text-yellow-400 font-bold' 
     };
-  if (percent >= 40)
-    return {
-      reading: "Normal",
-      status: "STATUS: Stable Level",
-      className: "text-emerald-400 font-bold",
+
+    // 3. Normal Level (Water is between 4cm and 15cm from top)
+    // Note: 15cm gap means the tank is roughly 70% full (35cm water in 50cm tank)
+    if (distance <= 5) return { 
+        reading: 'Normal', 
+        status: 'STATUS: Stable Level', 
+        className: 'text-emerald-400 font-bold' 
     };
-  return {
-    reading: "Low",
-    status: "STATUS: Low Reserves",
-    className: "text-red-400 font-bold",
-  };
+
+    // 4. Low Level (Water is more than 15cm from top)
+    return { 
+        reading: 'Low', 
+        status: 'STATUS: Low Reserves', 
+        className: 'text-red-400 font-bold' 
+    };
 };
 
 export const getPressureStatus = (pressure) => {
