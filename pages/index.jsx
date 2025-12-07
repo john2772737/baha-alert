@@ -3,7 +3,8 @@ import { useRouter } from 'next/router';
 import { useAuth } from '../context/AuthContext'; 
 import QRCode from 'react-qr-code'; 
 
-import { getFormattedTime } from '../utils/sensorUtils';
+// ⭐ Added status helper imports for the UI
+import { getFormattedTime, getRainStatus, getSoilStatus, getWaterTankStatus, getPressureStatus } from '../utils/sensorUtils';
 import { useSensorData } from '../hooks/useSensorData';
 import { useDashboardInit } from '../hooks/useDashboardInit';
 import { ClockIcon, RefreshCcwIcon, CpuIcon, ActivityIcon, CloudRainIcon, GaugeIcon, BoxIcon, LeafIcon } from '../utils/icons';
@@ -12,9 +13,9 @@ import ModeView from '../components/ModeView';
 const REAL_API_ENDPOINT = 'https://baha-alert.vercel.app/api'; 
 const FETCH_TODAY_LOG_INTERVAL_MS = 600000; 
 
-// --- Animated Status Card (Moved here for direct styling control) ---
+// --- Animated Status Card (UI Component) ---
 const StatusCard = ({ Icon, title, reading, status, className }) => {
-    // Determine if the status is critical based on the color class passed
+    // Determine if the status is critical (Red/Yellow) to trigger animations
     const isCritical = className.includes('text-red') || className.includes('text-yellow');
     
     return (
@@ -32,7 +33,7 @@ const StatusCard = ({ Icon, title, reading, status, className }) => {
                 <div className="flex justify-between items-start mb-2">
                     <Icon className={`w-8 h-8 p-1.5 rounded-lg ${className} ${isCritical ? 'animate-bounce-slow' : ''}`} />
                     
-                    {/* Ping Animation Dot */}
+                    {/* Ping Animation Dot for Alerts */}
                     {isCritical && (
                         <span className="flex h-3 w-3 relative">
                             <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${className.includes('text-red') ? 'bg-red-400' : 'bg-yellow-400'}`}></span>
@@ -281,6 +282,12 @@ const App = () => {
     if (loading || !user) return <div className="flex justify-center items-center h-screen bg-slate-900 text-emerald-400 font-inter">Checking Access...</div>;
     if (!isClient || !scriptsLoaded) return <div className="flex justify-center items-center h-screen bg-slate-900 text-emerald-400 font-inter"><RefreshCcwIcon className="animate-spin w-8 h-8 mr-2" /> Initializing...</div>;
 
+    // --- Calculations for Status (UI only) ---
+    const rainStatus = getRainStatus(percents.rainPercent);
+    const soilStatus = getSoilStatus(percents.soilPercent);
+    const waterTankStatus = getWaterTankStatus(percents.waterPercent, liveData.waterDistanceCM);
+    const pressureStatus = getPressureStatus(liveData.pressure);
+
     // --- RENDER ---
     return (
         <div className="min-h-screen bg-slate-900 text-slate-100 p-3 sm:p-6 md:p-10 font-inter dark">
@@ -289,7 +296,7 @@ const App = () => {
                 @media (min-width: 768px) { .chart-container { height: 400px; } }
             `}</style>
             
-            {/* ⭐ COMPACT HEADER (Mobile Fixed) */}
+            {/* COMPACT HEADER */}
             <header className="mb-6 bg-slate-800 rounded-3xl shadow-lg border-b-4 border-emerald-500/50 overflow-hidden">
                 <div className="flex flex-col md:flex-row justify-between items-center p-4 md:p-6 gap-3">
                     <h1 className="text-lg md:text-3xl font-extrabold text-emerald-400 whitespace-nowrap">
@@ -354,12 +361,12 @@ const App = () => {
                     <>
                         {fetchError && <div className="p-3 bg-red-900/30 text-red-300 rounded-lg border border-red-800 text-center font-semibold text-sm mb-4">{fetchError}</div>}
                         
-                        {/* 1. Status Cards Section */}
+                        {/* 1. Status Cards Section (Fixed Animations) */}
                         <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
-                            <StatusCard Icon={CloudRainIcon} title="Rain" reading={useSensorData(isClient, mode).rainStatus.reading} status={useSensorData(isClient, mode).rainStatus.status} className="text-sky-400 bg-sky-900/30" />
-                            <StatusCard Icon={GaugeIcon} title="Pressure" reading={`${liveData.pressure.toFixed(1)} hPa`} status={useSensorData(isClient, mode).pressureStatus.status} className="text-purple-400 bg-purple-900/30" />
-                            <StatusCard Icon={BoxIcon} title="Water" reading={useSensorData(isClient, mode).waterTankStatus.reading} status={useSensorData(isClient, mode).waterTankStatus.status} className="text-cyan-400 bg-cyan-900/30" />
-                            <StatusCard Icon={LeafIcon} title="Soil" reading={useSensorData(isClient, mode).soilStatus.reading} status={useSensorData(isClient, mode).soilStatus.status} className="text-orange-400 bg-orange-900/30" />
+                            <StatusCard Icon={CloudRainIcon} title="Rain" reading={rainStatus.reading} status={rainStatus.status} className="text-sky-400 bg-sky-900/30" />
+                            <StatusCard Icon={GaugeIcon} title="Pressure" reading={`${liveData.pressure.toFixed(1)} hPa`} status={pressureStatus.status} className="text-purple-400 bg-purple-900/30" />
+                            <StatusCard Icon={BoxIcon} title="Water" reading={waterTankStatus.reading} status={waterTankStatus.status} className="text-cyan-400 bg-cyan-900/30" />
+                            <StatusCard Icon={LeafIcon} title="Soil" reading={soilStatus.reading} status={soilStatus.status} className="text-orange-400 bg-orange-900/30" />
                         </section>
 
                         <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -375,7 +382,7 @@ const App = () => {
                                 <div className="chart-container"><canvas ref={dashboardRefs.historyChartRef}></canvas></div>
                             </article>
                             
-                            {/* ⭐ 3. FIXED & ANIMATED LIVE GAUGES SECTION */}
+                            {/* ⭐ 3. FIXED GAUGES SECTION (Fills Container) */}
                             <article className="p-3 sm:p-4 bg-slate-800 rounded-2xl shadow-lg border border-slate-700 hover:border-slate-600 transition-colors">
                                 <h3 className="text-lg sm:text-xl font-bold mb-4 text-white text-center">Live Gauges</h3>
                                 <div className="grid grid-cols-2 gap-3 sm:gap-4 h-full">
