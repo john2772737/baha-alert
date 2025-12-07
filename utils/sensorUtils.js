@@ -100,7 +100,7 @@ export const getWaterTankStatus = (percent, distance) => {
     };
 
     // 2. High Level (Water is very close to top, 4cm or less air gap)
-    if (distance <= 4) return { 
+    if (distance <= 3) return { 
         reading: 'High', 
         status: 'STATUS: High Capacity', 
         className: 'text-yellow-400 font-bold' 
