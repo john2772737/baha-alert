@@ -3,7 +3,7 @@ import { useRouter } from 'next/router';
 import { useAuth } from '../context/AuthContext'; 
 import QRCode from 'react-qr-code'; 
 
-// Import helpers
+// Helpers
 import { getFormattedTime, getRainStatus, getSoilStatus, getWaterTankStatus, getPressureStatus } from '../utils/sensorUtils';
 import { useSensorData } from '../hooks/useSensorData';
 import { useDashboardInit } from '../hooks/useDashboardInit';
@@ -137,6 +137,7 @@ const App = () => {
             doc.text(text, x, y);
         };
 
+        // Header
         doc.setTextColor(22, 163, 74); 
         centerText('SMART WEATHER STATION', currentY, 18, 'helvetica', 'bold');
         currentY += 8;
@@ -168,6 +169,7 @@ const App = () => {
         doc.text('WATER (cm)', col5, currentY);
         currentY += 10; 
 
+        // Data Rows
         doc.setFont('helvetica', 'normal');
         doc.setTextColor(50, 50, 50);
 
@@ -277,7 +279,6 @@ const App = () => {
     if (!isClient || !scriptsLoaded) return <div className="flex justify-center items-center h-screen bg-slate-900 text-emerald-400 font-inter"><RefreshCcwIcon className="animate-spin w-8 h-8 mr-2" /> Initializing...</div>;
 
     // --- Calculations for Status (UI only) ---
-    // ⭐ FIXED: Calculated here instead of inside JSX
     const rainStatus = getRainStatus(percents.rainPercent);
     const soilStatus = getSoilStatus(percents.soilPercent);
     const waterTankStatus = getWaterTankStatus(percents.waterPercent, liveData.waterDistanceCM);
@@ -287,11 +288,16 @@ const App = () => {
     return (
         <div className="min-h-screen bg-slate-900 text-slate-100 p-3 sm:p-6 md:p-10 font-inter dark">
             <style>{`
-                .chart-container { height: 300px; width: 100%; }
+                /* Ensure Chart Container has Height */
+                .chart-container { 
+                    position: relative; 
+                    height: 300px; 
+                    width: 100%; 
+                }
                 @media (min-width: 768px) { .chart-container { height: 400px; } }
             `}</style>
             
-            {/* COMPACT HEADER */}
+            {/* HEADER */}
             <header className="mb-6 bg-slate-800 rounded-3xl shadow-lg border-b-4 border-emerald-500/50 overflow-hidden">
                 <div className="flex flex-col md:flex-row justify-between items-center p-4 md:p-6 gap-3">
                     <h1 className="text-lg md:text-3xl font-extrabold text-emerald-400 whitespace-nowrap">
@@ -356,9 +362,8 @@ const App = () => {
                     <>
                         {fetchError && <div className="p-3 bg-red-900/30 text-red-300 rounded-lg border border-red-800 text-center font-semibold text-sm mb-4">{fetchError}</div>}
                         
-                        {/* 1. Status Cards Section (Fixed Animations) */}
+                        {/* 1. Status Cards Section */}
                         <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
-                            {/* ⭐ FIXED: Using computed variables instead of calling hook */}
                             <StatusCard Icon={CloudRainIcon} title="Rain" reading={rainStatus.reading} status={rainStatus.status} className="text-sky-400 bg-sky-900/30" />
                             <StatusCard Icon={GaugeIcon} title="Pressure" reading={`${liveData.pressure.toFixed(1)} hPa`} status={pressureStatus.status} className="text-purple-400 bg-purple-900/30" />
                             <StatusCard Icon={BoxIcon} title="Water" reading={waterTankStatus.reading} status={waterTankStatus.status} className="text-cyan-400 bg-cyan-900/30" />
@@ -366,7 +371,7 @@ const App = () => {
                         </section>
 
                         <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                            {/* 2. Historical Trends Chart */}
+                            {/* 2. Historical Trends Chart (FIXED Container) */}
                             <article className="lg:col-span-2 p-4 sm:p-6 bg-slate-800 rounded-2xl shadow-lg border border-slate-700">
                                 <div className="flex justify-between items-center mb-4 sm:mb-6">
                                     <h3 className="text-lg sm:text-xl font-bold text-slate-200 flex items-center gap-2">
@@ -375,28 +380,42 @@ const App = () => {
                                     </h3>
                                     <span className="text-[10px] sm:text-xs text-slate-500 bg-slate-900 px-2 py-1 rounded">Last 7 Days</span>
                                 </div>
-                                <div className="chart-container"><canvas ref={dashboardRefs.historyChartRef}></canvas></div>
+                                <div className="chart-container relative w-full h-[300px] md:h-[400px]">
+                                    <canvas ref={dashboardRefs.historyChartRef}></canvas>
+                                </div>
                             </article>
                             
-                            {/* ⭐ 3. FIXED GAUGES SECTION (Fills Container) */}
+                            {/* ⭐ 3. FIXED GAUGES (Restored Fixed Heights) */}
                             <article className="p-3 sm:p-4 bg-slate-800 rounded-2xl shadow-lg border border-slate-700 hover:border-slate-600 transition-colors">
                                 <h3 className="text-lg sm:text-xl font-bold mb-4 text-white text-center">Live Gauges</h3>
-                                <div className="grid grid-cols-2 gap-3 sm:gap-4 h-full">
-                                    <div className="flex flex-col items-center justify-between aspect-[5/3] sm:aspect-[2/1] group rounded-xl bg-slate-900/50 p-2 border border-slate-700/50 hover:border-sky-500/30 transition-colors">
-                                        <canvas ref={dashboardRefs.rainGaugeRef} className="w-full h-auto object-contain flex-grow"></canvas>
-                                        <span className="text-[10px] sm:text-xs mt-1 text-slate-400 font-bold uppercase tracking-wide group-hover:text-sky-400 transition-colors">Rain</span>
+                                <div className="grid grid-cols-2 gap-3 sm:gap-4">
+                                    {/* Gauge 1: Rain */}
+                                    <div className="flex flex-col items-center justify-between rounded-xl bg-slate-900/50 p-2 border border-slate-700/50 hover:border-sky-500/30 transition-colors">
+                                        <div className="w-full h-24 sm:h-32 relative">
+                                            <canvas ref={dashboardRefs.rainGaugeRef} className="w-full h-full"></canvas>
+                                        </div>
+                                        <span className="text-[10px] sm:text-xs mt-1 text-slate-400 font-bold uppercase tracking-wide group-hover:text-sky-400">Rain</span>
                                     </div>
-                                    <div className="flex flex-col items-center justify-between aspect-[5/3] sm:aspect-[2/1] group rounded-xl bg-slate-900/50 p-2 border border-slate-700/50 hover:border-purple-500/30 transition-colors">
-                                        <canvas ref={dashboardRefs.pressureGaugeRef} className="w-full h-auto object-contain flex-grow"></canvas>
-                                        <span className="text-[10px] sm:text-xs mt-1 text-slate-400 font-bold uppercase tracking-wide group-hover:text-purple-400 transition-colors">Pressure</span>
+                                    {/* Gauge 2: Pressure */}
+                                    <div className="flex flex-col items-center justify-between rounded-xl bg-slate-900/50 p-2 border border-slate-700/50 hover:border-purple-500/30 transition-colors">
+                                        <div className="w-full h-24 sm:h-32 relative">
+                                            <canvas ref={dashboardRefs.pressureGaugeRef} className="w-full h-full"></canvas>
+                                        </div>
+                                        <span className="text-[10px] sm:text-xs mt-1 text-slate-400 font-bold uppercase tracking-wide group-hover:text-purple-400">Pressure</span>
                                     </div>
-                                    <div className="flex flex-col items-center justify-between aspect-[5/3] sm:aspect-[2/1] group rounded-xl bg-slate-900/50 p-2 border border-slate-700/50 hover:border-cyan-500/30 transition-colors">
-                                        <canvas ref={dashboardRefs.waterTankGaugeRef} className="w-full h-auto object-contain flex-grow"></canvas>
-                                        <span className="text-[10px] sm:text-xs mt-1 text-slate-400 font-bold uppercase tracking-wide group-hover:text-cyan-400 transition-colors">Water</span>
+                                    {/* Gauge 3: Water */}
+                                    <div className="flex flex-col items-center justify-between rounded-xl bg-slate-900/50 p-2 border border-slate-700/50 hover:border-cyan-500/30 transition-colors">
+                                        <div className="w-full h-24 sm:h-32 relative">
+                                            <canvas ref={dashboardRefs.waterTankGaugeRef} className="w-full h-full"></canvas>
+                                        </div>
+                                        <span className="text-[10px] sm:text-xs mt-1 text-slate-400 font-bold uppercase tracking-wide group-hover:text-cyan-400">Water</span>
                                     </div>
-                                    <div className="flex flex-col items-center justify-between aspect-[5/3] sm:aspect-[2/1] group rounded-xl bg-slate-900/50 p-2 border border-slate-700/50 hover:border-orange-500/30 transition-colors">
-                                        <canvas ref={dashboardRefs.soilGaugeRef} className="w-full h-auto object-contain flex-grow"></canvas>
-                                        <span className="text-[10px] sm:text-xs mt-1 text-slate-400 font-bold uppercase tracking-wide group-hover:text-orange-400 transition-colors">Soil</span>
+                                    {/* Gauge 4: Soil */}
+                                    <div className="flex flex-col items-center justify-between rounded-xl bg-slate-900/50 p-2 border border-slate-700/50 hover:border-orange-500/30 transition-colors">
+                                        <div className="w-full h-24 sm:h-32 relative">
+                                            <canvas ref={dashboardRefs.soilGaugeRef} className="w-full h-full"></canvas>
+                                        </div>
+                                        <span className="text-[10px] sm:text-xs mt-1 text-slate-400 font-bold uppercase tracking-wide group-hover:text-orange-400">Soil</span>
                                     </div>
                                 </div>
                             </article>
