@@ -105,7 +105,7 @@ export const getWaterTankStatus = (percent, distance) => {
       status: "STATUS: High Capacity",
       className: "text-yellow-400 font-bold",
     };
-  if (percent >= 70)
+  if (percent >= 50)
     return {
       reading: "Normal",
       status: "STATUS: Stable Level",
