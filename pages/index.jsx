@@ -6,11 +6,35 @@ import QRCode from 'react-qr-code';
 import { getFormattedTime } from '../utils/sensorUtils';
 import { useSensorData } from '../hooks/useSensorData';
 import { useDashboardInit } from '../hooks/useDashboardInit';
-import { ClockIcon, RefreshCcwIcon, CpuIcon } from '../utils/icons';
+import { ClockIcon, RefreshCcwIcon, CpuIcon, ActivityIcon, CloudRainIcon, GaugeIcon, BoxIcon, LeafIcon } from '../utils/icons';
 import ModeView from '../components/ModeView'; 
 
 const REAL_API_ENDPOINT = 'https://baha-alert.vercel.app/api'; 
 const FETCH_TODAY_LOG_INTERVAL_MS = 600000; 
+
+// --- Animated Status Card (Moved here from ModeView for reusability if needed, or keep in ModeView) ---
+const StatusCard = ({ Icon, title, reading, status, className }) => {
+    const isCritical = className.includes('text-red') || className.includes('text-yellow');
+    return (
+        <article className={`relative p-4 sm:p-5 bg-slate-800 rounded-xl shadow-lg border border-slate-700 transition-all duration-300 hover:scale-105 hover:shadow-2xl overflow-hidden
+            ${isCritical ? 'border-l-4' : ''} 
+            ${className.includes('text-red') ? 'border-l-red-500' : ''}
+            ${className.includes('text-yellow') ? 'border-l-yellow-500' : ''}
+        `}>
+            {isCritical && (
+                <div className={`absolute inset-0 opacity-10 animate-pulse ${className.includes('text-red') ? 'bg-red-500' : 'bg-yellow-500'}`}></div>
+            )}
+            <div className="relative z-10">
+                <div className="flex justify-between items-start mb-2">
+                    <Icon className={`w-8 h-8 p-1.5 rounded-lg ${className} ${isCritical ? 'animate-bounce-slow' : ''}`} />
+                </div>
+                <h3 className="text-xs sm:text-sm font-medium text-slate-400 uppercase tracking-wider">{title}</h3>
+                <p className="text-xl sm:text-2xl font-black text-white mt-1 truncate">{reading}</p>
+                <p className={`text-[10px] sm:text-xs font-bold mt-2 ${className.split(' ')[0]}`}>{status}</p>
+            </div>
+        </article>
+    );
+};
 
 const App = () => {
     // --- Auth & Router ---
@@ -52,7 +76,6 @@ const App = () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ idToken })
             });
-            
             const data = await response.json();
             
             if (data.token) {
@@ -247,56 +270,38 @@ const App = () => {
 
     // --- RENDER ---
     return (
-        <div className="min-h-screen bg-slate-900 text-slate-100 p-4 sm:p-10 font-inter dark">
+        <div className="min-h-screen bg-slate-900 text-slate-100 p-3 sm:p-6 md:p-10 font-inter dark">
             <style>{`
-                .chart-container { height: 50vh; width: 100%; }
-                .gauges-container { display: grid; grid-template-columns: repeat(2, 1fr); gap: 2rem; }
-                .gauge-wrapper canvas { max-width: 100%; height: auto; }
-                @media (min-width: 1024px) { .gauges-container { grid-template-columns: repeat(4, 1fr); } .chart-container { height: 400px; } }
+                .chart-container { height: 300px; width: 100%; }
+                @media (min-width: 768px) { .chart-container { height: 400px; } }
             `}</style>
             
-            {/* ⭐ FIXED HEADER (Mobile & Desktop) */}
-            <header className="mb-6 p-4 md:p-6 bg-slate-800 rounded-3xl shadow-lg border-b-4 border-emerald-500/50 flex flex-col md:flex-row justify-between items-center gap-4">
-                
-                {/* Left Side: Title & Buttons */}
-                <div className="flex flex-col items-center md:items-start w-full md:w-auto">
-                    <h1 className="text-xl md:text-3xl font-extrabold text-emerald-400 text-center md:text-left mb-3 md:mb-2">
+            {/* ⭐ COMPACT HEADER (Mobile Fixed) */}
+            <header className="mb-6 bg-slate-800 rounded-3xl shadow-lg border-b-4 border-emerald-500/50 overflow-hidden">
+                <div className="flex flex-col md:flex-row justify-between items-center p-4 md:p-6 gap-3">
+                    <h1 className="text-lg md:text-3xl font-extrabold text-emerald-400 whitespace-nowrap">
                         Smart Weather Station
                     </h1>
-                    
-                    {/* Buttons Row */}
-                    <div className="flex flex-wrap justify-center md:justify-start items-center gap-2 w-full">
-                        {/* Mode Badge */}
-                        <div className="flex items-center text-[10px] md:text-xs text-slate-400 bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-700">
-                            <CpuIcon className="w-3 h-3 mr-1 text-yellow-400" />
-                            <span className="font-bold mr-1">MODE:</span>
-                            <span className="text-emerald-300 font-mono font-bold uppercase">{liveData.deviceMode}</span>
-                        </div>
-
-                        {/* QR Button */}
-                        <button onClick={generateSecureQR} className="text-[10px] md:text-xs bg-indigo-600 px-3 py-1.5 rounded-lg text-white font-bold hover:bg-indigo-500 transition-colors shadow-md">
-                            SHOW QR
-                        </button>
-
-                        {/* Logout Button */}
-                        <button onClick={logOut} className="text-[10px] md:text-xs text-red-300 border border-red-900/50 px-3 py-1.5 rounded-lg hover:bg-red-900/20 transition-colors">
-                            Logout
-                        </button>
-                    </div>
-                </div>
-                
-                {/* Right Side: Time Display */}
-                <div className="flex flex-col items-center md:items-end w-full md:w-auto mt-2 md:mt-0">
-                    <div className="flex items-center justify-center text-slate-400 bg-slate-900 px-4 py-3 rounded-xl border border-slate-700 w-full md:w-auto shadow-inner">
-                        <ClockIcon className="w-4 h-4 mr-2 text-indigo-400 flex-shrink-0" />
-                        {/* whitespace-nowrap fixes the stacking issue */}
-                        <span className="text-xs md:text-sm font-mono font-semibold whitespace-nowrap">
+                    <div className="flex items-center text-slate-400 bg-slate-900/50 px-3 py-2 rounded-lg border border-slate-700/50">
+                        <ClockIcon className="w-4 h-4 mr-2 text-indigo-400" />
+                        <span className="text-xs md:text-sm font-mono font-bold whitespace-nowrap">
                             {currentTime}
                         </span>
                     </div>
-                    <span className="text-[10px] text-slate-600 mt-1 hidden md:block">
-                        {user.email}
-                    </span>
+                </div>
+                <div className="bg-slate-900/40 p-3 md:px-6 flex flex-wrap justify-center md:justify-start items-center gap-2 border-t border-slate-700/50">
+                    <div className="flex items-center text-[10px] md:text-xs text-slate-300 bg-slate-800 px-3 py-1.5 rounded-full border border-slate-600">
+                        <CpuIcon className="w-3 h-3 mr-1.5 text-yellow-400" />
+                        <span className="opacity-70 mr-1">MODE:</span>
+                        <span className="text-emerald-300 font-mono font-bold uppercase">{liveData.deviceMode}</span>
+                    </div>
+                    <div className="flex-grow md:hidden"></div> 
+                    <button onClick={generateSecureQR} className="flex items-center text-[10px] md:text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-full font-bold transition-all shadow-md">
+                        <span className="mr-1">📱</span> QR LOGIN
+                    </button>
+                    <button onClick={logOut} className="flex items-center text-[10px] md:text-xs text-red-300 border border-red-900/30 hover:bg-red-900/20 px-3 py-1.5 rounded-full transition-colors">
+                        LOGOUT
+                    </button>
                 </div>
             </header>
 
@@ -305,7 +310,6 @@ const App = () => {
                 <div className="fixed inset-0 bg-black/80 z-50 flex flex-col items-center justify-center p-4" onClick={() => setShowQR(false)}>
                     <div className="bg-white p-6 rounded-2xl flex flex-col items-center shadow-2xl" onClick={e => e.stopPropagation()}>
                         <h3 className="text-black text-lg font-bold mb-4">Scan to Share Session</h3>
-                        
                         <div className="bg-white p-2 border-2 border-slate-200 rounded-lg flex items-center justify-center" style={{ minHeight: '200px', minWidth: '200px' }}>
                             {qrValue ? (
                                 <QRCode value={qrValue} size={200} />
@@ -324,50 +328,75 @@ const App = () => {
                 </div>
             )}
 
-            <main className="space-y-8">
+            <main className="space-y-6">
                 {/* Mode Selector */}
-                <div className="flex bg-slate-800 p-1.5 rounded-xl border border-slate-700">
+                <div className="flex bg-slate-800 p-1 rounded-xl border border-slate-700">
                     {modes.map(m => (
-                        <button key={m} onClick={() => setMode(m)} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${mode === m ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-700'}`}>{m}</button>
+                        <button key={m} onClick={() => setMode(m)} className={`flex-1 py-2 text-xs sm:text-sm font-bold rounded-lg transition-all ${mode === m ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-700'}`}>{m}</button>
                     ))}
                 </div>
                 
                 {/* Main Views */}
-                <ModeView
-                    mode={mode}
-                    setMode={setMode}
-                    liveData={liveData}
-                    fetchError={fetchError}
-                    refs={dashboardRefs}
-                    percents={percents}
-                />
+                {mode === 'Auto' ? (
+                    <>
+                        {fetchError && <div className="p-3 bg-red-900/30 text-red-300 rounded-lg border border-red-800 text-center font-semibold text-sm mb-4">{fetchError}</div>}
+                        {/* Status Cards */}
+                        <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+                            <StatusCard Icon={CloudRainIcon} title="Rain" reading={useSensorData(isClient, mode).rainStatus.reading} status={useSensorData(isClient, mode).rainStatus.status} className="text-sky-400 bg-sky-900/30" />
+                            <StatusCard Icon={GaugeIcon} title="Pressure" reading={`${liveData.pressure.toFixed(1)} hPa`} status={useSensorData(isClient, mode).pressureStatus.status} className="text-purple-400 bg-purple-900/30" />
+                            <StatusCard Icon={BoxIcon} title="Water" reading={useSensorData(isClient, mode).waterTankStatus.reading} status={useSensorData(isClient, mode).waterTankStatus.status} className="text-cyan-400 bg-cyan-900/30" />
+                            <StatusCard Icon={LeafIcon} title="Soil" reading={useSensorData(isClient, mode).soilStatus.reading} status={useSensorData(isClient, mode).soilStatus.status} className="text-orange-400 bg-orange-900/30" />
+                        </section>
+
+                        <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                            {/* Historical Trends Chart */}
+                            <article className="lg:col-span-2 p-4 sm:p-6 bg-slate-800 rounded-2xl shadow-lg border border-slate-700">
+                                <div className="flex justify-between items-center mb-4 sm:mb-6">
+                                    <h3 className="text-lg sm:text-xl font-bold text-slate-200 flex items-center gap-2">
+                                        <ActivityIcon className="w-5 h-5 text-indigo-400" />
+                                        Historical Trends
+                                    </h3>
+                                    <span className="text-[10px] sm:text-xs text-slate-500 bg-slate-900 px-2 py-1 rounded">Last 7 Days</span>
+                                </div>
+                                <div className="chart-container"><canvas ref={dashboardRefs.historyChartRef}></canvas></div>
+                            </article>
+                            
+                            {/* ⭐ FIXED LIVE GAUGES SECTION */}
+                            <article className="p-3 sm:p-4 bg-slate-800 rounded-2xl shadow-lg border border-slate-700 hover:border-slate-600 transition-colors">
+                                <h3 className="text-lg sm:text-xl font-bold mb-4 text-white text-center">Live Gauges</h3>
+                                <div className="grid grid-cols-2 gap-3 sm:gap-4">
+                                    <div className="flex flex-col items-center justify-between aspect-[5/3] sm:aspect-[2/1] group rounded-xl bg-slate-900/50 p-2 border border-slate-700/50">
+                                        <canvas ref={dashboardRefs.rainGaugeRef} className="w-full h-auto object-contain flex-grow"></canvas>
+                                        <span className="text-[10px] sm:text-xs mt-1 text-slate-400 font-bold uppercase tracking-wide">Rain</span>
+                                    </div>
+                                    <div className="flex flex-col items-center justify-between aspect-[5/3] sm:aspect-[2/1] group rounded-xl bg-slate-900/50 p-2 border border-slate-700/50">
+                                        <canvas ref={dashboardRefs.pressureGaugeRef} className="w-full h-auto object-contain flex-grow"></canvas>
+                                        <span className="text-[10px] sm:text-xs mt-1 text-slate-400 font-bold uppercase tracking-wide">Pressure</span>
+                                    </div>
+                                    <div className="flex flex-col items-center justify-between aspect-[5/3] sm:aspect-[2/1] group rounded-xl bg-slate-900/50 p-2 border border-slate-700/50">
+                                        <canvas ref={dashboardRefs.waterTankGaugeRef} className="w-full h-auto object-contain flex-grow"></canvas>
+                                        <span className="text-[10px] sm:text-xs mt-1 text-slate-400 font-bold uppercase tracking-wide">Water</span>
+                                    </div>
+                                    <div className="flex flex-col items-center justify-between aspect-[5/3] sm:aspect-[2/1] group rounded-xl bg-slate-900/50 p-2 border border-slate-700/50">
+                                        <canvas ref={dashboardRefs.soilGaugeRef} className="w-full h-auto object-contain flex-grow"></canvas>
+                                        <span className="text-[10px] sm:text-xs mt-1 text-slate-400 font-bold uppercase tracking-wide">Soil</span>
+                                    </div>
+                                </div>
+                            </article>
+                        </section>
+                    </>
+                ) : (
+                    <ModeView mode={mode} setMode={setMode} liveData={liveData} refs={dashboardRefs} percents={percents} />
+                )}
             </main>
             
             {/* Download Section */}
-            {mode === 'Auto' && liveData.deviceMode === 'AUTO' && (
+            {mode === 'Auto' && (
                 <div className="mt-8 p-4 bg-slate-800 rounded-2xl border border-slate-700 text-center">
-                    <h3 className="text-xl font-bold mb-4 text-slate-200">Daily Report Generation</h3>
-                    <button
-                        onClick={fetchAndDownloadLogs}
-                        disabled={isDownloading}
-                        className={`flex items-center justify-center mx-auto px-6 py-2 font-semibold rounded-lg shadow-md transition-colors 
-                            ${isDownloading 
-                                ? 'bg-indigo-400 text-white cursor-wait' 
-                                : 'bg-indigo-600 hover:bg-indigo-700 text-white'}`}
-                    >
-                        {isDownloading ? (
-                            <>
-                                <RefreshCcwIcon className='w-4 h-4 mr-2 animate-spin'/>
-                                Generating Report...
-                            </>
-                        ) : (
-                            <>
-                                <svg className='w-4 h-4 mr-2' xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                                Fetch & Download Today's Log
-                            </>
-                        )}
+                    <h3 className="text-lg sm:text-xl font-bold mb-4 text-slate-200">Daily Report</h3>
+                    <button onClick={fetchAndDownloadLogs} disabled={isDownloading} className={`flex items-center justify-center mx-auto px-6 py-2 text-sm sm:text-base font-semibold rounded-lg shadow-md transition-colors ${isDownloading ? 'bg-indigo-400 text-white cursor-wait' : 'bg-indigo-600 hover:bg-indigo-700 text-white'}`}>
+                        {isDownloading ? <><RefreshCcwIcon className='w-4 h-4 mr-2 animate-spin'/> Generating...</> : <>Download Log</>}
                     </button>
-                    <p className='text-xs text-slate-500 mt-2'>Downloads sampled data (every 10 minutes).</p>
                 </div>
             )}
         </div>
