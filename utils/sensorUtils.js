@@ -67,24 +67,27 @@ export const getRainStatus = (percent) => {
 
 // ... (Rest of your status functions) ...
 export const getSoilStatus = (percent) => {
-    // 0% - 35%: Dry (Needs Water)
-    if (percent < 35) return { 
+    // 0% - 40%: Dry
+    // Meaning: The soil is dry and needs rain/watering.
+    if (percent < 30) return { 
         reading: 'Dry', 
-        status: 'STATUS: Needs Water', 
+        status: 'STATUS: Low Moisture', 
         className: 'text-red-400 font-bold' 
     };
     
-    // 35% - 75%: Moist (Ideal)
-    if (percent < 75) return { 
+    // 40% - 80%: Moist
+    // Meaning: Ideal conditions, holding water but not flooding.
+    if (percent < 70) return { 
         reading: 'Moist', 
         status: 'STATUS: Healthy', 
         className: 'text-emerald-400 font-bold' 
     };
     
-    // 75% - 100%: Wet (Oversaturated)
+    // 80% - 100%: Wet
+    // Meaning: Saturated, likely currently raining or just finished raining.
     return { 
         reading: 'Wet', 
-        status: 'STATUS: High Saturation', 
+        status: 'STATUS: Saturated', 
         className: 'text-cyan-400 font-bold' 
     };
 };
