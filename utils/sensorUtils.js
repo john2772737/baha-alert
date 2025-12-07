@@ -68,23 +68,33 @@ export const getRainStatus = (percent) => {
 // ... (Rest of your status functions) ...
 
 export const getSoilStatus = (percent) => {
-  if (percent < 10)
-    return {
-      reading: "Dry",
-      status: "STATUS: Low Moisture",
-      className: "text-red-400 font-bold",
+    // 0% - 10%: Too Dry
+    if (percent < 10) return { 
+        reading: 'Dry', 
+        status: 'STATUS: Low Moisture', 
+        className: 'text-red-400 font-bold' 
     };
-  if (percent < 30)
-    return {
-      reading: "Low",
-      status: "STATUS: Slightly Damp",
-      className: "text-yellow-400 font-bold",
+    
+    // 10% - 30%: Slightly Damp (Needs attention soon)
+    if (percent < 30) return { 
+        reading: 'Low', 
+        status: 'STATUS: Slightly Damp', 
+        className: 'text-yellow-400 font-bold' 
     };
-  return {
-    reading: "Moist",
-    status: "STATUS: Normal",
-    className: "text-emerald-400 font-bold",
-  };
+    
+    // 30% - 70%: Perfect/Moist (The "Good" Zone)
+    if (percent < 70) return { 
+        reading: 'Moist', 
+        status: 'STATUS: Normal', 
+        className: 'text-emerald-400 font-bold' 
+    };
+    
+    // 70% - 100%: Wet (High Saturation) -> ⭐ NEW CATEGORY
+    return { 
+        reading: 'Wet', 
+        status: 'STATUS: High Saturation', 
+        className: 'text-cyan-400 font-bold' // Using Cyan/Blue for water
+    };
 };
 
 export const getWaterTankStatus = (percent, distance) => {
