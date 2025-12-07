@@ -12,25 +12,38 @@ import ModeView from '../components/ModeView';
 const REAL_API_ENDPOINT = 'https://baha-alert.vercel.app/api'; 
 const FETCH_TODAY_LOG_INTERVAL_MS = 600000; 
 
-// --- Animated Status Card (Moved here from ModeView for reusability if needed, or keep in ModeView) ---
+// --- Animated Status Card (Moved here for direct styling control) ---
 const StatusCard = ({ Icon, title, reading, status, className }) => {
+    // Determine if the status is critical based on the color class passed
     const isCritical = className.includes('text-red') || className.includes('text-yellow');
+    
     return (
         <article className={`relative p-4 sm:p-5 bg-slate-800 rounded-xl shadow-lg border border-slate-700 transition-all duration-300 hover:scale-105 hover:shadow-2xl overflow-hidden
             ${isCritical ? 'border-l-4' : ''} 
             ${className.includes('text-red') ? 'border-l-red-500' : ''}
             ${className.includes('text-yellow') ? 'border-l-yellow-500' : ''}
         `}>
+            {/* Background Pulse Animation for Critical Alerts */}
             {isCritical && (
                 <div className={`absolute inset-0 opacity-10 animate-pulse ${className.includes('text-red') ? 'bg-red-500' : 'bg-yellow-500'}`}></div>
             )}
+
             <div className="relative z-10">
                 <div className="flex justify-between items-start mb-2">
                     <Icon className={`w-8 h-8 p-1.5 rounded-lg ${className} ${isCritical ? 'animate-bounce-slow' : ''}`} />
+                    
+                    {/* Ping Animation Dot */}
+                    {isCritical && (
+                        <span className="flex h-3 w-3 relative">
+                            <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${className.includes('text-red') ? 'bg-red-400' : 'bg-yellow-400'}`}></span>
+                            <span className={`relative inline-flex rounded-full h-3 w-3 ${className.includes('text-red') ? 'bg-red-500' : 'bg-yellow-500'}`}></span>
+                        </span>
+                    )}
                 </div>
+                
                 <h3 className="text-xs sm:text-sm font-medium text-slate-400 uppercase tracking-wider">{title}</h3>
                 <p className="text-xl sm:text-2xl font-black text-white mt-1 truncate">{reading}</p>
-                <p className={`text-[10px] sm:text-xs font-bold mt-2 ${className.split(' ')[0]}`}>{status}</p>
+                <p className={`text-[10px] sm:text-xs font-bold mt-2 truncate ${className.split(' ')[0]}`}>{status}</p>
             </div>
         </article>
     );
@@ -340,7 +353,8 @@ const App = () => {
                 {mode === 'Auto' ? (
                     <>
                         {fetchError && <div className="p-3 bg-red-900/30 text-red-300 rounded-lg border border-red-800 text-center font-semibold text-sm mb-4">{fetchError}</div>}
-                        {/* Status Cards */}
+                        
+                        {/* 1. Status Cards Section */}
                         <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
                             <StatusCard Icon={CloudRainIcon} title="Rain" reading={useSensorData(isClient, mode).rainStatus.reading} status={useSensorData(isClient, mode).rainStatus.status} className="text-sky-400 bg-sky-900/30" />
                             <StatusCard Icon={GaugeIcon} title="Pressure" reading={`${liveData.pressure.toFixed(1)} hPa`} status={useSensorData(isClient, mode).pressureStatus.status} className="text-purple-400 bg-purple-900/30" />
@@ -349,7 +363,7 @@ const App = () => {
                         </section>
 
                         <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                            {/* Historical Trends Chart */}
+                            {/* 2. Historical Trends Chart */}
                             <article className="lg:col-span-2 p-4 sm:p-6 bg-slate-800 rounded-2xl shadow-lg border border-slate-700">
                                 <div className="flex justify-between items-center mb-4 sm:mb-6">
                                     <h3 className="text-lg sm:text-xl font-bold text-slate-200 flex items-center gap-2">
@@ -361,25 +375,25 @@ const App = () => {
                                 <div className="chart-container"><canvas ref={dashboardRefs.historyChartRef}></canvas></div>
                             </article>
                             
-                            {/* ⭐ FIXED LIVE GAUGES SECTION */}
+                            {/* ⭐ 3. FIXED & ANIMATED LIVE GAUGES SECTION */}
                             <article className="p-3 sm:p-4 bg-slate-800 rounded-2xl shadow-lg border border-slate-700 hover:border-slate-600 transition-colors">
                                 <h3 className="text-lg sm:text-xl font-bold mb-4 text-white text-center">Live Gauges</h3>
-                                <div className="grid grid-cols-2 gap-3 sm:gap-4">
-                                    <div className="flex flex-col items-center justify-between aspect-[5/3] sm:aspect-[2/1] group rounded-xl bg-slate-900/50 p-2 border border-slate-700/50">
+                                <div className="grid grid-cols-2 gap-3 sm:gap-4 h-full">
+                                    <div className="flex flex-col items-center justify-between aspect-[5/3] sm:aspect-[2/1] group rounded-xl bg-slate-900/50 p-2 border border-slate-700/50 hover:border-sky-500/30 transition-colors">
                                         <canvas ref={dashboardRefs.rainGaugeRef} className="w-full h-auto object-contain flex-grow"></canvas>
-                                        <span className="text-[10px] sm:text-xs mt-1 text-slate-400 font-bold uppercase tracking-wide">Rain</span>
+                                        <span className="text-[10px] sm:text-xs mt-1 text-slate-400 font-bold uppercase tracking-wide group-hover:text-sky-400 transition-colors">Rain</span>
                                     </div>
-                                    <div className="flex flex-col items-center justify-between aspect-[5/3] sm:aspect-[2/1] group rounded-xl bg-slate-900/50 p-2 border border-slate-700/50">
+                                    <div className="flex flex-col items-center justify-between aspect-[5/3] sm:aspect-[2/1] group rounded-xl bg-slate-900/50 p-2 border border-slate-700/50 hover:border-purple-500/30 transition-colors">
                                         <canvas ref={dashboardRefs.pressureGaugeRef} className="w-full h-auto object-contain flex-grow"></canvas>
-                                        <span className="text-[10px] sm:text-xs mt-1 text-slate-400 font-bold uppercase tracking-wide">Pressure</span>
+                                        <span className="text-[10px] sm:text-xs mt-1 text-slate-400 font-bold uppercase tracking-wide group-hover:text-purple-400 transition-colors">Pressure</span>
                                     </div>
-                                    <div className="flex flex-col items-center justify-between aspect-[5/3] sm:aspect-[2/1] group rounded-xl bg-slate-900/50 p-2 border border-slate-700/50">
+                                    <div className="flex flex-col items-center justify-between aspect-[5/3] sm:aspect-[2/1] group rounded-xl bg-slate-900/50 p-2 border border-slate-700/50 hover:border-cyan-500/30 transition-colors">
                                         <canvas ref={dashboardRefs.waterTankGaugeRef} className="w-full h-auto object-contain flex-grow"></canvas>
-                                        <span className="text-[10px] sm:text-xs mt-1 text-slate-400 font-bold uppercase tracking-wide">Water</span>
+                                        <span className="text-[10px] sm:text-xs mt-1 text-slate-400 font-bold uppercase tracking-wide group-hover:text-cyan-400 transition-colors">Water</span>
                                     </div>
-                                    <div className="flex flex-col items-center justify-between aspect-[5/3] sm:aspect-[2/1] group rounded-xl bg-slate-900/50 p-2 border border-slate-700/50">
+                                    <div className="flex flex-col items-center justify-between aspect-[5/3] sm:aspect-[2/1] group rounded-xl bg-slate-900/50 p-2 border border-slate-700/50 hover:border-orange-500/30 transition-colors">
                                         <canvas ref={dashboardRefs.soilGaugeRef} className="w-full h-auto object-contain flex-grow"></canvas>
-                                        <span className="text-[10px] sm:text-xs mt-1 text-slate-400 font-bold uppercase tracking-wide">Soil</span>
+                                        <span className="text-[10px] sm:text-xs mt-1 text-slate-400 font-bold uppercase tracking-wide group-hover:text-orange-400 transition-colors">Soil</span>
                                     </div>
                                 </div>
                             </article>
