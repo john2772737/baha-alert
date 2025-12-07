@@ -22,9 +22,15 @@ export const STATE_MAPPINGS = {
 
 // --- Status Logic (Percentage/Value -> Display) ---
 export const getRainStatus = (percent) => {
-    if (percent < 5) return { reading: 'No Rain', status: 'STATUS: Clear', className: 'text-emerald-400 font-bold' };
-    if (percent < 40) return { reading: 'Light Rain', status: 'STATUS: Drizzling', className: 'text-yellow-400 font-bold' };
-    if (percent < 70) return { reading: 'Moderate Rain', status: 'STATUS: Raining', className: 'text-orange-400 font-bold' };
+    // ⭐ ADJUSTED: Increased from 5 to 25. 
+    // Now, readings between 0-25% are ignored as "noise/humidity".
+    if (percent < 25) return { reading: 'No Rain', status: 'STATUS: Clear', className: 'text-emerald-400 font-bold' };
+    
+    // Shifted other thresholds slightly to accommodate the change
+    if (percent < 55) return { reading: 'Light Rain', status: 'STATUS: Drizzling', className: 'text-yellow-400 font-bold' };
+    
+    if (percent < 80) return { reading: 'Moderate Rain', status: 'STATUS: Raining', className: 'text-orange-400 font-bold' };
+    
     return { reading: 'Heavy Rain', status: 'ALERT: Storm Conditions', className: 'text-red-400 font-bold' };
 };
 
