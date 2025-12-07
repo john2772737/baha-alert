@@ -3,7 +3,7 @@ import { useRouter } from 'next/router';
 import { useAuth } from '../context/AuthContext'; 
 import QRCode from 'react-qr-code'; 
 
-// ⭐ Added status helper imports for the UI
+// Import helpers
 import { getFormattedTime, getRainStatus, getSoilStatus, getWaterTankStatus, getPressureStatus } from '../utils/sensorUtils';
 import { useSensorData } from '../hooks/useSensorData';
 import { useDashboardInit } from '../hooks/useDashboardInit';
@@ -13,9 +13,8 @@ import ModeView from '../components/ModeView';
 const REAL_API_ENDPOINT = 'https://baha-alert.vercel.app/api'; 
 const FETCH_TODAY_LOG_INTERVAL_MS = 600000; 
 
-// --- Animated Status Card (UI Component) ---
+// --- Animated Status Card ---
 const StatusCard = ({ Icon, title, reading, status, className }) => {
-    // Determine if the status is critical (Red/Yellow) to trigger animations
     const isCritical = className.includes('text-red') || className.includes('text-yellow');
     
     return (
@@ -24,7 +23,6 @@ const StatusCard = ({ Icon, title, reading, status, className }) => {
             ${className.includes('text-red') ? 'border-l-red-500' : ''}
             ${className.includes('text-yellow') ? 'border-l-yellow-500' : ''}
         `}>
-            {/* Background Pulse Animation for Critical Alerts */}
             {isCritical && (
                 <div className={`absolute inset-0 opacity-10 animate-pulse ${className.includes('text-red') ? 'bg-red-500' : 'bg-yellow-500'}`}></div>
             )}
@@ -33,7 +31,6 @@ const StatusCard = ({ Icon, title, reading, status, className }) => {
                 <div className="flex justify-between items-start mb-2">
                     <Icon className={`w-8 h-8 p-1.5 rounded-lg ${className} ${isCritical ? 'animate-bounce-slow' : ''}`} />
                     
-                    {/* Ping Animation Dot for Alerts */}
                     {isCritical && (
                         <span className="flex h-3 w-3 relative">
                             <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${className.includes('text-red') ? 'bg-red-400' : 'bg-yellow-400'}`}></span>
@@ -140,7 +137,6 @@ const App = () => {
             doc.text(text, x, y);
         };
 
-        // Header
         doc.setTextColor(22, 163, 74); 
         centerText('SMART WEATHER STATION', currentY, 18, 'helvetica', 'bold');
         currentY += 8;
@@ -161,7 +157,6 @@ const App = () => {
 
         doc.setFillColor(240, 240, 240); 
         doc.rect(margin, currentY - 5, pageWidth - (margin * 2), 8, 'F');
-
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(9);
         doc.setTextColor(0, 0, 0);
@@ -173,7 +168,6 @@ const App = () => {
         doc.text('WATER (cm)', col5, currentY);
         currentY += 10; 
 
-        // Data Rows
         doc.setFont('helvetica', 'normal');
         doc.setTextColor(50, 50, 50);
 
@@ -283,6 +277,7 @@ const App = () => {
     if (!isClient || !scriptsLoaded) return <div className="flex justify-center items-center h-screen bg-slate-900 text-emerald-400 font-inter"><RefreshCcwIcon className="animate-spin w-8 h-8 mr-2" /> Initializing...</div>;
 
     // --- Calculations for Status (UI only) ---
+    // ⭐ FIXED: Calculated here instead of inside JSX
     const rainStatus = getRainStatus(percents.rainPercent);
     const soilStatus = getSoilStatus(percents.soilPercent);
     const waterTankStatus = getWaterTankStatus(percents.waterPercent, liveData.waterDistanceCM);
@@ -363,6 +358,7 @@ const App = () => {
                         
                         {/* 1. Status Cards Section (Fixed Animations) */}
                         <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+                            {/* ⭐ FIXED: Using computed variables instead of calling hook */}
                             <StatusCard Icon={CloudRainIcon} title="Rain" reading={rainStatus.reading} status={rainStatus.status} className="text-sky-400 bg-sky-900/30" />
                             <StatusCard Icon={GaugeIcon} title="Pressure" reading={`${liveData.pressure.toFixed(1)} hPa`} status={pressureStatus.status} className="text-purple-400 bg-purple-900/30" />
                             <StatusCard Icon={BoxIcon} title="Water" reading={waterTankStatus.reading} status={waterTankStatus.status} className="text-cyan-400 bg-cyan-900/30" />
