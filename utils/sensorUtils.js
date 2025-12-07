@@ -66,34 +66,26 @@ export const getRainStatus = (percent) => {
 };
 
 // ... (Rest of your status functions) ...
-
 export const getSoilStatus = (percent) => {
-    // 0% - 10%: Too Dry
-    if (percent < 10) return { 
+    // 0% - 35%: Dry (Needs Water)
+    if (percent < 35) return { 
         reading: 'Dry', 
-        status: 'STATUS: Low Moisture', 
+        status: 'STATUS: Needs Water', 
         className: 'text-red-400 font-bold' 
     };
     
-    // 10% - 30%: Slightly Damp (Needs attention soon)
-    if (percent < 30) return { 
-        reading: 'Low', 
-        status: 'STATUS: Slightly Damp', 
-        className: 'text-yellow-400 font-bold' 
-    };
-    
-    // 30% - 70%: Perfect/Moist (The "Good" Zone)
-    if (percent < 70) return { 
+    // 35% - 75%: Moist (Ideal)
+    if (percent < 75) return { 
         reading: 'Moist', 
-        status: 'STATUS: Normal', 
+        status: 'STATUS: Healthy', 
         className: 'text-emerald-400 font-bold' 
     };
     
-    // 70% - 100%: Wet (High Saturation) -> ⭐ NEW CATEGORY
+    // 75% - 100%: Wet (Oversaturated)
     return { 
         reading: 'Wet', 
         status: 'STATUS: High Saturation', 
-        className: 'text-cyan-400 font-bold' // Using Cyan/Blue for water
+        className: 'text-cyan-400 font-bold' 
     };
 };
 
