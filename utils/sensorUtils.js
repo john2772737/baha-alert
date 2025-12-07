@@ -99,7 +99,7 @@ export const getWaterTankStatus = (percent, distance) => {
       status: "SENSOR ERROR",
       className: "text-red-500 font-black animate-pulse",
     };
-  if (percent > 90)
+  if (percent > 70)
     return {
       reading: "High",
       status: "STATUS: High Capacity",
