@@ -29,7 +29,7 @@ export const getRainStatus = (percent) => {
     // Shifted other thresholds slightly to accommodate the change
     if (percent < 55) return { reading: 'Light Rain', status: 'STATUS: Drizzling', className: 'text-yellow-400 font-bold' };
     
-    if (percent < 80) return { reading: 'Moderate Rain', status: 'STATUS: Raining', className: 'text-orange-400 font-bold' };
+    if (percent < 70) return { reading: 'Moderate Rain', status: 'STATUS: Raining', className: 'text-orange-400 font-bold' };
     
     return { reading: 'Heavy Rain', status: 'ALERT: Storm Conditions', className: 'text-red-400 font-bold' };
 };
