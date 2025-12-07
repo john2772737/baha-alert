@@ -77,7 +77,7 @@ export const getSoilStatus = (percent) => {
     
     // 40% - 80%: Moist
     // Meaning: Ideal conditions, holding water but not flooding.
-    if (percent < 70) return { 
+    if (percent < 50) return { 
         reading: 'Moist', 
         status: 'STATUS: Healthy', 
         className: 'text-emerald-400 font-bold' 
