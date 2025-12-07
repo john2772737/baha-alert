@@ -4,36 +4,76 @@ import { CloudRainIcon, GaugeIcon, BoxIcon, LeafIcon, MoonIcon, RefreshCcwIcon, 
 
 const API_ENDPOINT = 'https://baha-alert.vercel.app/api';
 
-// --- Card Components ---
-const StatusCard = ({ Icon, title, reading, status, className }) => (
-    <article className="p-5 bg-slate-800 rounded-xl shadow-lg border border-slate-700 transition-transform hover:scale-105">
-        <Icon className={`w-8 h-8 mb-3 p-1.5 rounded-lg ${className}`} />
-        <h3 className="text-sm font-medium text-slate-400">{title}</h3>
-        <p className="text-2xl font-black text-white">{reading}</p>
-        <p className={`text-xs ${className.split(' ')[2]}`}>{status}</p>
-    </article>
-);
+// --- Animated Status Card ---
+const StatusCard = ({ Icon, title, reading, status, className }) => {
+    // Check if status is critical (Red or Yellow) to trigger animations
+    const isCritical = className.includes('text-red') || className.includes('text-yellow');
+    
+    return (
+        <article className={`relative p-5 bg-slate-800 rounded-xl shadow-lg border border-slate-700 transition-all duration-300 hover:scale-105 hover:shadow-2xl overflow-hidden
+            ${isCritical ? 'border-l-4' : ''} 
+            ${className.includes('text-red') ? 'border-l-red-500' : ''}
+            ${className.includes('text-yellow') ? 'border-l-yellow-500' : ''}
+        `}>
+            {/* Background Pulse for Critical Alerts */}
+            {isCritical && (
+                <div className={`absolute inset-0 opacity-10 animate-pulse ${className.includes('text-red') ? 'bg-red-500' : 'bg-yellow-500'}`}></div>
+            )}
+
+            <div className="relative z-10">
+                <div className="flex justify-between items-start mb-2">
+                    <Icon className={`w-8 h-8 p-1.5 rounded-lg ${className} ${isCritical ? 'animate-bounce-slow' : ''}`} />
+                    {isCritical && <span className="flex h-3 w-3 relative">
+                        <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${className.includes('text-red') ? 'bg-red-400' : 'bg-yellow-400'}`}></span>
+                        <span className={`relative inline-flex rounded-full h-3 w-3 ${className.includes('text-red') ? 'bg-red-500' : 'bg-yellow-500'}`}></span>
+                    </span>}
+                </div>
+                
+                <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wider">{title}</h3>
+                <p className="text-2xl font-black text-white mt-1">{reading}</p>
+                <p className={`text-xs font-bold mt-2 ${className.split(' ')[0]}`}>{status}</p>
+            </div>
+        </article>
+    );
+};
 
 const TestControlCard = ({ Icon, title, sensorKey, dbValue, onToggle, isActive }) => (
-    <div className={`p-5 rounded-xl border shadow-md flex flex-col justify-between transition-all ${isActive ? 'bg-indigo-900/20 border-indigo-500' : 'bg-slate-800 border-slate-700'}`}>
+    <div className={`p-5 rounded-xl border shadow-md flex flex-col justify-between transition-all duration-500 
+        ${isActive ? 'bg-indigo-900/30 border-indigo-500 scale-[1.02] ring-2 ring-indigo-500/20' : 'bg-slate-800 border-slate-700 hover:border-slate-600'}`}>
+        
         <div className="flex justify-between items-start mb-4">
             <div className="flex items-center gap-3">
-                <Icon className={`w-10 h-10 p-2 rounded-lg ${isActive ? 'bg-indigo-500 text-white' : 'bg-slate-700 text-indigo-400'}`} />
+                <div className={`p-2 rounded-lg transition-colors duration-300 ${isActive ? 'bg-indigo-500 text-white' : 'bg-slate-700 text-indigo-400'}`}>
+                    <Icon className={`w-6 h-6 ${isActive ? 'animate-spin-slow' : ''}`} />
+                </div>
                 <div>
                     <h4 className="font-bold text-slate-200">{title}</h4>
-                    <span className="text-xs text-slate-500 font-mono">
-                        STATUS: {isActive ? <span className="text-emerald-400 animate-pulse">TESTING...</span> : 'IDLE'}
+                    <span className="text-xs text-slate-500 font-mono flex items-center gap-2">
+                        {isActive ? (
+                            <span className="text-emerald-400 flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse"></span>
+                                TESTING...
+                            </span>
+                        ) : 'IDLE'}
                     </span>
                 </div>
             </div>
         </div>
-        <div className="bg-slate-900/50 p-3 rounded-lg mb-4 text-sm font-mono flex justify-between items-center">
+
+        <div className="bg-slate-900/50 p-3 rounded-lg mb-4 text-sm font-mono flex justify-between items-center border border-slate-700/50">
             <span className="text-slate-500">Live Result:</span>
-            <span className={`font-bold text-lg ${dbValue && dbValue !== 'Waiting...' ? 'text-white' : 'text-slate-600'}`}>
+            <span className={`font-bold text-lg transition-all duration-300 ${dbValue && dbValue !== 'Waiting...' ? 'text-white scale-110' : 'text-slate-600'}`}>
                 {dbValue || '--'}
             </span>
         </div>
-        <button onClick={() => onToggle(sensorKey)} className={`w-full py-3 rounded-lg font-bold text-sm flex items-center justify-center gap-2 transition-all ${isActive ? 'bg-red-500 hover:bg-red-600 text-white' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}`}>
+
+        <button 
+            onClick={() => onToggle(sensorKey)} 
+            className={`w-full py-3 rounded-lg font-bold text-sm flex items-center justify-center gap-2 transition-all duration-300 transform active:scale-95
+            ${isActive 
+                ? 'bg-red-500/10 text-red-400 border border-red-500/50 hover:bg-red-500 hover:text-white' 
+                : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg hover:shadow-indigo-500/25'}`}
+        >
             {isActive ? <><XCircleIcon className="w-4 h-4" /> STOP TEST</> : <><ActivityIcon className="w-4 h-4" /> START LOOP</>}
         </button>
     </div>
@@ -78,63 +118,51 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
 
     const toggleTest = (sensorKey) => setActiveTests(prev => ({ ...prev, [sensorKey]: !prev[sensorKey] }));
 
-    // =========================================================================
-    // ⭐ LOGIC: GLOBAL LOCKOUT (If physical switch doesn't match UI Tab)
-    // =========================================================================
-    
-    // 1. If physical device is in AUTO, but user is on Maintenance/Sleep tab
+    // Global Lockout UI
     if (liveData.deviceMode === 'AUTO' && mode !== 'Auto') {
         return (
-            <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center">
-                <CpuIcon className="w-16 h-16 mb-4 text-emerald-500 animate-pulse" />
-                <h3 className="text-2xl font-bold text-slate-200 mb-2">Device is in Auto Mode</h3>
-                <p className="text-slate-400 max-w-md mb-6">
-                    The physical switch is set to <strong>AUTO</strong>. You cannot access {mode} controls while the device is running automation logic.
-                </p>
-                <button onClick={() => setMode('Auto')} className="px-8 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg transition-colors">
-                    Go to Auto Dashboard
+            <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center animate-fadeIn">
+                <div className="relative mb-6">
+                    <div className="absolute inset-0 bg-emerald-500 blur-xl opacity-20 animate-pulse"></div>
+                    <CpuIcon className="w-20 h-20 text-emerald-500 relative z-10" />
+                </div>
+                <h3 className="text-2xl font-bold text-white mb-2">Device is in Auto Mode</h3>
+                <p className="text-slate-400 max-w-md mb-8">The physical switch is set to <strong>AUTO</strong>. Manual controls are disabled to prevent conflicts.</p>
+                <button onClick={() => setMode('Auto')} className="px-8 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-lg shadow-emerald-900/20 transition-all hover:-translate-y-1">
+                    Go to Dashboard
                 </button>
             </div>
         );
     }
 
-    // 2. If physical device is in MAINTENANCE, but user is on Auto/Sleep tab
     if (liveData.deviceMode === 'MAINTENANCE' && mode !== 'Maintenance') {
         return (
-            <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center">
-                <RefreshCcwIcon className="w-16 h-16 mb-4 text-yellow-500 animate-spin-slow" />
-                <h3 className="text-2xl font-bold text-slate-200 mb-2">Device is in Maintenance Mode</h3>
-                <p className="text-slate-400 max-w-md mb-6">
-                    The physical switch is set to <strong>MAINTENANCE</strong>. Live automated data is paused. You must verify sensor tests in the Maintenance tab.
-                </p>
-                <button onClick={() => setMode('Maintenance')} className="px-8 py-3 bg-yellow-600 hover:bg-yellow-700 text-white font-bold rounded-xl shadow-lg transition-colors">
-                    Go to Maintenance Console
+            <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center animate-fadeIn">
+                <RefreshCcwIcon className="w-20 h-20 mb-6 text-yellow-500 animate-spin-slow" />
+                <h3 className="text-2xl font-bold text-white mb-2">Device is in Maintenance Mode</h3>
+                <p className="text-slate-400 max-w-md mb-8">Live data automation is paused. Please use the Maintenance Console to test sensors manually.</p>
+                <button onClick={() => setMode('Maintenance')} className="px-8 py-3 bg-yellow-600 hover:bg-yellow-500 text-white font-bold rounded-xl shadow-lg shadow-yellow-900/20 transition-all hover:-translate-y-1">
+                    Open Console
                 </button>
             </div>
         );
     }
 
-    // 3. If physical device is in SLEEP, but user is on Auto/Maintenance tab
     if (liveData.deviceMode === 'SLEEP' && mode !== 'Sleep') {
         return (
-            <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center">
-                <MoonIcon className="w-16 h-16 mb-4 text-indigo-400" />
-                <h3 className="text-2xl font-bold text-slate-200 mb-2">Device is in Sleep Mode</h3>
-                <p className="text-slate-400 max-w-md mb-6">
-                    The physical device is currently sleeping to save power. Sensors are offline.
-                </p>
-                <button onClick={() => setMode('Sleep')} className="px-8 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg transition-colors">
-                    Go to Sleep View
+            <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center animate-fadeIn">
+                <MoonIcon className="w-20 h-20 mb-6 text-indigo-400 animate-pulse" />
+                <h3 className="text-2xl font-bold text-white mb-2">Device is Sleeping</h3>
+                <p className="text-slate-400 max-w-md mb-8">System is in low-power mode. Wake the device using the physical button to view live data.</p>
+                <button onClick={() => setMode('Sleep')} className="px-8 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl shadow-lg shadow-indigo-900/20 transition-all hover:-translate-y-1">
+                    View Status
                 </button>
             </div>
         );
     }
 
-    // =========================================================================
-    // ⭐ NORMAL VIEWS (When Switch Matches Tab)
-    // =========================================================================
+    // --- NORMAL VIEWS ---
 
-    // VIEW 1: AUTO DASHBOARD
     if (mode === 'Auto') {
         const rainStatus = getRainStatus(percents.rainPercent);
         const soilStatus = getSoilStatus(percents.soilPercent);
@@ -142,43 +170,69 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
         const pressureStatus = getPressureStatus(liveData.pressure);
 
         return (
-            <>
-                {fetchError && <div className="p-3 bg-red-900/30 text-red-300 rounded-lg border border-red-800 text-center font-semibold text-sm mb-4">{fetchError}</div>}
+            <div className="animate-fadeIn">
+                {fetchError && (
+                    <div className="p-4 bg-red-500/10 text-red-400 rounded-xl border border-red-500/20 text-center font-bold mb-6 animate-pulse">
+                        ⚠️ {fetchError}
+                    </div>
+                )}
+                
                 <section className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                    <StatusCard Icon={CloudRainIcon} title="Rain Sensor" reading={rainStatus.reading} status={rainStatus.status} className="text-sky-400 bg-sky-900/30" />
-                    <StatusCard Icon={GaugeIcon} title="Pressure" reading={`${liveData.pressure.toFixed(1)} hPa`} status={pressureStatus.status} className="text-purple-400 bg-purple-900/30" />
-                    <StatusCard Icon={BoxIcon} title="Water Level" reading={waterTankStatus.reading} status={waterTankStatus.status} className="text-cyan-400 bg-cyan-900/30" />
-                    <StatusCard Icon={LeafIcon} title="Soil Moisture" reading={soilStatus.reading} status={soilStatus.status} className="text-orange-400 bg-orange-900/30" />
+                    <StatusCard Icon={CloudRainIcon} title="Rain Sensor" reading={rainStatus.reading} status={rainStatus.status} className="text-sky-400 bg-sky-500/10" />
+                    <StatusCard Icon={GaugeIcon} title="Pressure" reading={`${liveData.pressure.toFixed(1)} hPa`} status={pressureStatus.status} className="text-purple-400 bg-purple-500/10" />
+                    <StatusCard Icon={BoxIcon} title="Water Level" reading={waterTankStatus.reading} status={waterTankStatus.status} className="text-cyan-400 bg-cyan-500/10" />
+                    <StatusCard Icon={LeafIcon} title="Soil Moisture" reading={soilStatus.reading} status={soilStatus.status} className="text-orange-400 bg-orange-500/10" />
                 </section>
+
                 <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    <article className="lg:col-span-2 p-6 bg-slate-800 rounded-2xl shadow-lg border border-slate-700">
-                        <h3 className="text-xl font-bold mb-6 text-slate-200">Historical Trends</h3>
+                    <article className="lg:col-span-2 p-6 bg-slate-800 rounded-2xl shadow-lg border border-slate-700 hover:border-slate-600 transition-colors">
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                                <ActivityIcon className="w-5 h-5 text-indigo-400" />
+                                Historical Trends
+                            </h3>
+                            <span className="text-xs text-slate-500 bg-slate-900 px-2 py-1 rounded">Last 7 Days</span>
+                        </div>
                         <div className="chart-container h-64"><canvas ref={refs.historyChartRef}></canvas></div>
                     </article>
-                    <article className="p-6 bg-slate-800 rounded-2xl shadow-lg border border-slate-700">
-                        <h3 className="text-xl font-bold mb-6 text-slate-200">Live Gauges</h3>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="flex flex-col items-center"><canvas ref={refs.rainGaugeRef} className="w-full"></canvas><span className="text-xs mt-1 text-slate-400">Rain</span></div>
-                            <div className="flex flex-col items-center"><canvas ref={refs.pressureGaugeRef} className="w-full"></canvas><span className="text-xs mt-1 text-slate-400">Pressure</span></div>
-                            <div className="flex flex-col items-center"><canvas ref={refs.waterTankGaugeRef} className="w-full"></canvas><span className="text-xs mt-1 text-slate-400">Water</span></div>
-                            <div className="flex flex-col items-center"><canvas ref={refs.soilGaugeRef} className="w-full"></canvas><span className="text-xs mt-1 text-slate-400">Soil</span></div>
+
+                    <article className="p-6 bg-slate-800 rounded-2xl shadow-lg border border-slate-700 hover:border-slate-600 transition-colors">
+                        <h3 className="text-xl font-bold mb-6 text-white text-center">Live Gauges</h3>
+                        <div className="grid grid-cols-2 gap-6">
+                            <div className="flex flex-col items-center group">
+                                <canvas ref={refs.rainGaugeRef} className="w-full transition-transform group-hover:scale-110 duration-300"></canvas>
+                                <span className="text-xs mt-2 text-slate-400 font-bold uppercase tracking-wide">Rain</span>
+                            </div>
+                            <div className="flex flex-col items-center group">
+                                <canvas ref={refs.pressureGaugeRef} className="w-full transition-transform group-hover:scale-110 duration-300"></canvas>
+                                <span className="text-xs mt-2 text-slate-400 font-bold uppercase tracking-wide">Pressure</span>
+                            </div>
+                            <div className="flex flex-col items-center group">
+                                <canvas ref={refs.waterTankGaugeRef} className="w-full transition-transform group-hover:scale-110 duration-300"></canvas>
+                                <span className="text-xs mt-2 text-slate-400 font-bold uppercase tracking-wide">Water</span>
+                            </div>
+                            <div className="flex flex-col items-center group">
+                                <canvas ref={refs.soilGaugeRef} className="w-full transition-transform group-hover:scale-110 duration-300"></canvas>
+                                <span className="text-xs mt-2 text-slate-400 font-bold uppercase tracking-wide">Soil</span>
+                            </div>
                         </div>
                     </article>
                 </section>
-            </>
+            </div>
         );
     }
 
-    // VIEW 2: MAINTENANCE CONSOLE
     if (mode === 'Maintenance') {
         return (
-            <section className="space-y-6">
-                <div className="p-6 bg-yellow-900/10 rounded-2xl border border-yellow-600/30 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <section className="space-y-6 animate-fadeIn">
+                <div className="p-6 bg-yellow-500/10 rounded-2xl border border-yellow-500/20 flex flex-col sm:flex-row items-center justify-between gap-4">
                     <div className="flex items-center gap-4">
-                        <div className="p-3 bg-yellow-500/10 rounded-xl"><CpuIcon className="w-8 h-8 text-yellow-500" /></div>
+                        <div className="p-3 bg-yellow-500/20 rounded-xl animate-pulse">
+                            <CpuIcon className="w-8 h-8 text-yellow-500" />
+                        </div>
                         <div>
-                            <h2 className="text-xl font-bold text-yellow-100">Maintenance Console</h2>
-                            <p className="text-yellow-400/70 text-sm">Physical switch confirmed. Running diagnostics.</p>
+                            <h2 className="text-xl font-bold text-white">Maintenance Console</h2>
+                            <p className="text-yellow-200/70 text-sm">Physical switch confirmed. Running diagnostics.</p>
                         </div>
                     </div>
                 </div>
@@ -192,15 +246,15 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
         );
     }
 
-    // VIEW 3: SLEEP VIEW
     if (mode === 'Sleep') {
         return (
-            <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center">
-                <MoonIcon className="w-20 h-20 mb-6 text-indigo-400 animate-pulse" />
-                <h3 className="text-3xl font-bold text-slate-200 mb-2">System Asleep</h3>
-                <p className="text-slate-400 max-w-md">
-                    The device has entered low-power mode. Press the physical button on the device to wake it up.
-                </p>
+            <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center animate-fadeIn">
+                <div className="relative mb-6">
+                    <div className="absolute inset-0 bg-indigo-500 blur-2xl opacity-20 animate-pulse"></div>
+                    <MoonIcon className="w-24 h-24 text-indigo-400 relative z-10" />
+                </div>
+                <h3 className="text-3xl font-bold text-white mb-2">System Asleep</h3>
+                <p className="text-slate-400 max-w-md">The device has entered low-power mode. Press the physical button on the device to wake it up.</p>
             </div>
         );
     }
