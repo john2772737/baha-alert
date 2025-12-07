@@ -69,7 +69,7 @@ export const getRainStatus = (percent) => {
 export const getSoilStatus = (percent) => {
     // 0% - 40%: Dry
     // Meaning: The soil is dry and needs rain/watering.
-    if (percent < 30) return { 
+    if (percent < 20) return { 
         reading: 'Dry', 
         status: 'STATUS: Low Moisture', 
         className: 'text-red-400 font-bold' 
