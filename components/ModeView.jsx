@@ -45,13 +45,12 @@ const getMaintenanceStatus = (sensor, value) => {
       if (val < 819) return { label: "MOIST", color: "text-emerald-400" };
       return { label: "DRY", color: "text-red-400" };
 
-    case "water":
-      // Distance in CM
-      if (val === 0 || val >= 400)
-        return { label: "ERROR", color: "text-red-500 animate-pulse" };
-      if (val <= 3) return { label: "HIGH LEVEL", color: "text-yellow-400" };
-      if (val <= 15) return { label: "NORMAL", color: "text-emerald-400" };
-      return { label: "LOW LEVEL", color: "text-red-400" };
+   case 'water':
+    // Distance in CM
+    if (val === 0 || val >= 400) return { label: 'ERROR', color: 'text-red-500 animate-pulse' };
+    if (val <= 4) return { label: 'HIGH LEVEL', color: 'text-yellow-400' }; // Changed 3 to 4
+    if (val <= 5) return { label: 'NORMAL', color: 'text-emerald-400' };    // Changed 15 to 5
+    return { label: 'LOW LEVEL', color: 'text-red-400' };
 
     case "pressure":
       // Pressure in hPa

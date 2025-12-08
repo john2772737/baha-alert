@@ -32,18 +32,23 @@ export const calculateFloodRisk = (rainRaw, soilRaw, waterDist, pressure) => {
 
     // --- 2. INFERENCE (Logic Rules) ---
 
-    // Rule 1: Extreme Danger (Water Critical OR Rain+Soil)
-    const dangerScore = Math.max(
-        waterCritical, 
-        Math.min(rainHeavy, soilSaturated)
-    );
+    // ... inside calculateFloodRisk ...
 
-    // Rule 2: Storm Warning
+    // Rule 1: Extreme Danger (Water Critical OR Heavy Rain+Wet Soil)
+    const dangerScore = Math.max(waterCritical, Math.min(rainHeavy, soilSaturated));
+
+    // Rule 2: Storm Warning (Pressure Drop + Moderate Rain)
     const stormScore = Math.min(pressureStorm, rainModerate);
+    
+    // Rule 3: General Rain Factor (NEW)
+    // Even if it's just raining a little, add a tiny bit of risk
+    const rainScore = rainModerate * 0.2; // 20% weight
 
-    // --- 3. RESULT ---
-    let finalRisk = (dangerScore * 100) + (stormScore * 60);
-    finalRisk = Math.min(100, finalRisk);
+    // --- CALCULATION ---
+    // We sum them up, but clamp the result to 100 max
+    let finalRisk = (dangerScore * 100) + (stormScore * 60) + (rainScore * 20);
+    
+    finalRisk = Math.min(100, finalRisk); // Ensure it never goes over 100%
 
     // Generate Status Text
     let status = "SAFE";
