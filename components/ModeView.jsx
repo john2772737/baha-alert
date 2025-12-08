@@ -32,7 +32,7 @@ const StatusCard = ({ Icon, title, reading, status, className }) => {
     );
 };
 
-// --- Updated TestControlCard (Maintenance Mode) ---
+// --- TestControlCard (Maintenance Mode) ---
 const TestControlCard = ({ Icon, title, sensorKey, dbValue, status, onToggle, isActive }) => (
     <div className={`p-5 rounded-xl border shadow-md flex flex-col justify-between transition-all duration-500 
         ${isActive ? 'bg-indigo-900/30 border-indigo-500 scale-[1.02] ring-2 ring-indigo-500/20' : 'bg-slate-800 border-slate-700 hover:border-slate-600'}`}>
@@ -60,12 +60,11 @@ const TestControlCard = ({ Icon, title, sensorKey, dbValue, status, onToggle, is
         <div className="bg-slate-900/50 p-3 rounded-lg mb-4 border border-slate-700/50 space-y-2">
             <div className="flex justify-between items-center text-sm font-mono">
                 <span className="text-slate-500">Value:</span>
-                <span className={`font-bold transition-all duration-300 ${dbValue && dbValue !== 'Waiting...' ? 'text-white' : 'text-slate-600'}`}>
+                <span className={`font-bold transition-all duration-300 ${dbValue !== null ? 'text-white' : 'text-slate-600'}`}>
                     {dbValue !== null ? dbValue : '--'}
                 </span>
             </div>
             
-            {/* Added Status Display */}
             <div className="flex justify-between items-center text-sm font-mono border-t border-slate-700/50 pt-2">
                 <span className="text-slate-500">Status:</span>
                 <span className={`font-bold px-2 py-0.5 rounded text-xs uppercase tracking-wide
@@ -247,11 +246,31 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
 
     // RENDER MAINTENANCE
     if (mode === 'Maintenance') {
-        // Calculate status using the same helpers as Auto, assuming dbValues are consistent with sensor inputs
-        const rainInfo = dbValues.rain !== null ? getRainStatus(dbValues.rain) : { status: '--' };
-        const soilInfo = dbValues.soil !== null ? getSoilStatus(dbValues.soil) : { status: '--' };
-        // Passing 0 as second argument for distance, assuming dbValues.water drives the main percentage status
-        const waterInfo = dbValues.water !== null ? getWaterTankStatus(dbValues.water, 0) : { status: '--' }; 
+        // --- DATA CONVERSION HELPER ---
+        // Converts Raw ADC (0-4095) to Percentage (0-100) for Status Helpers
+        // Assumes Resistive Sensors: High Value = Dry (0%), Low Value = Wet (100%)
+        const toResistivePercent = (val) => {
+            if (val === null) return 0;
+            // Clamping value between 0 and 4095
+            const clamped = Math.max(0, Math.min(4095, val));
+            // Invert: (1 - val/4095) * 100
+            return Math.round((1 - (clamped / 4095)) * 100);
+        };
+
+        // 1. RAIN: Convert raw to percent before getting status
+        const rainPercent = dbValues.rain !== null ? toResistivePercent(dbValues.rain) : 0;
+        const rainInfo = dbValues.rain !== null ? getRainStatus(rainPercent) : { status: '--' };
+
+        // 2. SOIL: Convert raw to percent before getting status
+        const soilPercent = dbValues.soil !== null ? toResistivePercent(dbValues.soil) : 0;
+        const soilInfo = dbValues.soil !== null ? getSoilStatus(soilPercent) : { status: '--' };
+
+        // 3. WATER: Assumes dbValues.water is Distance (cm). 
+        // We might not have tank height here, so we use raw for display but be careful with status.
+        // If your API returns distance, we pass it as the second arg, and 0 as percent if unknown.
+        const waterInfo = dbValues.water !== null ? getWaterTankStatus(0, dbValues.water) : { status: '--' }; 
+
+        // 4. PRESSURE: Usually absolute, no conversion needed.
         const pressureInfo = dbValues.pressure !== null ? getPressureStatus(dbValues.pressure) : { status: '--' };
 
         return (
