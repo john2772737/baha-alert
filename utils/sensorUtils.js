@@ -74,8 +74,8 @@ export const getWaterTankStatus = (percent, distance) => {
   }
 
   // Normal Logic
-  if (distance <= 3) return { reading: 'High', status: 'STATUS: High Capacity', className: 'text-yellow-400 font-bold' };
-  if (distance <= 15) return { reading: 'Normal', status: 'STATUS: Stable Level', className: 'text-emerald-400 font-bold' };
+  if (distance <= 4) return { reading: 'High', status: 'STATUS: High Capacity', className: 'text-yellow-400 font-bold' };
+  if (distance <= 5) return { reading: 'Normal', status: 'STATUS: Stable Level', className: 'text-emerald-400 font-bold' };
   return { reading: 'Low', status: 'STATUS: Low Reserves', className: 'text-red-400 font-bold' };
 };
 
