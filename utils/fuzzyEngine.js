@@ -22,28 +22,22 @@ export const calculateFloodRisk = (rainRaw, soilRaw, waterDist, pressure) => {
     // ============================================
 
     // --- RAIN SENSOR (0-1023) [Lower = Wet] ---
-    // Your Logic: > 70% is Heavy. 
-    // Calculation: 1023 * (1 - 0.70) ≈ 307.
     // Heavy Rain: Raw Value < 307
     const rainHeavy = isLow(rainRaw, 307, 511);        
     
-    // Moderate Rain: Between 307 and 767 (25%-70%)
+    // Moderate Rain: Between 307 and 767
     const rainModerate = isMiddle(rainRaw, 307, 511, 767); 
     
     // --- SOIL SENSOR (0-1023) [Lower = Wet] ---
-    // Your Logic: > 50% is Wet.
-    // Calculation: 1023 * (1 - 0.50) ≈ 511.
+    // Saturated < 511
     const soilSaturated = isLow(soilRaw, 511, 818);    
     
     // --- WATER TANK (cm) [Lower = High/Full] ---
-    // Your Logic: High <= 4cm, Normal <= 5cm
-    // RISK MAPPING: 
-    // If distance is <= 4cm, Risk is 100% (1.0)
-    // If distance is >= 5cm, Risk drops to 0% (0.0)
+    // High <= 4cm, Normal <= 5cm
     const waterCritical = isLow(waterDist, 4, 5);     
 
     // --- PRESSURE (hPa) ---
-    // Your Logic: Low < 990
+    // Low < 990
     const pressureStorm = isLow(pressure, 990, 1000);  
 
     // ============================================
@@ -65,26 +59,48 @@ export const calculateFloodRisk = (rainRaw, soilRaw, waterDist, pressure) => {
     // 3. DEFUZZIFICATION (Final Score 0-100)
     // ============================================
 
-    // Weighted Calculation
-    // Danger counts for 100%, Storm signs count for 60%
-    let finalRisk = (dangerScore * 100) + (stormScore * 60);
+    // ADJUSTMENT HERE: 
+    // I changed Storm Score multiplier from 60 to 45.
+    // This prevents the score from jumping too high just because of rain.
+    // Real "Critical" status will now mostly rely on the Water Level.
+    let finalRisk = (dangerScore * 100) + (stormScore * 45);
     
     // Clamp result to max 100%
     finalRisk = Math.min(100, finalRisk);
 
-    // --- Text Recommendation ---
+    // --- GRADUAL TEXT RECOMMENDATION (6 Levels) ---
     let status = "SAFE";
     let message = "Conditions are normal.";
     
-    if (finalRisk > 80) {
+    if (finalRisk >= 90) {
+        // Level 6: Emergency
+        status = "EMERGENCY";
+        message = "WATER OVERFLOW IMMINENT. EVACUATE NOW.";
+    } 
+    else if (finalRisk >= 70) {
+        // Level 5: Critical
         status = "CRITICAL";
-        message = "EVACUATE IMMEDIATELY. Water is at capacity.";
-    } else if (finalRisk > 50) {
+        message = "Water is at capacity limits. Prepare for flooding.";
+    } 
+    else if (finalRisk >= 50) {
+        // Level 4: Warning
         status = "WARNING";
-        message = "Water levels rising. Monitor alerts closely.";
-    } else if (finalRisk > 20) {
-        status = "CAUTION";
-        message = "Rain detected. Soil saturation increasing.";
+        message = "Water levels rising significantly. Monitor closely.";
+    } 
+    else if (finalRisk >= 30) {
+        // Level 3: Advisory
+        status = "ADVISORY";
+        message = "Heavy rain detected. Soil is saturated.";
+    } 
+    else if (finalRisk >= 15) {
+        // Level 2: Notice
+        status = "NOTICE";
+        message = "Light to moderate rain detected.";
+    } 
+    else {
+        // Level 1: Safe
+        status = "SAFE";
+        message = "Water levels low. Conditions stable.";
     }
 
     return {
