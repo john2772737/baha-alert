@@ -4,7 +4,7 @@ import { CloudRainIcon, GaugeIcon, BoxIcon, LeafIcon, MoonIcon, RefreshCcwIcon, 
 
 const API_ENDPOINT = 'https://baha-alert.vercel.app/api';
 
-// --- Animated Status Card ---
+// --- Animated Status Card (Auto/Sleep Mode) ---
 const StatusCard = ({ Icon, title, reading, status, className }) => {
     const isCritical = className.includes('text-red') || className.includes('text-yellow');
     return (
@@ -32,8 +32,8 @@ const StatusCard = ({ Icon, title, reading, status, className }) => {
     );
 };
 
-// --- Updated TestControlCard with Status ---
-const TestControlCard = ({ Icon, title, sensorKey, dbValue, onToggle, isActive, status }) => (
+// --- Updated TestControlCard (Maintenance Mode) ---
+const TestControlCard = ({ Icon, title, sensorKey, dbValue, status, onToggle, isActive }) => (
     <div className={`p-5 rounded-xl border shadow-md flex flex-col justify-between transition-all duration-500 
         ${isActive ? 'bg-indigo-900/30 border-indigo-500 scale-[1.02] ring-2 ring-indigo-500/20' : 'bg-slate-800 border-slate-700 hover:border-slate-600'}`}>
         
@@ -55,18 +55,17 @@ const TestControlCard = ({ Icon, title, sensorKey, dbValue, onToggle, isActive, 
                 </div>
             </div>
         </div>
-        
-        {/* Readings Container */}
+
+        {/* Live Result & Status Section */}
         <div className="bg-slate-900/50 p-3 rounded-lg mb-4 border border-slate-700/50 space-y-2">
-            {/* Raw Value */}
             <div className="flex justify-between items-center text-sm font-mono">
                 <span className="text-slate-500">Value:</span>
                 <span className={`font-bold transition-all duration-300 ${dbValue && dbValue !== 'Waiting...' ? 'text-white' : 'text-slate-600'}`}>
-                    {dbValue || '--'}
+                    {dbValue !== null ? dbValue : '--'}
                 </span>
             </div>
             
-            {/* Status Indicator */}
+            {/* Added Status Display */}
             <div className="flex justify-between items-center text-sm font-mono border-t border-slate-700/50 pt-2">
                 <span className="text-slate-500">Status:</span>
                 <span className={`font-bold px-2 py-0.5 rounded text-xs uppercase tracking-wide
@@ -119,7 +118,6 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
     //  ⭐ 1. STRICT TAB LOCKING LOGIC
     // ============================================
 
-    // CASE A: Device is AUTO -> Block Maintenance & Sleep Tabs
     if (liveData.deviceMode === 'AUTO' && mode !== 'Auto') {
         return (
             <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center animate-fadeIn">
@@ -135,7 +133,6 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
         );
     }
 
-    // CASE B: Device is MAINTENANCE -> Block Auto & Sleep Tabs
     if (liveData.deviceMode === 'MAINTENANCE' && mode !== 'Maintenance') {
         return (
             <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center animate-fadeIn">
@@ -151,7 +148,6 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
         );
     }
 
-    // CASE C: Device is SLEEP -> Block Auto & Maintenance Tabs
     if (liveData.deviceMode === 'SLEEP' && mode !== 'Sleep') {
         return (
             <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center animate-fadeIn">
@@ -168,28 +164,25 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
     }
 
     // ============================================
-    //  ⭐ 2. CONTENT RENDERING (If allowed)
+    //  ⭐ 2. CONTENT RENDERING
     // ============================================
 
-    // RENDER DASHBOARD (Used for both Auto & Sleep tabs)
+    // RENDER DASHBOARD (Auto & Sleep)
     if (mode === 'Auto' || mode === 'Sleep') {
         const rainStatus = getRainStatus(percents.rainPercent);
         const soilStatus = getSoilStatus(percents.soilPercent);
         const waterTankStatus = getWaterTankStatus(percents.waterPercent, liveData.waterDistanceCM);
         const pressureStatus = getPressureStatus(liveData.pressure);
-
         const isSleep = mode === 'Sleep';
 
         return (
             <div className="animate-fadeIn">
-                {/* Error Banner */}
                 {fetchError && (
                     <div className="p-4 bg-red-500/10 text-red-400 rounded-xl border border-red-500/20 text-center font-bold mb-6 animate-pulse">
                         ⚠️ {fetchError}
                     </div>
                 )}
 
-                {/* ⭐ SLEEP INDICATION BANNER (Only visible in Sleep Mode) */}
                 {isSleep && (
                     <div className="p-4 bg-indigo-900/80 border border-indigo-500 rounded-xl mb-6 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-lg backdrop-blur-sm">
                         <div className="flex items-center gap-3">
@@ -205,7 +198,6 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
                     </div>
                 )}
                 
-                {/* ⭐ DASHBOARD CONTENT (Standard Auto Content) */}
                 <div className={`transition-all duration-500 ${isSleep ? 'opacity-60 grayscale-[0.3] pointer-events-none' : 'opacity-100'}`}>
                     <section className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                         <StatusCard Icon={CloudRainIcon} title="Rain Sensor" reading={rainStatus.reading} status={rainStatus.status} className="text-sky-400 bg-sky-500/10" />
@@ -255,12 +247,12 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
 
     // RENDER MAINTENANCE
     if (mode === 'Maintenance') {
-        // Calculate status on the fly based on the test result (dbValues)
-        // If dbValue is null, pass null so the card shows '--'
-        const rainInfo = dbValues.rain ? getRainStatus(dbValues.rain) : { status: null };
-        const soilInfo = dbValues.soil ? getSoilStatus(dbValues.soil) : { status: null };
-        const waterInfo = dbValues.water ? getWaterTankStatus(dbValues.water, dbValues.water) : { status: null }; // Assuming dbValue acts as needed input
-        const pressureInfo = dbValues.pressure ? getPressureStatus(dbValues.pressure) : { status: null };
+        // Calculate status using the same helpers as Auto, assuming dbValues are consistent with sensor inputs
+        const rainInfo = dbValues.rain !== null ? getRainStatus(dbValues.rain) : { status: '--' };
+        const soilInfo = dbValues.soil !== null ? getSoilStatus(dbValues.soil) : { status: '--' };
+        // Passing 0 as second argument for distance, assuming dbValues.water drives the main percentage status
+        const waterInfo = dbValues.water !== null ? getWaterTankStatus(dbValues.water, 0) : { status: '--' }; 
+        const pressureInfo = dbValues.pressure !== null ? getPressureStatus(dbValues.pressure) : { status: '--' };
 
         return (
             <section className="space-y-6 animate-fadeIn">
