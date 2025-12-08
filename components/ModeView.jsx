@@ -4,6 +4,45 @@ import { CloudRainIcon, GaugeIcon, BoxIcon, LeafIcon, MoonIcon, RefreshCcwIcon, 
 
 const API_ENDPOINT = 'https://baha-alert.vercel.app/api';
 
+// --- NEW: Helper for Analog/Raw Status in Maintenance ---
+const getMaintenanceStatus = (sensor, value) => {
+    if (value === null || value === undefined) return { label: 'WAITING...', color: 'text-slate-500' };
+    
+    // Parse value just in case it comes as string
+    const val = parseFloat(value); 
+
+    switch (sensor) {
+        case 'rain':
+            // 0 (Wet) - 1023 (Dry)
+            if (val < 307) return { label: 'HEAVY RAIN', color: 'text-red-400' };
+            if (val < 512) return { label: 'MODERATE RAIN', color: 'text-orange-400' };
+            if (val < 768) return { label: 'LIGHT RAIN', color: 'text-yellow-400' };
+            return { label: 'NO RAIN', color: 'text-emerald-400' };
+
+        case 'soil':
+            // 0 (Wet) - 1023 (Dry)
+            if (val < 512) return { label: 'WET', color: 'text-cyan-400' };
+            if (val < 819) return { label: 'MOIST', color: 'text-emerald-400' };
+            return { label: 'DRY', color: 'text-red-400' };
+
+        case 'water':
+            // Distance in CM
+            if (val === 0 || val >= 400) return { label: 'ERROR', color: 'text-red-500 animate-pulse' };
+            if (val <= 3) return { label: 'HIGH LEVEL', color: 'text-yellow-400' };
+            if (val <= 15) return { label: 'NORMAL', color: 'text-emerald-400' };
+            return { label: 'LOW LEVEL', color: 'text-red-400' };
+
+        case 'pressure':
+            // Pressure in hPa
+            if (val < 990) return { label: 'LOW PRESSURE', color: 'text-red-400' };
+            if (val > 1030) return { label: 'HIGH PRESSURE', color: 'text-yellow-400' };
+            return { label: 'STABLE', color: 'text-emerald-400' };
+
+        default:
+            return { label: '--', color: 'text-slate-500' };
+    }
+};
+
 // --- Animated Status Card (Auto/Sleep Mode) ---
 const StatusCard = ({ Icon, title, reading, status, className }) => {
     const isCritical = className.includes('text-red') || className.includes('text-yellow');
@@ -32,43 +71,57 @@ const StatusCard = ({ Icon, title, reading, status, className }) => {
     );
 };
 
-// --- TestControlCard (Maintenance Mode - Status Removed) ---
-const TestControlCard = ({ Icon, title, sensorKey, dbValue, onToggle, isActive }) => (
-    <div className={`p-5 rounded-xl border shadow-md flex flex-col justify-between transition-all duration-500 
-        ${isActive ? 'bg-indigo-900/30 border-indigo-500 scale-[1.02] ring-2 ring-indigo-500/20' : 'bg-slate-800 border-slate-700 hover:border-slate-600'}`}>
-        
-        <div className="flex justify-between items-start mb-4">
-            <div className="flex items-center gap-3">
-                <div className={`p-2 rounded-lg transition-colors duration-300 ${isActive ? 'bg-indigo-500 text-white' : 'bg-slate-700 text-indigo-400'}`}>
-                    <Icon className={`w-6 h-6 ${isActive ? 'animate-spin-slow' : ''}`} />
+// --- UPDATED TestControlCard (Maintenance Mode) ---
+// Now includes computed status display
+const TestControlCard = ({ Icon, title, sensorKey, dbValue, onToggle, isActive }) => {
+    // Get the status based on the raw value
+    const statusObj = getMaintenanceStatus(sensorKey, dbValue);
+
+    return (
+        <div className={`p-5 rounded-xl border shadow-md flex flex-col justify-between transition-all duration-500 
+            ${isActive ? 'bg-indigo-900/30 border-indigo-500 scale-[1.02] ring-2 ring-indigo-500/20' : 'bg-slate-800 border-slate-700 hover:border-slate-600'}`}>
+            
+            <div className="flex justify-between items-start mb-4">
+                <div className="flex items-center gap-3">
+                    <div className={`p-2 rounded-lg transition-colors duration-300 ${isActive ? 'bg-indigo-500 text-white' : 'bg-slate-700 text-indigo-400'}`}>
+                        <Icon className={`w-6 h-6 ${isActive ? 'animate-spin-slow' : ''}`} />
+                    </div>
+                    <div>
+                        <h4 className="font-bold text-slate-200">{title}</h4>
+                        <span className="text-xs text-slate-500 font-mono flex items-center gap-2">
+                            {isActive ? (
+                                <span className="text-emerald-400 flex items-center gap-1">
+                                    <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse"></span>
+                                    TESTING...
+                                </span>
+                            ) : 'IDLE'}
+                        </span>
+                    </div>
                 </div>
-                <div>
-                    <h4 className="font-bold text-slate-200">{title}</h4>
-                    <span className="text-xs text-slate-500 font-mono flex items-center gap-2">
-                        {isActive ? (
-                            <span className="text-emerald-400 flex items-center gap-1">
-                                <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse"></span>
-                                TESTING...
-                            </span>
-                        ) : 'IDLE'}
+            </div>
+
+            {/* Live Result & Status */}
+            <div className="bg-slate-900/50 p-3 rounded-lg mb-4 border border-slate-700/50 flex flex-col gap-2">
+                <div className="flex justify-between items-center text-sm font-mono border-b border-slate-700/50 pb-2">
+                    <span className="text-slate-500">Raw Value:</span>
+                    <span className={`font-bold text-lg transition-all duration-300 ${dbValue !== null ? 'text-white' : 'text-slate-600'}`}>
+                        {dbValue !== null ? dbValue : '--'}
+                    </span>
+                </div>
+                <div className="flex justify-between items-center text-xs font-bold uppercase">
+                    <span className="text-slate-500">Status:</span>
+                    <span className={`transition-all duration-300 ${statusObj.color}`}>
+                        {statusObj.label}
                     </span>
                 </div>
             </div>
-        </div>
 
-        {/* Live Result Only */}
-        <div className="bg-slate-900/50 p-3 rounded-lg mb-4 border border-slate-700/50 flex justify-between items-center text-sm font-mono">
-            <span className="text-slate-500">Raw Value:</span>
-            <span className={`font-bold text-lg transition-all duration-300 ${dbValue !== null ? 'text-white scale-105' : 'text-slate-600'}`}>
-                {dbValue !== null ? dbValue : '--'}
-            </span>
+            <button onClick={() => onToggle(sensorKey)} className={`w-full py-3 rounded-lg font-bold text-sm flex items-center justify-center gap-2 transition-all duration-300 transform active:scale-95 ${isActive ? 'bg-red-500/10 text-red-400 border border-red-500/50 hover:bg-red-500 hover:text-white' : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg hover:shadow-indigo-500/25'}`}>
+                {isActive ? <><XCircleIcon className="w-4 h-4" /> STOP TEST</> : <><ActivityIcon className="w-4 h-4" /> START LOOP</>}
+            </button>
         </div>
-
-        <button onClick={() => onToggle(sensorKey)} className={`w-full py-3 rounded-lg font-bold text-sm flex items-center justify-center gap-2 transition-all duration-300 transform active:scale-95 ${isActive ? 'bg-red-500/10 text-red-400 border border-red-500/50 hover:bg-red-500 hover:text-white' : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg hover:shadow-indigo-500/25'}`}>
-            {isActive ? <><XCircleIcon className="w-4 h-4" /> STOP TEST</> : <><ActivityIcon className="w-4 h-4" /> START LOOP</>}
-        </button>
-    </div>
-);
+    );
+};
 
 const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
     const [activeTests, setActiveTests] = useState({ rain: false, soil: false, water: false, pressure: false });
