@@ -1,15 +1,12 @@
 // src/utils/fuzzyEngine.js
 
 // --- Helper Functions ---
-
-// Returns 1.0 (True) if value is LOWER than threshold (e.g., Low Distance = High Risk)
 const isLow = (val, trueThreshold, falseThreshold) => {
     if (val <= trueThreshold) return 1.0; 
     if (val >= falseThreshold) return 0.0; 
     return (falseThreshold - val) / (falseThreshold - trueThreshold);
 };
 
-// Returns 1.0 (True) if value is in the MIDDLE of a range
 const isMiddle = (val, start, peak, end) => {
     return Math.max(0, Math.min((val - start) / (peak - start), (end - val) / (end - peak)));
 };
@@ -18,100 +15,118 @@ const isMiddle = (val, start, peak, end) => {
 export const calculateFloodRisk = (rainRaw, soilRaw, waterDist, pressure) => {
     
     // ============================================
-    // 1. FUZZIFICATION (Mapping to your specific thresholds)
+    // 1. FUZZIFICATION (Inputs -> 0.0 to 1.0)
     // ============================================
 
-    // --- RAIN SENSOR (0-1023) [Lower = Wet] ---
-    // Heavy Rain: Raw Value < 307
+    // Rain (Low value = Wet)
     const rainHeavy = isLow(rainRaw, 307, 511);        
-    
-    // Moderate Rain: Between 307 and 767
     const rainModerate = isMiddle(rainRaw, 307, 511, 767); 
     
-    // --- SOIL SENSOR (0-1023) [Lower = Wet] ---
-    // Saturated < 511
+    // Soil (Low value = Wet)
     const soilSaturated = isLow(soilRaw, 511, 818);    
     
-    // --- WATER TANK (cm) [Lower = High/Full] ---
-    // High <= 4cm, Normal <= 5cm
+    // Water Level (Low distance = High/Full)
+    const waterHigh = isLow(waterDist, 4, 10); // Expanded range slightly for interaction
     const waterCritical = isLow(waterDist, 4, 5);     
 
-    // --- PRESSURE (hPa) ---
-    // Low < 990
+    // Pressure (Low value = Storm)
     const pressureStorm = isLow(pressure, 990, 1000);  
 
     // ============================================
-    // 2. INFERENCE (The Logic Rules)
+    // 2. INFERENCE (The "Communication" Rules)
     // ============================================
 
-    // Rule 1: Extreme Danger 
-    // Trigger: Water is Critical (<=4cm) OR (Heavy Rain + Wet Soil)
-    const dangerScore = Math.max(
-        waterCritical, 
-        Math.min(rainHeavy, soilSaturated)
-    );
+    /* Here, sensors "talk" to each other using Math.min().
+       Math.min() acts like an "AND" gate. 
+       Both conditions must be true for the rule to trigger.
+    */
 
-    // Rule 2: Storm Warning 
-    // Trigger: Pressure Low + Moderate Rain
-    const stormScore = Math.min(pressureStorm, rainModerate);
+    // RULE A: The "Runoff" Effect (Rain + Soil)
+    // "If it is raining heavily AND soil is already full..."
+    // This communicates that rain is worse when soil can't drink it.
+    const runoffRisk = Math.min(rainHeavy, soilSaturated);
+
+    // RULE B: The "Storm Surge" Effect (Water + Pressure)
+    // "If water is already high AND a storm is coming (low pressure)..."
+    // This communicates that high water is scarier when pressure drops.
+    const surgeRisk = Math.min(waterHigh, pressureStorm);
+
+    // RULE C: The "Active Flood" Effect (Rain + Water)
+    // "If it is raining heavily AND water is already high..."
+    // Direct correlation: Input is adding to an already full container.
+    const activeFloodRisk = Math.min(rainHeavy, waterCritical);
+
+    // RULE D: The "Catastrophe" Combo (All 4 Sensors)
+    // If everything is bad at once.
+    const systemFailure = Math.min(rainHeavy, soilSaturated, waterCritical, pressureStorm);
+
 
     // ============================================
-    // 3. DEFUZZIFICATION (Final Score 0-100)
+    // 3. DEFUZZIFICATION (Weighted Total)
     // ============================================
 
-    // ADJUSTMENT HERE: 
-    // I changed Storm Score multiplier from 60 to 45.
-    // This prevents the score from jumping too high just because of rain.
-    // Real "Critical" status will now mostly rely on the Water Level.
-    let finalRisk = (dangerScore * 100) + (stormScore * 45);
-    
-    // Clamp result to max 100%
-    finalRisk = Math.min(100, finalRisk);
+    // We calculate the final risk by prioritizing the combinations.
+    // Notice we don't just add "rain" or "soil" alone anymore.
+    // We add the *combinations* we calculated above.
 
-    // --- GRADUAL TEXT RECOMMENDATION (6 Levels) ---
-    let status = "SAFE";
-    let message = "Conditions are normal.";
-    
-    if (finalRisk >= 90) {
-        // Level 6: Emergency
-        status = "EMERGENCY";
-        message = "WATER OVERFLOW IMMINENT. EVACUATE NOW.";
-    } 
-    else if (finalRisk >= 70) {
-        // Level 5: Critical
-        status = "CRITICAL";
-        message = "Water is at capacity limits. Prepare for flooding.";
-    } 
-    else if (finalRisk >= 50) {
-        // Level 4: Warning
-        status = "WARNING";
-        message = "Water levels rising significantly. Monitor closely.";
-    } 
-    else if (finalRisk >= 30) {
-        // Level 3: Advisory
-        status = "ADVISORY";
-        message = "Heavy rain detected. Soil is saturated.";
-    } 
-    else if (finalRisk >= 15) {
-        // Level 2: Notice
-        status = "NOTICE";
-        message = "Light to moderate rain detected.";
+    let totalRisk = 0;
+
+    // If all sensors agree (Rule D), instant 100%
+    if (systemFailure > 0.5) {
+        totalRisk = 100;
     } 
     else {
-        // Level 1: Safe
+        // Otherwise, weigh the specific interactions:
+        // Active Flooding (Rain + Water) is the most dangerous scenario (weight 60)
+        // Runoff (Rain + Soil) adds moderate risk (weight 30)
+        // Surge (Pressure + Water) adds prediction risk (weight 20)
+        
+        // We use Math.max to take the highest severity of the overlapping rules
+        // or a weighted sum. Let's use a weighted approach clamped to 100.
+        
+        totalRisk = (activeFloodRisk * 60) + (runoffRisk * 30) + (surgeRisk * 20);
+        
+        // Add a base risk if Water is critical on its own (failsafe)
+        totalRisk += (waterCritical * 40);
+    }
+
+    // Clamp to 0-100
+    let finalRisk = Math.min(100, totalRisk);
+    
+    // --- STATUS TEXT ---
+    let status = "SAFE";
+    let message = "Conditions stable.";
+
+    if (finalRisk >= 90) {
+        status = "EMERGENCY";
+        message = "ALL SENSORS CRITICAL. EVACUATE.";
+    } 
+    else if (finalRisk >= 70) {
+        status = "CRITICAL";
+        message = "High water with active rain/storm inputs.";
+    } 
+    else if (finalRisk >= 50) {
+        status = "WARNING";
+        message = "Water rising due to rain/soil saturation.";
+    } 
+    else if (finalRisk >= 30) {
+        status = "ADVISORY";
+        message = "Sensors detecting potential runoff.";
+    } 
+    else {
         status = "SAFE";
-        message = "Water levels low. Conditions stable.";
+        message = "Normal levels.";
     }
 
     return {
         score: finalRisk.toFixed(1),
         status,
         message,
+        // We return the "Interaction" scores so you can see the communication happening
         details: {
-            rain: (rainHeavy * 100).toFixed(0),
-            soil: (soilSaturated * 100).toFixed(0),
-            water: (waterCritical * 100).toFixed(0),
-            pressure: (pressureStorm * 100).toFixed(0)
+            runoff_factor: (runoffRisk * 100).toFixed(0), // Rain + Soil
+            surge_factor: (surgeRisk * 100).toFixed(0),   // Water + Pressure
+            flood_factor: (activeFloodRisk * 100).toFixed(0) // Rain + Water
         }
     };
 };
