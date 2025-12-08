@@ -19,7 +19,6 @@ export const getFormattedTime = () =>
   });
 
 // --- Mappings ---
-// Note: We map raw 1023 (Max) to 0%. 
 export const STATE_MAPPINGS = {
   rain: (rainRaw) => (rainRaw === -1 ? -1 : clamp(100 - (rainRaw / 1023.0) * 100)), 
   soil: (soilRaw) => (soilRaw === -1 ? -1 : clamp(100 - (soilRaw / 1023.0) * 100)), 
@@ -30,9 +29,9 @@ export const STATE_MAPPINGS = {
 // --- Status Logic ---
 
 export const getRainStatus = (percent) => {
-  // ⭐ UPDATED ERROR CHECK: 
-  // If percent is 0 (meaning Raw value was 1023/Max), treat as Disconnected/Error.
-  if (percent === 0 || percent === -1 || percent === undefined || isNaN(percent)) {
+  // ⭐ FIX: Removed "percent === 0" from error check.
+  // Now 0% (Max Dryness) will correctly fall through to "No Rain".
+  if (percent === -1 || percent === undefined || isNaN(percent)) {
     return {
       reading: "Error",
       status: "SENSOR ERROR",
@@ -48,9 +47,9 @@ export const getRainStatus = (percent) => {
 };
 
 export const getSoilStatus = (percent) => {
-  // ⭐ UPDATED ERROR CHECK:
-  // If percent is 0 (Raw 1023), treat as Disconnected/Error.
-  if (percent === 0 || percent === -1 || percent === undefined || isNaN(percent)) {
+  // ⭐ FIX: Removed "percent === 0" from error check.
+  // Now 0% (Max Dryness) will correctly fall through to "Dry".
+  if (percent === -1 || percent === undefined || isNaN(percent)) {
     return {
       reading: "Error",
       status: "SENSOR ERROR",
@@ -65,7 +64,7 @@ export const getSoilStatus = (percent) => {
 };
 
 export const getWaterTankStatus = (percent, distance) => {
-  // Error Check: Catches -1, timeout (0), or out of range (>400)
+  // Water and Pressure still need 0 checks because 0 distance/pressure IS an error.
   if (distance === -1 || distance === 0 || distance >= 400 || distance === undefined) { 
       return { 
           reading: 'Error', 
@@ -81,7 +80,6 @@ export const getWaterTankStatus = (percent, distance) => {
 };
 
 export const getPressureStatus = (pressure) => {
-  // Error Check: Catches -1 or impossible 0 pressure
   if (pressure <= 0 || pressure === -1 || pressure === undefined) {
     return {
       status: "SENSOR ERROR",
@@ -89,7 +87,6 @@ export const getPressureStatus = (pressure) => {
     };
   }
 
-  // Normal Logic
   if (pressure < 990) return { status: "WARNING: Low Pressure", className: "text-red-400 font-bold" };
   if (pressure > 1030) return { status: "STATUS: High Pressure", className: "text-yellow-400 font-bold" };
   return { status: "STATUS: Stable", className: "text-emerald-400 font-bold" };
