@@ -6,7 +6,6 @@ const API_ENDPOINT = 'https://baha-alert.vercel.app/api';
 
 // --- Animated Status Card ---
 const StatusCard = ({ Icon, title, reading, status, className }) => {
-    // Check if status is critical (Red or Yellow) to trigger animations
     const isCritical = className.includes('text-red') || className.includes('text-yellow');
     
     return (
@@ -15,11 +14,9 @@ const StatusCard = ({ Icon, title, reading, status, className }) => {
             ${className.includes('text-red') ? 'border-l-red-500' : ''}
             ${className.includes('text-yellow') ? 'border-l-yellow-500' : ''}
         `}>
-            {/* Background Pulse for Critical Alerts */}
             {isCritical && (
                 <div className={`absolute inset-0 opacity-10 animate-pulse ${className.includes('text-red') ? 'bg-red-500' : 'bg-yellow-500'}`}></div>
             )}
-
             <div className="relative z-10">
                 <div className="flex justify-between items-start mb-2">
                     <Icon className={`w-8 h-8 p-1.5 rounded-lg ${className} ${isCritical ? 'animate-bounce-slow' : ''}`} />
@@ -28,7 +25,6 @@ const StatusCard = ({ Icon, title, reading, status, className }) => {
                         <span className={`relative inline-flex rounded-full h-3 w-3 ${className.includes('text-red') ? 'bg-red-500' : 'bg-yellow-500'}`}></span>
                     </span>}
                 </div>
-                
                 <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wider">{title}</h3>
                 <p className="text-2xl font-black text-white mt-1">{reading}</p>
                 <p className={`text-xs font-bold mt-2 ${className.split(' ')[0]}`}>{status}</p>
@@ -59,14 +55,12 @@ const TestControlCard = ({ Icon, title, sensorKey, dbValue, onToggle, isActive }
                 </div>
             </div>
         </div>
-
         <div className="bg-slate-900/50 p-3 rounded-lg mb-4 text-sm font-mono flex justify-between items-center border border-slate-700/50">
             <span className="text-slate-500">Live Result:</span>
             <span className={`font-bold text-lg transition-all duration-300 ${dbValue && dbValue !== 'Waiting...' ? 'text-white scale-110' : 'text-slate-600'}`}>
                 {dbValue || '--'}
             </span>
         </div>
-
         <button 
             onClick={() => onToggle(sensorKey)} 
             className={`w-full py-3 rounded-lg font-bold text-sm flex items-center justify-center gap-2 transition-all duration-300 transform active:scale-95
@@ -118,8 +112,11 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
 
     const toggleTest = (sensorKey) => setActiveTests(prev => ({ ...prev, [sensorKey]: !prev[sensorKey] }));
 
-    // Global Lockout UI
-    if (liveData.deviceMode === 'AUTO' && mode !== 'Auto' && mode !== 'Sleep') { // Allow Sleep view even in Auto mode
+    // --- LOCKOUT LOGIC ---
+    
+    // 1. Auto Lockout: Only block if device is AUTO but user is on Maintenance
+    // Note: We ALLOW 'Sleep' tab to show data even in Auto mode
+    if (liveData.deviceMode === 'AUTO' && mode === 'Maintenance') {
         return (
             <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center animate-fadeIn">
                 <div className="relative mb-6">
@@ -127,7 +124,7 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
                     <CpuIcon className="w-20 h-20 text-emerald-500 relative z-10" />
                 </div>
                 <h3 className="text-2xl font-bold text-white mb-2">Device is in Auto Mode</h3>
-                <p className="text-slate-400 max-w-md mb-8">The physical switch is set to <strong>AUTO</strong>. Manual controls are disabled to prevent conflicts.</p>
+                <p className="text-slate-400 max-w-md mb-8">The physical switch is set to <strong>AUTO</strong>. Maintenance controls are disabled.</p>
                 <button onClick={() => setMode('Auto')} className="px-8 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-lg shadow-emerald-900/20 transition-all hover:-translate-y-1">
                     Go to Dashboard
                 </button>
@@ -135,12 +132,13 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
         );
     }
 
+    // 2. Maintenance Lockout: Only block if device is MAINTENANCE but user is elsewhere
     if (liveData.deviceMode === 'MAINTENANCE' && mode !== 'Maintenance') {
         return (
             <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center animate-fadeIn">
                 <RefreshCcwIcon className="w-20 h-20 mb-6 text-yellow-500 animate-spin-slow" />
                 <h3 className="text-2xl font-bold text-white mb-2">Device is in Maintenance Mode</h3>
-                <p className="text-slate-400 max-w-md mb-8">Live data automation is paused. Please use the Maintenance Console to test sensors manually.</p>
+                <p className="text-slate-400 max-w-md mb-8">Live data automation is paused. Please use the Maintenance Console.</p>
                 <button onClick={() => setMode('Maintenance')} className="px-8 py-3 bg-yellow-600 hover:bg-yellow-500 text-white font-bold rounded-xl shadow-lg shadow-yellow-900/20 transition-all hover:-translate-y-1">
                     Open Console
                 </button>
@@ -148,18 +146,24 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
         );
     }
 
+    // ⭐ REMOVED "SLEEP LOCKOUT": 
+    // We now allow the dashboard to render even if Device is SLEEPing, 
+    // so both "Auto" and "Sleep" tabs show the banner.
+
     // --- SHARED DASHBOARD VIEW (AUTO & SLEEP) ---
-    // This block now handles both 'Auto' AND 'Sleep' to show the same content
     if (mode === 'Auto' || mode === 'Sleep') {
         const rainStatus = getRainStatus(percents.rainPercent);
         const soilStatus = getSoilStatus(percents.soilPercent);
         const waterTankStatus = getWaterTankStatus(percents.waterPercent, liveData.waterDistanceCM);
         const pressureStatus = getPressureStatus(liveData.pressure);
 
+        // Check if device is ACTUALLY sleeping (hardware state)
+        const isDeviceSleeping = liveData.deviceMode === 'SLEEP';
+
         return (
             <div className="animate-fadeIn">
-                {/* ⭐ SLEEP BANNER (Visible only when Sleep) */}
-                {mode === 'Sleep' && (
+                {/* ⭐ SLEEP BANNER (Visible if Device is Sleeping, regardless of Tab) */}
+                {isDeviceSleeping && (
                     <div className="p-4 bg-indigo-900/80 border border-indigo-500 rounded-xl mb-6 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-lg backdrop-blur-sm">
                         <div className="flex items-center gap-3">
                             <div className="p-2 bg-indigo-950 rounded-full animate-pulse">
@@ -181,8 +185,8 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
                     </div>
                 )}
                 
-                {/* ⭐ Main Dashboard Content (Dimmed in Sleep Mode) */}
-                <div className={`transition-all duration-500 ${mode === 'Sleep' ? 'opacity-60 grayscale-[0.3]' : 'opacity-100'}`}>
+                {/* ⭐ DASHBOARD CONTENT (Dimmed if Sleeping) */}
+                <div className={`transition-all duration-500 ${isDeviceSleeping ? 'opacity-60 grayscale-[0.3]' : 'opacity-100'}`}>
                     <section className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                         <StatusCard Icon={CloudRainIcon} title="Rain Sensor" reading={rainStatus.reading} status={rainStatus.status} className="text-sky-400 bg-sky-500/10" />
                         <StatusCard Icon={GaugeIcon} title="Pressure" reading={`${liveData.pressure.toFixed(1)} hPa`} status={pressureStatus.status} className="text-purple-400 bg-purple-500/10" />
@@ -232,6 +236,7 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
     if (mode === 'Maintenance') {
         return (
             <section className="space-y-6 animate-fadeIn">
+                {/* Maintenance Content (Unchanged) */}
                 <div className="p-6 bg-yellow-500/10 rounded-2xl border border-yellow-500/20 flex flex-col sm:flex-row items-center justify-between gap-4">
                     <div className="flex items-center gap-4">
                         <div className="p-3 bg-yellow-500/20 rounded-xl animate-pulse">
