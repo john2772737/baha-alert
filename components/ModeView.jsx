@@ -32,7 +32,8 @@ const StatusCard = ({ Icon, title, reading, status, className }) => {
     );
 };
 
-const TestControlCard = ({ Icon, title, sensorKey, dbValue, onToggle, isActive }) => (
+// --- Updated TestControlCard with Status ---
+const TestControlCard = ({ Icon, title, sensorKey, dbValue, onToggle, isActive, status }) => (
     <div className={`p-5 rounded-xl border shadow-md flex flex-col justify-between transition-all duration-500 
         ${isActive ? 'bg-indigo-900/30 border-indigo-500 scale-[1.02] ring-2 ring-indigo-500/20' : 'bg-slate-800 border-slate-700 hover:border-slate-600'}`}>
         
@@ -54,12 +55,27 @@ const TestControlCard = ({ Icon, title, sensorKey, dbValue, onToggle, isActive }
                 </div>
             </div>
         </div>
-        <div className="bg-slate-900/50 p-3 rounded-lg mb-4 text-sm font-mono flex justify-between items-center border border-slate-700/50">
-            <span className="text-slate-500">Live Result:</span>
-            <span className={`font-bold text-lg transition-all duration-300 ${dbValue && dbValue !== 'Waiting...' ? 'text-white scale-110' : 'text-slate-600'}`}>
-                {dbValue || '--'}
-            </span>
+        
+        {/* Readings Container */}
+        <div className="bg-slate-900/50 p-3 rounded-lg mb-4 border border-slate-700/50 space-y-2">
+            {/* Raw Value */}
+            <div className="flex justify-between items-center text-sm font-mono">
+                <span className="text-slate-500">Value:</span>
+                <span className={`font-bold transition-all duration-300 ${dbValue && dbValue !== 'Waiting...' ? 'text-white' : 'text-slate-600'}`}>
+                    {dbValue || '--'}
+                </span>
+            </div>
+            
+            {/* Status Indicator */}
+            <div className="flex justify-between items-center text-sm font-mono border-t border-slate-700/50 pt-2">
+                <span className="text-slate-500">Status:</span>
+                <span className={`font-bold px-2 py-0.5 rounded text-xs uppercase tracking-wide
+                    ${!status || status === '--' ? 'bg-slate-800 text-slate-500' : 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'}`}>
+                    {status || '--'}
+                </span>
+            </div>
         </div>
+
         <button onClick={() => onToggle(sensorKey)} className={`w-full py-3 rounded-lg font-bold text-sm flex items-center justify-center gap-2 transition-all duration-300 transform active:scale-95 ${isActive ? 'bg-red-500/10 text-red-400 border border-red-500/50 hover:bg-red-500 hover:text-white' : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg hover:shadow-indigo-500/25'}`}>
             {isActive ? <><XCircleIcon className="w-4 h-4" /> STOP TEST</> : <><ActivityIcon className="w-4 h-4" /> START LOOP</>}
         </button>
@@ -190,7 +206,6 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
                 )}
                 
                 {/* ⭐ DASHBOARD CONTENT (Standard Auto Content) */}
-                {/* Added opacity/grayscale filter when sleeping to show "inactive" state */}
                 <div className={`transition-all duration-500 ${isSleep ? 'opacity-60 grayscale-[0.3] pointer-events-none' : 'opacity-100'}`}>
                     <section className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                         <StatusCard Icon={CloudRainIcon} title="Rain Sensor" reading={rainStatus.reading} status={rainStatus.status} className="text-sky-400 bg-sky-500/10" />
@@ -240,6 +255,13 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
 
     // RENDER MAINTENANCE
     if (mode === 'Maintenance') {
+        // Calculate status on the fly based on the test result (dbValues)
+        // If dbValue is null, pass null so the card shows '--'
+        const rainInfo = dbValues.rain ? getRainStatus(dbValues.rain) : { status: null };
+        const soilInfo = dbValues.soil ? getSoilStatus(dbValues.soil) : { status: null };
+        const waterInfo = dbValues.water ? getWaterTankStatus(dbValues.water, dbValues.water) : { status: null }; // Assuming dbValue acts as needed input
+        const pressureInfo = dbValues.pressure ? getPressureStatus(dbValues.pressure) : { status: null };
+
         return (
             <section className="space-y-6 animate-fadeIn">
                 <div className="p-6 bg-yellow-500/10 rounded-2xl border border-yellow-500/20 flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -254,10 +276,42 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
                     </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <TestControlCard Icon={CloudRainIcon} title="Rain Sensor" sensorKey="rain" dbValue={dbValues.rain} isActive={activeTests.rain} onToggle={toggleTest} />
-                    <TestControlCard Icon={LeafIcon} title="Soil Sensor" sensorKey="soil" dbValue={dbValues.soil} isActive={activeTests.soil} onToggle={toggleTest} />
-                    <TestControlCard Icon={BoxIcon} title="Water Sensor" sensorKey="water" dbValue={dbValues.water} isActive={activeTests.water} onToggle={toggleTest} />
-                    <TestControlCard Icon={GaugeIcon} title="Barometer" sensorKey="pressure" dbValue={dbValues.pressure} isActive={activeTests.pressure} onToggle={toggleTest} />
+                    <TestControlCard 
+                        Icon={CloudRainIcon} 
+                        title="Rain Sensor" 
+                        sensorKey="rain" 
+                        dbValue={dbValues.rain} 
+                        status={rainInfo.status}
+                        isActive={activeTests.rain} 
+                        onToggle={toggleTest} 
+                    />
+                    <TestControlCard 
+                        Icon={LeafIcon} 
+                        title="Soil Sensor" 
+                        sensorKey="soil" 
+                        dbValue={dbValues.soil} 
+                        status={soilInfo.status}
+                        isActive={activeTests.soil} 
+                        onToggle={toggleTest} 
+                    />
+                    <TestControlCard 
+                        Icon={BoxIcon} 
+                        title="Water Sensor" 
+                        sensorKey="water" 
+                        dbValue={dbValues.water} 
+                        status={waterInfo.status}
+                        isActive={activeTests.water} 
+                        onToggle={toggleTest} 
+                    />
+                    <TestControlCard 
+                        Icon={GaugeIcon} 
+                        title="Barometer" 
+                        sensorKey="pressure" 
+                        dbValue={dbValues.pressure} 
+                        status={pressureInfo.status}
+                        isActive={activeTests.pressure} 
+                        onToggle={toggleTest} 
+                    />
                 </div>
             </section>
         );
