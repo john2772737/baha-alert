@@ -1,6 +1,15 @@
 // src/utils/fuzzyEngine.js
 
-// ... (Keep the Helper Functions isLow, isMiddle, isHigh the same) ...
+// --- Helper Functions ---
+const isLow = (val, trueThreshold, falseThreshold) => {
+    if (val <= trueThreshold) return 1.0; 
+    if (val >= falseThreshold) return 0.0; 
+    return (falseThreshold - val) / (falseThreshold - trueThreshold);
+};
+
+const isMiddle = (val, start, peak, end) => {
+    return Math.max(0, Math.min((val - start) / (peak - start), (end - val) / (end - peak)));
+};
 
 export const calculateFloodRisk = (rainRaw, soilRaw, waterDist, pressure) => {
     
