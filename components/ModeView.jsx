@@ -263,7 +263,7 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
         const rainInfo = getRainStatus(rainPercent);
 
         // Soil
-        const soilPercent = STATE_MAPPINGS.soil(dbValues.soil);
+        const soilPercent = STATE_MAPPINGS.soil(dbValues.soilRaw);
         const soilInfo = getSoilStatus(soilPercent);
 
         // Water
