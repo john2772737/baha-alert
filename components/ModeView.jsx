@@ -4,15 +4,6 @@ import { CloudRainIcon, GaugeIcon, BoxIcon, LeafIcon, MoonIcon, RefreshCcwIcon, 
 
 const API_ENDPOINT = 'https://baha-alert.vercel.app/api';
 
-// --- Mappings (Locally defined to ensure Maintenance uses correct logic) ---
-const clamp = (val) => Math.min(100, Math.max(0, Math.round(val)));
-const STATE_MAPPINGS = {
-  rain: (rainRaw) => (rainRaw === -1 || rainRaw === null ? -1 : clamp(100 - (rainRaw / 1023.0) * 100)), 
-  soil: (soilRaw) => (soilRaw === -1 || soilRaw === null ? -1 : clamp(100 - (soilRaw / 1023.0) * 100)), 
-  waterTank: (distanceCM) =>
-    distanceCM === -1 || distanceCM === null ? -1 : (distanceCM > 100 ? 0 : clamp(100.0 - (distanceCM / 50.0) * 100.0)),
-};
-
 // --- Animated Status Card (Auto/Sleep Mode) ---
 const StatusCard = ({ Icon, title, reading, status, className }) => {
     const isCritical = className.includes('text-red') || className.includes('text-yellow');
@@ -41,8 +32,8 @@ const StatusCard = ({ Icon, title, reading, status, className }) => {
     );
 };
 
-// --- TestControlCard (Maintenance Mode) ---
-const TestControlCard = ({ Icon, title, sensorKey, dbValue, status, onToggle, isActive }) => (
+// --- TestControlCard (Maintenance Mode - Status Removed) ---
+const TestControlCard = ({ Icon, title, sensorKey, dbValue, onToggle, isActive }) => (
     <div className={`p-5 rounded-xl border shadow-md flex flex-col justify-between transition-all duration-500 
         ${isActive ? 'bg-indigo-900/30 border-indigo-500 scale-[1.02] ring-2 ring-indigo-500/20' : 'bg-slate-800 border-slate-700 hover:border-slate-600'}`}>
         
@@ -65,22 +56,12 @@ const TestControlCard = ({ Icon, title, sensorKey, dbValue, status, onToggle, is
             </div>
         </div>
 
-        {/* Live Result & Status Section */}
-        <div className="bg-slate-900/50 p-3 rounded-lg mb-4 border border-slate-700/50 space-y-2">
-            <div className="flex justify-between items-center text-sm font-mono">
-                <span className="text-slate-500">Value:</span>
-                <span className={`font-bold transition-all duration-300 ${dbValue !== null ? 'text-white' : 'text-slate-600'}`}>
-                    {dbValue !== null ? dbValue : '--'}
-                </span>
-            </div>
-            
-            <div className="flex justify-between items-center text-sm font-mono border-t border-slate-700/50 pt-2">
-                <span className="text-slate-500">Status:</span>
-                <span className={`font-bold px-2 py-0.5 rounded text-xs uppercase tracking-wide
-                    ${!status || status === '--' || status === 'SENSOR ERROR' ? 'bg-slate-800 text-slate-500' : 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'}`}>
-                    {status || '--'}
-                </span>
-            </div>
+        {/* Live Result Only */}
+        <div className="bg-slate-900/50 p-3 rounded-lg mb-4 border border-slate-700/50 flex justify-between items-center text-sm font-mono">
+            <span className="text-slate-500">Raw Value:</span>
+            <span className={`font-bold text-lg transition-all duration-300 ${dbValue !== null ? 'text-white scale-105' : 'text-slate-600'}`}>
+                {dbValue !== null ? dbValue : '--'}
+            </span>
         </div>
 
         <button onClick={() => onToggle(sensorKey)} className={`w-full py-3 rounded-lg font-bold text-sm flex items-center justify-center gap-2 transition-all duration-300 transform active:scale-95 ${isActive ? 'bg-red-500/10 text-red-400 border border-red-500/50 hover:bg-red-500 hover:text-white' : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg hover:shadow-indigo-500/25'}`}>
@@ -123,7 +104,7 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
     const toggleTest = (sensorKey) => setActiveTests(prev => ({ ...prev, [sensorKey]: !prev[sensorKey] }));
 
     // ============================================
-    //  ⭐ 1. STRICT TAB LOCKING LOGIC
+    //  TAB LOCKING LOGIC
     // ============================================
 
     if (liveData.deviceMode === 'AUTO' && mode !== 'Auto') {
@@ -172,9 +153,10 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
     }
 
     // ============================================
-    //  ⭐ 2. CONTENT RENDERING
+    //  CONTENT RENDERING
     // ============================================
 
+    // RENDER DASHBOARD (Auto & Sleep)
     if (mode === 'Auto' || mode === 'Sleep') {
         const rainStatus = getRainStatus(percents.rainPercent);
         const soilStatus = getSoilStatus(percents.soilPercent);
@@ -254,27 +236,6 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
 
     // RENDER MAINTENANCE
     if (mode === 'Maintenance') {
-        // --- CALCULATION LOGIC ---
-        // 1. Convert Raw Test Value -> Percentage (using STATE_MAPPINGS)
-        // 2. Convert Percentage -> Status Text (using helpers)
-
-        // Rain
-        const rainPercent = STATE_MAPPINGS.rain(dbValues.rain);
-        const rainInfo = getRainStatus(rainPercent);
-
-        // Soil
-        const soilPercent = STATE_MAPPINGS.soil(dbValues.soilRaw);
-        const soilInfo = getSoilStatus(soilPercent);
-
-        // Water
-        // Note: STATE_MAPPINGS.waterTank takes Distance (cm). 
-        // getWaterTankStatus takes (percent, distance).
-        const waterPercent = STATE_MAPPINGS.waterTank(dbValues.water);
-        const waterInfo = getWaterTankStatus(waterPercent, dbValues.water);
-
-        // Pressure
-        const pressureInfo = getPressureStatus(dbValues.pressure);
-
         return (
             <section className="space-y-6 animate-fadeIn">
                 <div className="p-6 bg-yellow-500/10 rounded-2xl border border-yellow-500/20 flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -294,7 +255,6 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
                         title="Rain Sensor" 
                         sensorKey="rain" 
                         dbValue={dbValues.rain} 
-                        status={rainInfo.status}
                         isActive={activeTests.rain} 
                         onToggle={toggleTest} 
                     />
@@ -303,7 +263,6 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
                         title="Soil Sensor" 
                         sensorKey="soil" 
                         dbValue={dbValues.soil} 
-                        status={soilInfo.status}
                         isActive={activeTests.soil} 
                         onToggle={toggleTest} 
                     />
@@ -312,7 +271,6 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
                         title="Water Sensor" 
                         sensorKey="water" 
                         dbValue={dbValues.water} 
-                        status={waterInfo.status}
                         isActive={activeTests.water} 
                         onToggle={toggleTest} 
                     />
@@ -321,7 +279,6 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
                         title="Barometer" 
                         sensorKey="pressure" 
                         dbValue={dbValues.pressure} 
-                        status={pressureInfo.status}
                         isActive={activeTests.pressure} 
                         onToggle={toggleTest} 
                     />
