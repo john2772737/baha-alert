@@ -25,6 +25,7 @@ const StatusCard = ({ Icon, title, reading, status, className }) => {
                         <span className={`relative inline-flex rounded-full h-3 w-3 ${className.includes('text-red') ? 'bg-red-500' : 'bg-yellow-500'}`}></span>
                     </span>}
                 </div>
+                
                 <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wider">{title}</h3>
                 <p className="text-2xl font-black text-white mt-1">{reading}</p>
                 <p className={`text-xs font-bold mt-2 ${className.split(' ')[0]}`}>{status}</p>
@@ -112,10 +113,55 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
 
     const toggleTest = (sensorKey) => setActiveTests(prev => ({ ...prev, [sensorKey]: !prev[sensorKey] }));
 
-    // --- LOCKOUT LOGIC ---
+    // ============================================
+    //  ⭐ 1. SLEEP MODE LOGIC (Priority)
+    // ============================================
     
-    // 1. Auto Lockout: Only block if device is AUTO but user is on Maintenance
-    // Note: We ALLOW 'Sleep' tab to show data even in Auto mode
+    // Check if the physical device is sleeping
+    const isDeviceSleeping = liveData.deviceMode === 'SLEEP';
+
+    // A. If Sleeping, BLOCK Auto/Maintenance Tabs
+    if (isDeviceSleeping && mode !== 'Sleep') {
+        return (
+            <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center animate-fadeIn">
+                <div className="relative mb-6">
+                    <div className="absolute inset-0 bg-indigo-500 blur-2xl opacity-20 animate-pulse"></div>
+                    <MoonIcon className="w-24 h-24 text-indigo-400 relative z-10" />
+                </div>
+                <h3 className="text-3xl font-bold text-white mb-2">System is Sleeping</h3>
+                <p className="text-slate-400 max-w-md mb-8">
+                    Sensors are inactive. Switch to the Sleep tab to view the last known data.
+                </p>
+                <button 
+                    onClick={() => setMode('Sleep')} 
+                    className="px-8 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl shadow-lg shadow-indigo-900/20 transition-all hover:-translate-y-1 flex items-center gap-2"
+                >
+                    <MoonIcon className="w-4 h-4" />
+                    Go to Sleep Mode
+                </button>
+            </div>
+        );
+    }
+
+    // B. If Awake but user clicked 'Sleep' tab
+    if (!isDeviceSleeping && mode === 'Sleep') {
+        return (
+            <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center animate-fadeIn">
+                <CpuIcon className="w-20 h-20 mb-6 text-emerald-500 animate-pulse" />
+                <h3 className="text-2xl font-bold text-white mb-2">Device is Awake</h3>
+                <p className="text-slate-400 max-w-md mb-8">The system is currently active in <strong>{liveData.deviceMode}</strong> mode.</p>
+                <button onClick={() => setMode('Auto')} className="px-8 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-lg shadow-emerald-900/20 transition-all hover:-translate-y-1">
+                    View Live Dashboard
+                </button>
+            </div>
+        );
+    }
+
+    // ============================================
+    //  ⭐ 2. STANDARD LOCKOUTS
+    // ============================================
+
+    // Auto Lockout (Block Maintenance tab)
     if (liveData.deviceMode === 'AUTO' && mode === 'Maintenance') {
         return (
             <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center animate-fadeIn">
@@ -124,7 +170,7 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
                     <CpuIcon className="w-20 h-20 text-emerald-500 relative z-10" />
                 </div>
                 <h3 className="text-2xl font-bold text-white mb-2">Device is in Auto Mode</h3>
-                <p className="text-slate-400 max-w-md mb-8">The physical switch is set to <strong>AUTO</strong>. Maintenance controls are disabled.</p>
+                <p className="text-slate-400 max-w-md mb-8">Maintenance controls are disabled while automation is running.</p>
                 <button onClick={() => setMode('Auto')} className="px-8 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-lg shadow-emerald-900/20 transition-all hover:-translate-y-1">
                     Go to Dashboard
                 </button>
@@ -132,13 +178,13 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
         );
     }
 
-    // 2. Maintenance Lockout: Only block if device is MAINTENANCE but user is elsewhere
+    // Maintenance Lockout (Block Auto tab)
     if (liveData.deviceMode === 'MAINTENANCE' && mode !== 'Maintenance') {
         return (
             <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center animate-fadeIn">
                 <RefreshCcwIcon className="w-20 h-20 mb-6 text-yellow-500 animate-spin-slow" />
                 <h3 className="text-2xl font-bold text-white mb-2">Device is in Maintenance Mode</h3>
-                <p className="text-slate-400 max-w-md mb-8">Live data automation is paused. Please use the Maintenance Console.</p>
+                <p className="text-slate-400 max-w-md mb-8">Live data automation is paused.</p>
                 <button onClick={() => setMode('Maintenance')} className="px-8 py-3 bg-yellow-600 hover:bg-yellow-500 text-white font-bold rounded-xl shadow-lg shadow-yellow-900/20 transition-all hover:-translate-y-1">
                     Open Console
                 </button>
@@ -146,47 +192,42 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
         );
     }
 
-    // ⭐ REMOVED "SLEEP LOCKOUT": 
-    // We now allow the dashboard to render even if Device is SLEEPing, 
-    // so both "Auto" and "Sleep" tabs show the banner.
-
-    // --- SHARED DASHBOARD VIEW (AUTO & SLEEP) ---
+    // ============================================
+    //  ⭐ 3. DASHBOARD RENDER (Shared by Auto & Sleep)
+    // ============================================
     if (mode === 'Auto' || mode === 'Sleep') {
         const rainStatus = getRainStatus(percents.rainPercent);
         const soilStatus = getSoilStatus(percents.soilPercent);
         const waterTankStatus = getWaterTankStatus(percents.waterPercent, liveData.waterDistanceCM);
         const pressureStatus = getPressureStatus(liveData.pressure);
 
-        // Check if device is ACTUALLY sleeping (hardware state)
-        const isDeviceSleeping = liveData.deviceMode === 'SLEEP';
-
         return (
             <div className="animate-fadeIn">
-                {/* ⭐ SLEEP BANNER (Visible if Device is Sleeping, regardless of Tab) */}
-                {isDeviceSleeping && (
-                    <div className="p-4 bg-indigo-900/80 border border-indigo-500 rounded-xl mb-6 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-lg backdrop-blur-sm">
-                        <div className="flex items-center gap-3">
-                            <div className="p-2 bg-indigo-950 rounded-full animate-pulse">
-                                <MoonIcon className="w-6 h-6 text-indigo-400" />
-                            </div>
-                            <div className="text-center sm:text-left">
-                                <h3 className="font-bold text-indigo-100">System Sleeping</h3>
-                                <p className="text-xs text-indigo-300">System in low-power mode. Displaying cached data. Wake device to update.</p>
-                            </div>
-                        </div>
-                        <span className="px-3 py-1 bg-black/30 rounded text-[10px] font-mono text-indigo-200 border border-indigo-500/30">LOW POWER MODE</span>
-                    </div>
-                )}
-
                 {/* Error Banner */}
                 {fetchError && (
                     <div className="p-4 bg-red-500/10 text-red-400 rounded-xl border border-red-500/20 text-center font-bold mb-6 animate-pulse">
                         ⚠️ {fetchError}
                     </div>
                 )}
+
+                {/* ⭐ SLEEP BANNER (Only on Sleep Tab) */}
+                {mode === 'Sleep' && (
+                    <div className="p-4 bg-indigo-900/80 border border-indigo-500 rounded-xl mb-6 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-lg backdrop-blur-sm">
+                        <div className="flex items-center gap-3">
+                            <div className="p-2 bg-indigo-950 rounded-full animate-pulse">
+                                <MoonIcon className="w-6 h-6 text-indigo-400" />
+                            </div>
+                            <div className="text-center sm:text-left">
+                                <h3 className="font-bold text-indigo-100">Sensors Inactive</h3>
+                                <p className="text-xs text-indigo-300">System is sleeping. Displaying last known data.</p>
+                            </div>
+                        </div>
+                        <span className="px-3 py-1 bg-black/30 rounded text-[10px] font-mono text-indigo-200 border border-indigo-500/30">CACHED DATA</span>
+                    </div>
+                )}
                 
-                {/* ⭐ DASHBOARD CONTENT (Dimmed if Sleeping) */}
-                <div className={`transition-all duration-500 ${isDeviceSleeping ? 'opacity-60 grayscale-[0.3]' : 'opacity-100'}`}>
+                {/* ⭐ MAIN DASHBOARD (Dimmed if Sleeping) */}
+                <div className={`transition-all duration-500 ${mode === 'Sleep' ? 'opacity-60 grayscale-[0.5]' : 'opacity-100'}`}>
                     <section className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                         <StatusCard Icon={CloudRainIcon} title="Rain Sensor" reading={rainStatus.reading} status={rainStatus.status} className="text-sky-400 bg-sky-500/10" />
                         <StatusCard Icon={GaugeIcon} title="Pressure" reading={`${liveData.pressure.toFixed(1)} hPa`} status={pressureStatus.status} className="text-purple-400 bg-purple-500/10" />
@@ -233,10 +274,10 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
         );
     }
 
+    // --- 4. MAINTENANCE RENDER ---
     if (mode === 'Maintenance') {
         return (
             <section className="space-y-6 animate-fadeIn">
-                {/* Maintenance Content (Unchanged) */}
                 <div className="p-6 bg-yellow-500/10 rounded-2xl border border-yellow-500/20 flex flex-col sm:flex-row items-center justify-between gap-4">
                     <div className="flex items-center gap-4">
                         <div className="p-3 bg-yellow-500/20 rounded-xl animate-pulse">
