@@ -119,7 +119,7 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
     const toggleTest = (sensorKey) => setActiveTests(prev => ({ ...prev, [sensorKey]: !prev[sensorKey] }));
 
     // Global Lockout UI
-    if (liveData.deviceMode === 'AUTO' && mode !== 'Auto') {
+    if (liveData.deviceMode === 'AUTO' && mode !== 'Auto' && mode !== 'Sleep') { // Allow Sleep view even in Auto mode
         return (
             <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center animate-fadeIn">
                 <div className="relative mb-6">
@@ -148,22 +148,9 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
         );
     }
 
-    if (liveData.deviceMode === 'SLEEP' && mode !== 'Sleep') {
-        return (
-            <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center animate-fadeIn">
-                <MoonIcon className="w-20 h-20 mb-6 text-indigo-400 animate-pulse" />
-                <h3 className="text-2xl font-bold text-white mb-2">Device is Sleeping</h3>
-                <p className="text-slate-400 max-w-md mb-8">System is in low-power mode. Wake the device using the physical button to view live data.</p>
-                <button onClick={() => setMode('Sleep')} className="px-8 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl shadow-lg shadow-indigo-900/20 transition-all hover:-translate-y-1">
-                    View Status
-                </button>
-            </div>
-        );
-    }
-
-    // --- NORMAL VIEWS ---
-
-    if (mode === 'Auto') {
+    // --- SHARED DASHBOARD VIEW (AUTO & SLEEP) ---
+    // This block now handles both 'Auto' AND 'Sleep' to show the same content
+    if (mode === 'Auto' || mode === 'Sleep') {
         const rainStatus = getRainStatus(percents.rainPercent);
         const soilStatus = getSoilStatus(percents.soilPercent);
         const waterTankStatus = getWaterTankStatus(percents.waterPercent, liveData.waterDistanceCM);
@@ -171,53 +158,73 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
 
         return (
             <div className="animate-fadeIn">
+                {/* ⭐ SLEEP BANNER (Visible only when Sleep) */}
+                {mode === 'Sleep' && (
+                    <div className="p-4 bg-indigo-900/80 border border-indigo-500 rounded-xl mb-6 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-lg backdrop-blur-sm">
+                        <div className="flex items-center gap-3">
+                            <div className="p-2 bg-indigo-950 rounded-full animate-pulse">
+                                <MoonIcon className="w-6 h-6 text-indigo-400" />
+                            </div>
+                            <div className="text-center sm:text-left">
+                                <h3 className="font-bold text-indigo-100">System Sleeping</h3>
+                                <p className="text-xs text-indigo-300">System in low-power mode. Displaying cached data. Wake device to update.</p>
+                            </div>
+                        </div>
+                        <span className="px-3 py-1 bg-black/30 rounded text-[10px] font-mono text-indigo-200 border border-indigo-500/30">LOW POWER MODE</span>
+                    </div>
+                )}
+
+                {/* Error Banner */}
                 {fetchError && (
                     <div className="p-4 bg-red-500/10 text-red-400 rounded-xl border border-red-500/20 text-center font-bold mb-6 animate-pulse">
                         ⚠️ {fetchError}
                     </div>
                 )}
                 
-                <section className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                    <StatusCard Icon={CloudRainIcon} title="Rain Sensor" reading={rainStatus.reading} status={rainStatus.status} className="text-sky-400 bg-sky-500/10" />
-                    <StatusCard Icon={GaugeIcon} title="Pressure" reading={`${liveData.pressure.toFixed(1)} hPa`} status={pressureStatus.status} className="text-purple-400 bg-purple-500/10" />
-                    <StatusCard Icon={BoxIcon} title="Water Level" reading={waterTankStatus.reading} status={waterTankStatus.status} className="text-cyan-400 bg-cyan-500/10" />
-                    <StatusCard Icon={LeafIcon} title="Soil Moisture" reading={soilStatus.reading} status={soilStatus.status} className="text-orange-400 bg-orange-500/10" />
-                </section>
+                {/* ⭐ Main Dashboard Content (Dimmed in Sleep Mode) */}
+                <div className={`transition-all duration-500 ${mode === 'Sleep' ? 'opacity-60 grayscale-[0.3]' : 'opacity-100'}`}>
+                    <section className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                        <StatusCard Icon={CloudRainIcon} title="Rain Sensor" reading={rainStatus.reading} status={rainStatus.status} className="text-sky-400 bg-sky-500/10" />
+                        <StatusCard Icon={GaugeIcon} title="Pressure" reading={`${liveData.pressure.toFixed(1)} hPa`} status={pressureStatus.status} className="text-purple-400 bg-purple-500/10" />
+                        <StatusCard Icon={BoxIcon} title="Water Level" reading={waterTankStatus.reading} status={waterTankStatus.status} className="text-cyan-400 bg-cyan-500/10" />
+                        <StatusCard Icon={LeafIcon} title="Soil Moisture" reading={soilStatus.reading} status={soilStatus.status} className="text-orange-400 bg-orange-500/10" />
+                    </section>
 
-                <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    <article className="lg:col-span-2 p-6 bg-slate-800 rounded-2xl shadow-lg border border-slate-700 hover:border-slate-600 transition-colors">
-                        <div className="flex justify-between items-center mb-6">
-                            <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                                <ActivityIcon className="w-5 h-5 text-indigo-400" />
-                                Historical Trends
-                            </h3>
-                            <span className="text-xs text-slate-500 bg-slate-900 px-2 py-1 rounded">Last 7 Days</span>
-                        </div>
-                        <div className="chart-container h-64"><canvas ref={refs.historyChartRef}></canvas></div>
-                    </article>
+                    <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <article className="lg:col-span-2 p-6 bg-slate-800 rounded-2xl shadow-lg border border-slate-700 hover:border-slate-600 transition-colors">
+                            <div className="flex justify-between items-center mb-6">
+                                <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                                    <ActivityIcon className="w-5 h-5 text-indigo-400" />
+                                    Historical Trends
+                                </h3>
+                                <span className="text-xs text-slate-500 bg-slate-900 px-2 py-1 rounded">Last 7 Days</span>
+                            </div>
+                            <div className="chart-container h-64"><canvas ref={refs.historyChartRef}></canvas></div>
+                        </article>
 
-                    <article className="p-6 bg-slate-800 rounded-2xl shadow-lg border border-slate-700 hover:border-slate-600 transition-colors">
-                        <h3 className="text-xl font-bold mb-6 text-white text-center">Live Gauges</h3>
-                        <div className="grid grid-cols-2 gap-6">
-                            <div className="flex flex-col items-center group">
-                                <canvas ref={refs.rainGaugeRef} className="w-full transition-transform group-hover:scale-110 duration-300"></canvas>
-                                <span className="text-xs mt-2 text-slate-400 font-bold uppercase tracking-wide">Rain</span>
+                        <article className="p-6 bg-slate-800 rounded-2xl shadow-lg border border-slate-700 hover:border-slate-600 transition-colors">
+                            <h3 className="text-xl font-bold mb-6 text-white text-center">Live Gauges</h3>
+                            <div className="grid grid-cols-2 gap-6">
+                                <div className="flex flex-col items-center group">
+                                    <canvas ref={refs.rainGaugeRef} className="w-full transition-transform group-hover:scale-110 duration-300"></canvas>
+                                    <span className="text-xs mt-2 text-slate-400 font-bold uppercase tracking-wide">Rain</span>
+                                </div>
+                                <div className="flex flex-col items-center group">
+                                    <canvas ref={refs.pressureGaugeRef} className="w-full transition-transform group-hover:scale-110 duration-300"></canvas>
+                                    <span className="text-xs mt-2 text-slate-400 font-bold uppercase tracking-wide">Pressure</span>
+                                </div>
+                                <div className="flex flex-col items-center group">
+                                    <canvas ref={refs.waterTankGaugeRef} className="w-full transition-transform group-hover:scale-110 duration-300"></canvas>
+                                    <span className="text-xs mt-2 text-slate-400 font-bold uppercase tracking-wide">Water</span>
+                                </div>
+                                <div className="flex flex-col items-center group">
+                                    <canvas ref={refs.soilGaugeRef} className="w-full transition-transform group-hover:scale-110 duration-300"></canvas>
+                                    <span className="text-xs mt-2 text-slate-400 font-bold uppercase tracking-wide">Soil</span>
+                                </div>
                             </div>
-                            <div className="flex flex-col items-center group">
-                                <canvas ref={refs.pressureGaugeRef} className="w-full transition-transform group-hover:scale-110 duration-300"></canvas>
-                                <span className="text-xs mt-2 text-slate-400 font-bold uppercase tracking-wide">Pressure</span>
-                            </div>
-                            <div className="flex flex-col items-center group">
-                                <canvas ref={refs.waterTankGaugeRef} className="w-full transition-transform group-hover:scale-110 duration-300"></canvas>
-                                <span className="text-xs mt-2 text-slate-400 font-bold uppercase tracking-wide">Water</span>
-                            </div>
-                            <div className="flex flex-col items-center group">
-                                <canvas ref={refs.soilGaugeRef} className="w-full transition-transform group-hover:scale-110 duration-300"></canvas>
-                                <span className="text-xs mt-2 text-slate-400 font-bold uppercase tracking-wide">Soil</span>
-                            </div>
-                        </div>
-                    </article>
-                </section>
+                        </article>
+                    </section>
+                </div>
             </div>
         );
     }
@@ -243,19 +250,6 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
                     <TestControlCard Icon={GaugeIcon} title="Barometer" sensorKey="pressure" dbValue={dbValues.pressure} isActive={activeTests.pressure} onToggle={toggleTest} />
                 </div>
             </section>
-        );
-    }
-
-    if (mode === 'Sleep') {
-        return (
-            <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center animate-fadeIn">
-                <div className="relative mb-6">
-                    <div className="absolute inset-0 bg-indigo-500 blur-2xl opacity-20 animate-pulse"></div>
-                    <MoonIcon className="w-24 h-24 text-indigo-400 relative z-10" />
-                </div>
-                <h3 className="text-3xl font-bold text-white mb-2">System Asleep</h3>
-                <p className="text-slate-400 max-w-md">The device has entered low-power mode. Press the physical button on the device to wake it up.</p>
-            </div>
         );
     }
 
