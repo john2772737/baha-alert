@@ -1,63 +1,54 @@
 // src/utils/fuzzyEngine.js
 
-// --- Helper Functions ---
-const isLow = (val, trueThreshold, falseThreshold) => {
-    if (val <= trueThreshold) return 1.0; 
-    if (val >= falseThreshold) return 0.0; 
-    return (falseThreshold - val) / (falseThreshold - trueThreshold);
-};
+// ... (Keep the Helper Functions isLow, isMiddle, isHigh the same) ...
 
-const isMiddle = (val, start, peak, end) => {
-    return Math.max(0, Math.min((val - start) / (peak - start), (end - val) / (end - peak)));
-};
-
-// --- MAIN AI FUNCTION ---
 export const calculateFloodRisk = (rainRaw, soilRaw, waterDist, pressure) => {
     
-    // 1. FUZZIFICATION (Mapping your tables)
-    
-    // Rain: Heavy (0-306), Moderate (307-511)
+    // --- 1. FUZZIFICATION (Updated for New Water Levels) ---
+
+    // RAIN (Keep existing Thesis values)
     const rainHeavy = isLow(rainRaw, 306, 511);        
     const rainModerate = isMiddle(rainRaw, 306, 409, 767); 
     
-    // Soil: Wet (0-511)
+    // SOIL (Keep existing Thesis values)
     const soilSaturated = isLow(soilRaw, 511, 818);    
     
-    // Water: High (0-3cm), Normal (4-15cm)
-    const waterCritical = isLow(waterDist, 3, 15);     
-    const waterHigh = isMiddle(waterDist, 3, 10, 20);  
-
-    // Pressure: Low < 990
+    // WATER TANK (UPDATED) 
+    // High Risk = Distance is <= 4cm
+    // Safe = Distance is > 5cm
+    const waterCritical = isLow(waterDist, 4, 5.5); // 1.0 Risk at 4cm, 0.0 Risk at 5.5cm    
+    
+    // PRESSURE (Keep existing)
     const pressureStorm = isLow(pressure, 990, 1000);  
 
-    // 2. INFERENCE (The Logic Rules)
+    // --- 2. INFERENCE (Logic Rules) ---
 
-    // Rule 1: Extreme Danger (Critical Water OR Heavy Rain + Wet Soil)
+    // Rule 1: Extreme Danger (Water Critical OR Rain+Soil)
     const dangerScore = Math.max(
         waterCritical, 
         Math.min(rainHeavy, soilSaturated)
     );
 
-    // Rule 2: Storm Warning (Low Pressure + Moderate Rain)
+    // Rule 2: Storm Warning
     const stormScore = Math.min(pressureStorm, rainModerate);
 
-    // 3. RESULT (Score 0-100)
+    // --- 3. RESULT ---
     let finalRisk = (dangerScore * 100) + (stormScore * 60);
     finalRisk = Math.min(100, finalRisk);
 
-    // Generate Text Recommendation
+    // Generate Status Text
     let status = "SAFE";
-    let message = "Conditions are normal.";
+    let message = "Water levels are low. Conditions stable.";
     
     if (finalRisk > 80) {
         status = "CRITICAL";
-        message = "EVACUATE IMMEDIATELY. Water levels are critical.";
+        message = "EVACUATE. Water is at High Capacity limits.";
     } else if (finalRisk > 50) {
         status = "WARNING";
-        message = "Prepare for flooding. Monitor alerts closely.";
+        message = "Water levels rising rapidly. Monitor closely.";
     } else if (finalRisk > 20) {
         status = "CAUTION";
-        message = "Rain detected. Soil is absorbing water.";
+        message = "Rain detected. Check water reserves.";
     }
 
     return {
@@ -67,7 +58,7 @@ export const calculateFloodRisk = (rainRaw, soilRaw, waterDist, pressure) => {
         details: {
             rain: (rainHeavy * 100).toFixed(0),
             soil: (soilSaturated * 100).toFixed(0),
-            water: (waterCritical * 100).toFixed(0)
+            water: (waterCritical * 100).toFixed(0) // This will now show 100% if dist <= 4
         }
     };
 };
