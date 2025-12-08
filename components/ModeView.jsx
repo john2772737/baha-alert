@@ -4,6 +4,15 @@ import { CloudRainIcon, GaugeIcon, BoxIcon, LeafIcon, MoonIcon, RefreshCcwIcon, 
 
 const API_ENDPOINT = 'https://baha-alert.vercel.app/api';
 
+// --- Mappings (Locally defined to ensure Maintenance uses correct logic) ---
+const clamp = (val) => Math.min(100, Math.max(0, Math.round(val)));
+const STATE_MAPPINGS = {
+  rain: (rainRaw) => (rainRaw === -1 || rainRaw === null ? -1 : clamp(100 - (rainRaw / 1023.0) * 100)), 
+  soil: (soilRaw) => (soilRaw === -1 || soilRaw === null ? -1 : clamp(100 - (soilRaw / 1023.0) * 100)), 
+  waterTank: (distanceCM) =>
+    distanceCM === -1 || distanceCM === null ? -1 : (distanceCM > 100 ? 0 : clamp(100.0 - (distanceCM / 50.0) * 100.0)),
+};
+
 // --- Animated Status Card (Auto/Sleep Mode) ---
 const StatusCard = ({ Icon, title, reading, status, className }) => {
     const isCritical = className.includes('text-red') || className.includes('text-yellow');
@@ -60,7 +69,6 @@ const TestControlCard = ({ Icon, title, sensorKey, dbValue, status, onToggle, is
         <div className="bg-slate-900/50 p-3 rounded-lg mb-4 border border-slate-700/50 space-y-2">
             <div className="flex justify-between items-center text-sm font-mono">
                 <span className="text-slate-500">Value:</span>
-                {/* Shows the raw test result from DB/API */}
                 <span className={`font-bold transition-all duration-300 ${dbValue !== null ? 'text-white' : 'text-slate-600'}`}>
                     {dbValue !== null ? dbValue : '--'}
                 </span>
@@ -68,9 +76,8 @@ const TestControlCard = ({ Icon, title, sensorKey, dbValue, status, onToggle, is
             
             <div className="flex justify-between items-center text-sm font-mono border-t border-slate-700/50 pt-2">
                 <span className="text-slate-500">Status:</span>
-                {/* Shows the status from AUTO mode logic */}
                 <span className={`font-bold px-2 py-0.5 rounded text-xs uppercase tracking-wide
-                    ${!status || status === '--' ? 'bg-slate-800 text-slate-500' : 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'}`}>
+                    ${!status || status === '--' || status === 'SENSOR ERROR' ? 'bg-slate-800 text-slate-500' : 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'}`}>
                     {status || '--'}
                 </span>
             </div>
@@ -168,7 +175,6 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
     //  ⭐ 2. CONTENT RENDERING
     // ============================================
 
-    // RENDER DASHBOARD (Auto & Sleep)
     if (mode === 'Auto' || mode === 'Sleep') {
         const rainStatus = getRainStatus(percents.rainPercent);
         const soilStatus = getSoilStatus(percents.soilPercent);
@@ -248,12 +254,26 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
 
     // RENDER MAINTENANCE
     if (mode === 'Maintenance') {
-        // ⭐ STRICTLY USE AUTO MODE SOURCE (percents) FOR STATUS
-        // This ensures status text matches "Auto" tab exactly, regardless of raw test values.
-        const rainInfo = getRainStatus(percents.rainPercent);
-        const soilInfo = getSoilStatus(percents.soilPercent);
-        const waterInfo = getWaterTankStatus(percents.waterPercent, liveData.waterDistanceCM);
-        const pressureInfo = getPressureStatus(liveData.pressure);
+        // --- CALCULATION LOGIC ---
+        // 1. Convert Raw Test Value -> Percentage (using STATE_MAPPINGS)
+        // 2. Convert Percentage -> Status Text (using helpers)
+
+        // Rain
+        const rainPercent = STATE_MAPPINGS.rain(dbValues.rain);
+        const rainInfo = getRainStatus(rainPercent);
+
+        // Soil
+        const soilPercent = STATE_MAPPINGS.soil(dbValues.soil);
+        const soilInfo = getSoilStatus(soilPercent);
+
+        // Water
+        // Note: STATE_MAPPINGS.waterTank takes Distance (cm). 
+        // getWaterTankStatus takes (percent, distance).
+        const waterPercent = STATE_MAPPINGS.waterTank(dbValues.water);
+        const waterInfo = getWaterTankStatus(waterPercent, dbValues.water);
+
+        // Pressure
+        const pressureInfo = getPressureStatus(dbValues.pressure);
 
         return (
             <section className="space-y-6 animate-fadeIn">
