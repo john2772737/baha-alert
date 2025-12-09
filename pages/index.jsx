@@ -6,7 +6,7 @@ import QRCode from 'react-qr-code';
 import { getFormattedTime } from '../utils/sensorUtils';
 import { useSensorData } from '../hooks/useSensorData';
 import { useDashboardInit } from '../hooks/useDashboardInit';
-import { ClockIcon, RefreshCcwIcon, CpuIcon } from '../utils/icons';
+import { ClockIcon, RefreshCcwIcon, CpuIcon, MoonIcon, SunIcon } from '../utils/icons'; // Import MoonIcon and SunIcon
 import ModeView from '../components/ModeView'; 
 
 const REAL_API_ENDPOINT = 'https://baha-alert.vercel.app/api'; 
@@ -26,7 +26,10 @@ const formatDateForAPI = (date) => {
 };
 
 const App = () => {
-    // ⭐ Auth & Router Logic
+    // ⭐ Theme State Management
+    const [theme, setTheme] = useState('dark');
+    
+    // Auth & Router Logic
     const { user, logOut, loading } = useAuth();
     const router = useRouter();
 
@@ -34,18 +37,48 @@ const App = () => {
     const [isClient, setIsClient] = useState(false);
     const [scriptsLoaded, setScriptsLoaded] = useState(false);
     const [isDownloading, setIsDownloading] = useState(false);
-    
-    // ⭐ NEW STATE: Date Picker Logic
     const [selectedDate, setSelectedDate] = useState(formatDateForAPI(new Date()));
-    
-    // QR Logic States
     const [showQR, setShowQR] = useState(false);
-    const [qrValue, setQrValue] = useState(''); // Stores the dynamic secure URL
-
+    const [qrValue, setQrValue] = useState(''); 
     const [mode, setMode] = useState('Auto');
     const modes = ['Auto', 'Maintenance', 'Sleep'];
     const [currentTime, setCurrentTime] = useState('Loading...');
     const [todayData, setTodayData] = useState([]); 
+    
+    // ⭐ Effect to read system preference/localStorage on mount and apply theme
+    useEffect(() => {
+        // Read theme from local storage or system preference
+        const savedTheme = localStorage.getItem('theme');
+        const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+        if (savedTheme) {
+            setTheme(savedTheme);
+        } else if (systemPrefersDark) {
+            setTheme('dark');
+        } else {
+            setTheme('light');
+        }
+        
+        // This is the earliest reliable point to set isClient to true.
+        setIsClient(true);
+    }, []);
+
+    // ⭐ Effect to apply the theme class to the HTML element
+    useEffect(() => {
+        if (!isClient) return;
+        const root = window.document.documentElement;
+        
+        // Remove the opposite class
+        root.classList.remove(theme === 'dark' ? 'light' : 'dark');
+        // Add the current theme class
+        root.classList.add(theme);
+        
+        localStorage.setItem('theme', theme);
+    }, [theme, isClient]);
+    
+    const toggleTheme = () => {
+        setTheme(theme === 'dark' ? 'light' : 'dark');
+    };
 
     // ⭐ 1. Protect Route
     useEffect(() => {
@@ -57,14 +90,12 @@ const App = () => {
     // ⭐ 2. Function to Generate Secure Session QR (Unchanged)
     const generateSecureQR = async () => {
         if (!user) return;
-        setQrValue(''); // Clear previous value to show loading state
-        setShowQR(true); // Open modal immediately
+        setQrValue(''); 
+        setShowQR(true); 
 
         try {
-            // A. Get current user's ID token to prove identity
             const idToken = await user.getIdToken();
             
-            // B. Ask server for a transfer token
             const response = await fetch('/api/generate-qr', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -74,7 +105,6 @@ const App = () => {
             const data = await response.json();
             
             if (data.token) {
-                // C. Create the Magic Link with the custom token
                 const magicLink = `https://baha-alert.vercel.app/login?token=${data.token}`;
                 setQrValue(magicLink);
             } else {
@@ -208,21 +238,17 @@ const App = () => {
         const queryDate = formatDateForAPI(selectedDate);
         
         try {
-            // API call now uses ?date=YYYY-MM-DD
+            // API call now uses ?today=true&date=YYYY-MM-DD
             const response = await fetch(`${REAL_API_ENDPOINT}?today=true&date=${queryDate}`);
             if (!response.ok) throw new Error("Fetch failed.");
             const result = await response.json();
             
             if (result.success && Array.isArray(result.data)) {
-                // IMPORTANT: If API doesn't find data, it returns an empty array, which is fine.
                 if (result.data.length === 0) {
                     alert(`No log data found for ${queryDate}.`);
                 }
                 
-                // Set the fetched data (optional, but good for debugging)
                 setTodayData(result.data); 
-                
-                // Pass the date string to PDF function for naming/title
                 downloadReportPDF(result.data, queryDate); 
             }
         } catch (e) {
@@ -233,13 +259,12 @@ const App = () => {
         }
     }, [isClient, isDownloading, selectedDate, downloadReportPDF]);
     
-    // Init Effects (Unchanged)
+    // Init Effects
     useEffect(() => {
-        setIsClient(true);
         const cdnUrls = [
             "https://cdnjs.cloudflare.com/ajax/libs/gauge.js/1.3.7/gauge.min.js",
             "https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js",
-            "https://cdn.tailwindcss.com",
+            "https://cdn.tailwindcss.com", // Tailwind CDN
             "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js",
             "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js",
         ];
@@ -287,7 +312,6 @@ const App = () => {
             }
         };
         
-        // This passive fetch will only run for TODAY's date to keep the live data view fresh
         fetchTodayDataPassive();
         const interval = setInterval(fetchTodayDataPassive, FETCH_TODAY_LOG_INTERVAL_MS);
         return () => clearInterval(interval);
@@ -300,15 +324,17 @@ const App = () => {
 
     // --- RENDER ---
     return (
-        <div className="min-h-screen bg-slate-900 text-slate-100 p-4 sm:p-10 font-inter dark">
+        <div className="min-h-screen bg-gray-100 text-slate-900 p-4 sm:p-10 font-inter transition-colors duration-500
+                        dark:bg-slate-900 dark:text-slate-100">
             <style>{`
-                .chart-container { height: 50vh; width: 100%; }
-                .gauges-container { display: grid; grid-template-columns: repeat(2, 1fr); gap: 2rem; }
-                .gauge-wrapper canvas { max-width: 100%; height: auto; }
-                @media (min-width: 1024px) { .gauges-container { grid-template-columns: repeat(4, 1fr); } .chart-container { height: 400px; } }
-                /* Dark mode input styling */
+                /* Dark mode input styling (Adjusted for CDN environment) */
                 .dark-input {
-                    background-color: #1e293b; /* slate-800 */
+                    background-color: #f1f5f9; /* Light mode default (slate-100) */
+                    border: 1px solid #94a3b8; /* slate-400 */
+                    color: #1e293b; /* slate-900 */
+                }
+                .dark .dark-input {
+                    background-color: #1e293b; /* slate-800 in dark mode */
                     border: 1px solid #475569; /* slate-600 */
                     color: #f1f5f9; /* slate-100 */
                 }
@@ -319,14 +345,16 @@ const App = () => {
             `}</style>
             
             {/* Header */}
-            <header className="mb-8 p-5 bg-slate-800 rounded-3xl shadow-lg border-b-4 border-emerald-500/50 flex flex-col md:flex-row justify-between items-center">
+            <header className="mb-8 p-5 bg-white rounded-3xl shadow-lg border-b-4 border-emerald-500/50 flex flex-col md:flex-row justify-between items-center transition-colors duration-500
+                             dark:bg-slate-800 dark:border-emerald-500 dark:shadow-none">
                 <div className="flex flex-col">
-                    <h1 className="text-3xl font-extrabold text-emerald-400 mb-2 md:mb-0">BABAD</h1>
+                    <h1 className="text-3xl font-extrabold text-emerald-600 mb-2 md:mb-0 dark:text-emerald-400">BABAD</h1>
                     <div className="flex flex-wrap items-center gap-2 mt-2">
                         {/* Device Mode Badge */}
-                        <div className="flex items-center text-xs text-slate-400 bg-slate-900 px-2 py-1 rounded-md border border-slate-700 w-fit">
-                            <CpuIcon className="w-3 h-3 mr-1 text-yellow-400" />
-                            MODE: <span className="text-emerald-300 ml-1 font-mono font-bold">{liveData.deviceMode}</span>
+                        <div className="flex items-center text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded-md border border-slate-300 w-fit
+                                        dark:text-slate-400 dark:bg-slate-900 dark:border-slate-700">
+                            <CpuIcon className="w-3 h-3 mr-1 text-yellow-600 dark:text-yellow-400" />
+                            MODE: <span className="text-slate-800 ml-1 font-mono font-bold dark:text-emerald-300">{liveData.deviceMode}</span>
                         </div>
                         {/* QR Toggle Button - Calls the Secure Gen Function */}
                         <button onClick={generateSecureQR} className="text-xs bg-indigo-600 px-2 py-1 rounded text-white font-bold hover:bg-indigo-500 transition-colors">
@@ -336,14 +364,25 @@ const App = () => {
                 </div>
                 
                 <div className="flex flex-col md:items-end gap-2 mt-4 md:mt-0">
-                    <div className="flex items-center text-slate-400 bg-slate-900 px-4 py-2 rounded-xl border border-slate-700">
-                        <ClockIcon className="w-5 h-5 mr-2 text-indigo-400" />
+                    {/* Theme Toggle Button */}
+                    <button onClick={toggleTheme} className={`p-2 rounded-full transition-colors duration-300 ${theme === 'dark' ? 'bg-slate-700 text-yellow-300' : 'bg-gray-200 text-indigo-700'}`}>
+                        {theme === 'dark' ? (
+                            <SunIcon className="w-5 h-5" />
+                        ) : (
+                            <MoonIcon className="w-5 h-5" />
+                        )}
+                    </button>
+
+                    <div className="flex items-center text-slate-500 bg-slate-100 px-4 py-2 rounded-xl border border-slate-300
+                                    dark:text-slate-400 dark:bg-slate-900 dark:border-slate-700">
+                        <ClockIcon className="w-5 h-5 mr-2 text-indigo-600 dark:text-indigo-400" />
                         <span>{currentTime}</span>
                     </div>
                      {/* User Info & Logout */}
                     <div className="flex items-center gap-3">
                         <span className="text-xs text-slate-500">{user.email}</span>
-                        <button onClick={logOut} className="text-xs text-red-400 border border-red-900/50 px-2 py-1 rounded hover:bg-red-900/20 transition-colors">
+                        <button onClick={logOut} className="text-xs text-red-600 border border-red-300 px-2 py-1 rounded hover:bg-red-50 transition-colors
+                                        dark:text-red-400 dark:border-red-900/50 dark:hover:bg-red-900/20">
                             Logout
                         </button>
                     </div>
@@ -357,7 +396,7 @@ const App = () => {
                         <h3 className="text-black text-lg font-bold mb-4">Scan to Share Session</h3>
                         
                         <div className="bg-white p-2 border-2 border-slate-200 rounded-lg flex items-center justify-center" style={{ minHeight: '200px', minWidth: '200px' }}>
-                            {/* Check if QR Value exists before rendering */}
+                            {/* QR code itself remains black/white */}
                             {qrValue ? (
                                 <QRCode 
                                     value={qrValue} 
@@ -380,9 +419,9 @@ const App = () => {
 
             <main className="space-y-8">
                 {/* UI Mode Selector */}
-                <div className="flex bg-slate-800 p-1.5 rounded-xl border border-slate-700">
+                <div className="flex bg-gray-200 p-1.5 rounded-xl border border-gray-300 dark:bg-slate-800 dark:border-slate-700">
                     {modes.map(m => (
-                        <button key={m} onClick={() => setMode(m)} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${mode === m ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-700'}`}>{m}</button>
+                        <button key={m} onClick={() => setMode(m)} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${mode === m ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-600 hover:text-slate-800 hover:bg-gray-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-700'}`}>{m}</button>
                     ))}
                 </div>
                 
@@ -398,11 +437,11 @@ const App = () => {
             
             {/* Fetch & Download Button */}
             {mode === 'Auto' && liveData.deviceMode === 'AUTO' && (
-                <div className="mt-8 p-4 bg-slate-800 rounded-2xl border border-slate-700 text-center">
-                    <h3 className="text-xl font-bold mb-4 text-slate-200">Daily Report Generation</h3>
+                <div className="mt-8 p-4 bg-white rounded-2xl border border-gray-300 text-center dark:bg-slate-800 dark:border-slate-700">
+                    <h3 className="text-xl font-bold mb-4 text-slate-800 dark:text-slate-200">Daily Report Generation</h3>
                     
                     <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-4">
-                        <label htmlFor="report-date" className="text-slate-400 font-medium">Select Date:</label>
+                        <label htmlFor="report-date" className="text-slate-600 dark:text-slate-400 font-medium">Select Date:</label>
                         <input
                             type="date"
                             id="report-date"
@@ -429,7 +468,7 @@ const App = () => {
                             </>
                         ) : (
                             <>
-                                <svg className='w-4 h-4 mr-2' xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                                <svg className='w-4 h-4 mr-2' xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 a2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                                 Download Log for {selectedDate}
                             </>
                         )}
