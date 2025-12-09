@@ -190,7 +190,7 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
 
   const toggleTest = (sensorKey) => setActiveTests((prev) => ({ ...prev, [sensorKey]: !prev[sensorKey] }));
 
-  // --- NEW: EMAIL ALERT TRIGGER FUNCTION for all statuses (30-second throttle applied) ---
+  // --- EMAIL ALERT TRIGGER FUNCTION (Sends statusText for dynamic UI and 30s throttle) ---
   const sendAlertEmail = async (statusText, isCritical) => { 
       if (!userEmail) {
           console.warn("Email Alert Skipped: User email not available.");
@@ -209,7 +209,7 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
                   userEmail: userEmail,
                   // We pass the full statusText to the API so it can handle dynamic coloring
                   alertStatus: statusText, 
-                  // NOTE: The API uses the statusText passed above to generate its final HTML message.
+                  // CRITICAL: The API uses the statusText passed above to generate its final HTML message.
                   alertMessage: alertMessage, 
               }),
           });
@@ -233,7 +233,7 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
   };
 
 
-  // --- CRITICAL MONITORING HOOK (Fixed Logic for All Statuses) ---
+  // --- CRITICAL MONITORING HOOK (Fixed Logic) ---
   useEffect(() => {
     if (mode !== 'Auto' || !userEmail) return; 
 
@@ -246,12 +246,12 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
     );
     const currentStatus = aiResult.status; 
     
-    // Define critical levels for throttling
     const isCriticalNow = ['ADVISORY', 'WARNING', 'CRITICAL', 'EMERGENCY'].includes(currentStatus);
     
     // 1. Initial Render Check (Prevents sending an email on load)
     if (isInitialRender.current) {
         isInitialRender.current = false;
+        // Initialize state to the current calculated status
         setAiAlertStatus(currentStatus); 
         return; 
     }
