@@ -20,7 +20,7 @@ import {
   LockIcon,
   BellIcon,
 } from "../utils/icons";
-import AICard from "./AICard"; 
+import AICard from "../components/AICard"; 
 import { useAuth } from '../context/AuthContext'; 
 // CRITICAL FIX: Import the fuzzy engine calculation
 import { calculateFloodRisk } from '../utils/fuzzyEngine'; 
