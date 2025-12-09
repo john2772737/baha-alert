@@ -85,10 +85,18 @@ void loop() {
   }
 
   if (modeChangeFlag) {
-    if (currentState == STATE_AUTO) comms.sendMode("AUTO");
-    else if (currentState == STATE_MAINTENANCE) comms.sendMode("MAINTENANCE");
-    else comms.sendMode("SLEEP");
-
+    
+    if (currentState == STATE_AUTO) {
+        comms.sendMode("AUTO");
+        Serial.println(F("Auto Mode Started")); // Prints once
+    }
+    else if (currentState == STATE_MAINTENANCE) {
+        comms.sendMode("MAINTENANCE");
+        Serial.println(F("Maintenance Mode"));  // Prints once
+    }
+    else {
+        comms.sendMode("SLEEP");
+    }
     modeChangeFlag = false;
   }
 
