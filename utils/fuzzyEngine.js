@@ -20,6 +20,7 @@ export const calculateFloodRisk = (rainRaw, soilRaw, waterDist, pressure) => {
     
     // ============================================
     // 1. FUZZIFICATION (Inputs -> 0.0 to 1.0)
+    //    Water thresholds: Critical 3cm-5cm, High 3cm-10cm
     // ============================================
 
     // --- RAIN SENSOR (Raw: 0-1023) ---
@@ -27,15 +28,13 @@ export const calculateFloodRisk = (rainRaw, soilRaw, waterDist, pressure) => {
     const rainModerate = isMiddle(rainRaw, 307, 511, 767); 
     
     // --- SOIL MOISTURE (Raw: 0-1023) ---
-    // soilSaturated: From 511 (wet) to 818 (moist).
     const soilSaturated = isLow(soilRaw, 511, 818);    
-    // ⭐ NEW: soilMoist: Peaks around 818 (moist), transitions from 511 (wet) to 1023 (dry)
     const soilMoist = isMiddle(soilRaw, 511, 818, 1023); 
     
-    // --- WATER LEVEL (Distance: 0-50 CM) ---
+    // --- WATER LEVEL (Distance: CM) ---
     const waterCritical = isLow(waterDist, 3, 5);     
     const waterHigh = isLow(waterDist, 3, 10); 
-    
+
     // --- BAROMETRIC PRESSURE (hPa) ---
     const pressureStorm = isLow(pressure, 990, 1000);  
 
@@ -43,28 +42,27 @@ export const calculateFloodRisk = (rainRaw, soilRaw, waterDist, pressure) => {
     // 2. INFERENCE (The "Communication" Rules)
     // ============================================
 
-    // RULE A: The "Heavy Runoff" Effect (Heavy Rain + Soil Saturated)
+    // Rule A: Heavy Runoff (Heavy Rain + Soil Saturated)
     const heavyRunoffRisk = Math.min(rainHeavy, soilSaturated);
 
-    // RULE B: The "Storm Surge" Effect (Water High + Pressure Storm)
+    // Rule B: Storm Surge (Water High + Pressure Storm)
     const surgeRisk = Math.min(waterHigh, pressureStorm); 
 
-    // RULE C: The "Active Flood" Effect (Heavy Rain + Water Critical)
+    // Rule C: Active Flood (Heavy Rain + Water Critical)
     const activeFloodRisk = Math.min(rainHeavy, waterCritical);
 
-    // RULE D: The "Triple Failure" Combo (Heavy Rain + Soil Saturated + Water Critical)
+    // Rule D: Triple Failure Combo (Heavy Rain + Soil Saturated + Water Critical)
     const systemFailure = Math.min(rainHeavy, soilSaturated, waterCritical);
 
-    // RULE E: The "Persistence" Effect (Moderate Rain + Soil Saturated)
+    // Rule E: Persistence Risk (Moderate Rain + Soil Saturated)
     const persistenceRisk = Math.min(rainModerate, soilSaturated);
     
-    // ⭐ NEW RULE F: The "Moist Runoff" Effect (Heavy Rain + Soil Moist)
-    // Heavy rain on moist soil is a precursor risk.
+    // Rule F: Moist Runoff (Heavy Rain + Soil Moist)
     const moistRunoffRisk = Math.min(rainHeavy, soilMoist);
 
 
     // ============================================
-    // 3. DEFUZZIFICATION (Weighted Total)
+    // 3. DEFUZZIFICATION (Weighted Total - Fine-Tuned)
     // ============================================
 
     let totalRisk = 0;
@@ -74,25 +72,23 @@ export const calculateFloodRisk = (rainRaw, soilRaw, waterDist, pressure) => {
         totalRisk = 100;
     } 
     else {
-        // Otherwise, weigh the specific interactions:
+        // Active Flooding (Rule C) is the most dangerous scenario (Weight 65)
+        totalRisk = (activeFloodRisk * 65);
         
-        // Active Flooding (Rule C) is the most dangerous scenario (weight 60)
-        totalRisk = (activeFloodRisk * 60);
+        // Base risk if Water is critical on its own (Weight 45)
+        totalRisk += (waterCritical * 45); 
+
+        // Heavy Runoff (Rule A) adds high risk (Weight 30)
+        totalRisk += (heavyRunoffRisk * 30);
         
-        // Heavy Runoff (Rule A) adds high risk (weight 35)
-        totalRisk += (heavyRunoffRisk * 35);
+        // Persistence Risk (Rule E) adds sustained moderate risk (Weight 20)
+        totalRisk += (persistenceRisk * 20);
         
-        // Persistence Risk (Rule E) adds low/moderate risk (weight 15)
-        totalRisk += (persistenceRisk * 15);
+        // Moist Runoff Risk (Rule F) adds minor precursor risk (Weight 15)
+        totalRisk += (moistRunoffRisk * 15);
         
-        // ⭐ NEW: Moist Runoff Risk (Rule F) adds minor precursor risk (weight 10)
-        totalRisk += (moistRunoffRisk * 10);
-        
-        // Reduced Surge (Rule B) low weight (weight 5)
+        // Reduced Surge (Rule B) low weight (Weight 5)
         totalRisk += (surgeRisk * 5); 
-        
-        // Base risk if Water is critical on its own (failsafe)
-        totalRisk += (waterCritical * 50);
     }
 
     // Clamp to 0-100
