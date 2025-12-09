@@ -1,6 +1,6 @@
 // src/utils/fuzzyEngine.js
 
-// --- Helper Functions ---
+// --- Helper Functions (Unchanged) ---
 const isLow = (val, trueThreshold, falseThreshold) => {
     if (val <= trueThreshold) return 1.0; 
     if (val >= falseThreshold) return 0.0; 
@@ -26,7 +26,7 @@ export const calculateFloodRisk = (rainRaw, soilRaw, waterDist, pressure) => {
     const soilSaturated = isLow(soilRaw, 511, 818);    
     
     // Water Level (Low distance = High/Full)
-    const waterHigh = isLow(waterDist, 4, 10); // Expanded range slightly for interaction
+    const waterHigh = isLow(waterDist, 4, 10); 
     const waterCritical = isLow(waterDist, 4, 5);     
 
     // Pressure (Low value = Storm)
@@ -36,64 +36,54 @@ export const calculateFloodRisk = (rainRaw, soilRaw, waterDist, pressure) => {
     // 2. INFERENCE (The "Communication" Rules)
     // ============================================
 
-    /* Here, sensors "talk" to each other using Math.min().
-       Math.min() acts like an "AND" gate. 
-       Both conditions must be true for the rule to trigger.
-    */
+    /* Here, sensors "talk" to each other using Math.min() (AND gate). */
 
     // RULE A: The "Runoff" Effect (Rain + Soil)
-    // "If it is raining heavily AND soil is already full..."
-    // This communicates that rain is worse when soil can't drink it.
     const runoffRisk = Math.min(rainHeavy, soilSaturated);
 
     // RULE B: The "Storm Surge" Effect (Water + Pressure)
-    // "If water is already high AND a storm is coming (low pressure)..."
-    // This communicates that high water is scarier when pressure drops.
-    const surgeRisk = Math.min(waterHigh, pressureStorm);
+    // This risk is kept low to reflect reduced importance.
+    const surgeRisk = Math.min(waterHigh, pressureStorm); 
 
     // RULE C: The "Active Flood" Effect (Rain + Water)
-    // "If it is raining heavily AND water is already high..."
-    // Direct correlation: Input is adding to an already full container.
     const activeFloodRisk = Math.min(rainHeavy, waterCritical);
 
-    // RULE D: The "Catastrophe" Combo (All 4 Sensors)
-    // If everything is bad at once.
-    const systemFailure = Math.min(rainHeavy, soilSaturated, waterCritical, pressureStorm);
+    // ⭐ MODIFICATION: RULE D is now a 3-sensor failure (Pressure removed)
+    // The three most immediate flood indicators failing together.
+    const systemFailure = Math.min(rainHeavy, soilSaturated, waterCritical);
 
 
     // ============================================
     // 3. DEFUZZIFICATION (Weighted Total)
     // ============================================
 
-    // We calculate the final risk by prioritizing the combinations.
-    // Notice we don't just add "rain" or "soil" alone anymore.
-    // We add the *combinations* we calculated above.
-
     let totalRisk = 0;
 
-    // If all sensors agree (Rule D), instant 100%
+    // If the three key systems fail together (Rule D), instant 100%
     if (systemFailure > 0.5) {
         totalRisk = 100;
     } 
     else {
         // Otherwise, weigh the specific interactions:
+        
         // Active Flooding (Rain + Water) is the most dangerous scenario (weight 60)
-        // Runoff (Rain + Soil) adds moderate risk (weight 30)
-        // Surge (Pressure + Water) adds prediction risk (weight 20)
+        totalRisk = (activeFloodRisk * 60);
         
-        // We use Math.max to take the highest severity of the overlapping rules
-        // or a weighted sum. Let's use a weighted approach clamped to 100.
+        // Runoff (Rain + Soil) adds moderate risk (weight 35)
+        totalRisk += (runoffRisk * 35);
         
-        totalRisk = (activeFloodRisk * 60) + (runoffRisk * 30) + (surgeRisk * 20);
+        // ⭐ MODIFICATION: Reduced Surge (Pressure + Water) weight significantly (weight 5)
+        totalRisk += (surgeRisk * 5); 
         
-        // Add a base risk if Water is critical on its own (failsafe)
-        totalRisk += (waterCritical * 40);
+        // Base risk if Water is critical on its own (failsafe)
+        // Weight increased slightly to compensate for overall loss of pressure's influence
+        totalRisk += (waterCritical * 50);
     }
 
     // Clamp to 0-100
     let finalRisk = Math.min(100, totalRisk);
     
-    // --- STATUS TEXT ---
+    // --- STATUS TEXT (Unchanged) ---
     let status = "SAFE";
     let message = "Conditions stable.";
 
@@ -119,16 +109,13 @@ export const calculateFloodRisk = (rainRaw, soilRaw, waterDist, pressure) => {
     }
 
     // --------------------------------------------
-    // 5. RETURN OBJECT (Fixed for React Dashboard)
+    // 5. RETURN OBJECT (Unchanged structure)
     // --------------------------------------------
     return {
         score: finalRisk.toFixed(1),
         status,
         message,
         
-        // RESTORED: This matches what your React Dashboard expects.
-        // We use the old names "rain", "soil", "water", "pressure" 
-        // instead of "rain_status" etc.
         details: {
             rain: (rainHeavy * 100).toFixed(0),
             soil: (soilSaturated * 100).toFixed(0),
@@ -136,7 +123,6 @@ export const calculateFloodRisk = (rainRaw, soilRaw, waterDist, pressure) => {
             pressure: (pressureStorm * 100).toFixed(0)
         },
 
-        // NEW: The "Conversation" data is still here if you want to add it later
         interactions: {
             runoff_factor: (runoffRisk * 100).toFixed(0),
             surge_factor: (surgeRisk * 100).toFixed(0),
