@@ -1,9 +1,7 @@
 // src/components/AlertSettings.js
 
 import React, { useState, useEffect } from 'react';
-import { useAuth } from '../context/AuthContext'; // ⭐ Import the context hook
-// You will need to ensure this path is correct: '../context/AuthContext'
-// or adjust it based on where AlertSettings.js is located relative to AuthContext.js
+import { useAuth } from '../context/AuthContext'; 
 
 const API_ENDPOINT = 'https://baha-alert.vercel.app/api';
 
@@ -48,11 +46,13 @@ const AlertSettings = ({ onClose }) => {
             }
         };
         fetchCurrentRecipient();
-    }, [userEmail, loading]); // Depend on userEmail and loading state
+    }, [userEmail, loading]);
 
     // --- 2. Handle saving the new number ---
-    const handleSave = async (e) => {
-        e.preventDefault();
+    // Note: We are using a pure onClick handler, so e.preventDefault() is implicitly handled 
+    // by ensuring the button type is NOT "submit".
+    const handleSave = async () => {
+        // No need for e.preventDefault() since the button type is "button"
         setCurrentStatus('Saving...');
 
         if (!userEmail) {
@@ -73,7 +73,7 @@ const AlertSettings = ({ onClose }) => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     type: 'UPDATE_RECIPIENT',
-                    userEmail: userEmail, // ⭐ Pass the email obtained from Firebase Auth
+                    userEmail: userEmail,
                     phoneNumber: recipientNumber,
                 }),
             });
@@ -96,15 +96,31 @@ const AlertSettings = ({ onClose }) => {
     const isSaving = currentStatus.includes('Saving');
     const isLoggedIn = !!userEmail;
     
-   // Inside src/components/AlertSettings.js
-
-return (
+   return (
     <div className="bg-slate-800 p-8 rounded-xl shadow-2xl border border-slate-700 w-full max-w-xl mx-auto relative">
-        {/* ... existing header and status display ... */}
+        <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-3">
+            🔔 Alert Recipient Settings 
+            <span className='text-sm text-slate-500 font-normal'>({userEmail || (loading ? 'Loading...' : 'Not Logged In')})</span>
+        </h2>
         
-        {/* ⭐ Change the form tag: Remove onSubmit, rely on the button click */}
+        {/* ⭐ FORM: Now primarily a container, submission is handled by the button's onClick */}
         <form className="space-y-4"> 
-            {/* ... form fields ... */}
+            <div>
+                <label htmlFor="recipient" className="block text-sm font-medium text-slate-400 mb-1">
+                    Recipient Phone Number (E.164 format)
+                </label>
+                <input
+                    id="recipient"
+                    type="tel"
+                    value={recipientNumber}
+                    onChange={(e) => setRecipientNumber(e.target.value)}
+                    placeholder="+639xxxxxxxxx"
+                    className="w-full p-3 rounded-lg bg-slate-700 text-white border border-slate-600 focus:ring-indigo-500 focus:border-indigo-500 font-mono"
+                    required
+                    disabled={!isLoggedIn || isSaving}
+                />
+                <p className="mt-1 text-xs text-slate-500">Example: +639171234567. This number must be verified in the Twilio Console.</p>
+            </div>
             
             <div className="flex justify-between items-center pt-2">
                 <span className={`text-sm font-medium ${currentStatus.includes('Error') ? 'text-red-400' : 'text-indigo-400'}`}>
@@ -112,19 +128,19 @@ return (
                 </span>
                 <div className='space-x-2'>
                      <button
-                        type="button" // Type MUST be 'button' to avoid native submission
+                        type="button" 
                         onClick={onClose}
                         className="px-6 py-2 text-slate-400 border border-slate-600 rounded-lg hover:bg-slate-700 transition-colors"
                     >
                         Close
                     </button>
-                    {/* ⭐ Change the save button: Type is 'button', handler is onClick */}
+                    {/* ⭐ SAVE BUTTON: Explicitly calls handleSave on click. */}
                     <button
-                        type="button" // MUST be type="button"
-                        onClick={handleSave} // Calls your JS function directly
+                        type="button" 
+                        onClick={handleSave} 
                         disabled={!isLoggedIn || isSaving}
                         className={`px-6 py-2 font-bold rounded-lg shadow-md transition-colors 
-                            ${isLoggedIn ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-slate-500 text-slate-300 cursor-not-allowed'}`}
+                            ${isLoggedIn && !isSaving ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-slate-500 text-slate-300 cursor-not-allowed'}`}
                     >
                         {isSaving ? 'Saving...' : 'Save Number'}
                     </button>
