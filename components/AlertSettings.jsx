@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext'; 
-import { BellIcon, XCircleIcon, CheckCircleIcon } from '../utils/icons'; // Assuming these are available
+import { BellIcon, XCircleIcon, CheckCircleIcon } from '../utils/icons'; 
 
 const API_ENDPOINT = 'https://baha-alert.vercel.app/api';
 
@@ -16,15 +16,19 @@ const AlertSettings = ({ onClose }) => {
 
     // --- 1. Fetch current number when the component loads ---
     useEffect(() => {
-        if (loading || !userEmail) {
-            if (!loading && !userEmail) {
-                 setCurrentStatus('Error: User not logged in.');
-            }
+        if (loading) {
+            setCurrentStatus('Initializing...');
+            return;
+        }
+        
+        if (!userEmail) {
+            setCurrentStatus('Error: User not logged in.');
             return;
         }
         
         const fetchCurrentRecipient = async () => {
             setCurrentStatus('Fetching saved number...');
+            setToastMessage(null); // Clear previous messages
             
             try {
                 const res = await fetch(`${API_ENDPOINT}?recipient_email=${userEmail}`);
@@ -47,17 +51,16 @@ const AlertSettings = ({ onClose }) => {
 
     // --- 2. Handle saving the new number ---
     const handleSave = async () => {
-        setToastMessage(null); // Clear previous errors (Keep this here for general flow)
+        setToastMessage(null);
         
-        // ⭐ SYNCHRONOUS VALIDATION (Handles immediate errors)
+        // ⭐ SYNCHRONOUS VALIDATION (Must halt execution immediately)
         if (!userEmail) {
-             setToastMessage({ success: false, message: 'User email missing. Please log in.' });
+             setToastMessage({ success: false, message: 'User email missing. Cannot save.' });
              setCurrentStatus('Error');
              return;
         }
-        if (!recipientNumber.startsWith('+') || recipientNumber.length < 10) {
-            // ⭐ FIX: Display error and STOP execution immediately
-            setToastMessage({ success: false, message: 'Number must be in +E.164 format (e.g., +639...).' });
+        if (!recipientNumber || !recipientNumber.startsWith('+') || recipientNumber.length < 10) {
+            setToastMessage({ success: false, message: 'Invalid number format. Use +CountryCodeNumber.' });
             setCurrentStatus('Error');
             return; 
         }
@@ -79,7 +82,7 @@ const AlertSettings = ({ onClose }) => {
                 const result = await res.json();
                 if (result.success) {
                     setToastMessage({ success: true, message: 'Settings saved successfully!' });
-                    // Close after a brief delay for user confirmation
+                    // ⭐ Success action: Wait briefly then close the modal
                     setTimeout(onClose, 500); 
                     return;
                 } else {
@@ -123,7 +126,6 @@ const AlertSettings = ({ onClose }) => {
                 </div>
             )}
             
-            {/* FORM (Action is purely via onClick) */}
             <form className="space-y-4"> 
                 <div>
                     <label htmlFor="recipient" className="block text-sm font-medium text-slate-400 mb-1">
