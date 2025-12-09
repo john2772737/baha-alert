@@ -32,27 +32,13 @@ if (!admin.apps.length && process.env.FIREBASE_ADMIN_CREDENTIALS) {
 // ------------------------------------
 
 export default async function handler(req, res) {
-  
-  // 🚨 CORS FIX START 🚨
-  // 1. Set the specific origin allowed to make requests (your Vercel frontend)
-  res.setHeader('Access-Control-Allow-Origin', 'https://baha-alert.vercel.app');
-  
-  // 2. Allow necessary methods (GET, POST, DELETE are used; OPTIONS is required for preflight)
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-  
-  // 3. Allow headers the client might send
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-  // Handle CORS Preflight (OPTIONS request)
-  if (req.method === 'OPTIONS') {
-    // Respond with 200 to signal the browser that the preflight check passed
-    return res.status(200).end(); 
-  }
-  // 🚨 CORS FIX END 🚨
-
-
   // Ensure database connection is active
   await dbConnect(); 
+
+  // Handle CORS Preflight
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end(); 
+  }
 
   // ---------------------------------------------------------
   // 💾 POST METHOD: SAVE DATA / SEND ALERTS
