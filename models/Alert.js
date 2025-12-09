@@ -1,50 +1,37 @@
 import mongoose from 'mongoose';
-
-// PHT is UTC + 8 hours. 
-// Calculate the offset in milliseconds: 8 hours * 60 min * 60 sec * 1000 ms
 const PHT_OFFSET_MS = 28800000;
 
 const AlertDataSchema = new mongoose.Schema({
-  // 1. receivedAt: The time the API received the data (will be set in the hook)
-  receivedAt: {
-    type: Date,
-  },
+  // 1. We remove 'receivedAt' here and rely on 'createdAt'
+  // for the time the server received the data (now corrected to PHT).
   
-  // 2. payload: JSON object from the ESP32
   payload: {
     type: mongoose.Schema.Types.Mixed,
     required: true,
   },
 }, {
-  // Option to add standard Mongoose timestamps (createdAt and updatedAt)
-  timestamps: true,
+  timestamps: true, // This automatically creates and maintains createdAt and updatedAt
 });
 
-// --- PRE-SAVE HOOK TO APPLY PHT OFFSET TO ALL TIMESTAMPS ---
 AlertDataSchema.pre('save', function(next) {
     const now = Date.now();
-    
-    // Calculate the time by adding the 8-hour offset to the current UTC time
     const phtTimeMs = now + PHT_OFFSET_MS;
+    const phtDate = new Date(phtTimeMs);
     
-    // 1. Manually set receivedAt (only if it wasn't already provided by the request body)
-    if (!this.receivedAt) {
-        this.receivedAt = new Date(phtTimeMs);
-    }
+    // Mongoose handles 'isNew' checks internally for timestamps: true.
+    // We overwrite the internal value calculated by Mongoose for BOTH
+    // createdAt and updatedAt with the PHT-corrected time.
     
-    // 2. Manually set createdAt (only runs on new documents)
+    // Only set createdAt on new documents
     if (this.isNew) {
-        this.createdAt = new Date(phtTimeMs);
+        this.createdAt = phtDate;
     }
-
-    // 3. Manually set updatedAt (runs on new and updated documents)
-    this.updatedAt = new Date(phtTimeMs);
+    
+    // Set updatedAt on all saves
+    this.updatedAt = phtDate;
 
     next();
 });
-// -----------------------------------------------------------
 
-// Reuse the model if it's already been compiled to avoid OverwriteModelError
 const AlertData = mongoose.models.AlertData || mongoose.model('AlertData', AlertDataSchema);
-
 export default AlertData;
