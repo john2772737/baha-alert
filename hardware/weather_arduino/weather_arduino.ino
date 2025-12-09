@@ -3,7 +3,7 @@
 #include "Communication.h"
 #include "WifiConfig.h"
 
-// --- RENAMED STATES to avoid conflicts ---
+// --- SYSTEM STATES ---
 enum SystemState {
   STATE_AUTO,
   STATE_MAINTENANCE,
@@ -27,164 +27,176 @@ unsigned long previousMillis = 0;
 const long INTERVAL = 2000;    
 const long RESEND_INTERVAL = 3000; 
 
-// Prototypes
+// PROTOTYPES
 void runAutoMode();
 void runMaintenanceMode();
 void runSleepMode();
 void changeModeISR();
-void wakeISR();
 void loadWifiCredentials();
 void saveWifiCredentials(String s, String p);
 
 void setup() {
-  Serial.begin(9600);     
+  Serial.begin(9600);
   comms.begin(9600);
   
-  Serial.println(F("Init...")); // F() saves memory
-  
+  Serial.println(F("Init..."));
+
   mySensor.begin();
-  mySensor.BMP180(); 
+  mySensor.BMP180();
 
   pinMode(A2, INPUT_PULLUP);
   pinMode(A3, INPUT_PULLUP);
   pinMode(BUTTON_PIN, INPUT_PULLUP);
+
   attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), changeModeISR, FALLING);
-  
+
   Serial.println(F("Started: AUTO"));
 }
 
 void loop() {
   if (currentState != STATE_MAINTENANCE) {
-     String status = comms.listenForStatus();
-     if (status.length() > 0) {
-        if (status == "CONN_OK") {
-            if (!isWifiConnected) { 
-                Serial.println(F("Wifi OK")); 
-                isWifiConnected = true; 
-                configSentInAttempt = true; 
-            }
-        } else if (status.startsWith("CONN_FAIL")) {
-            isWifiConnected = false; 
-            configSentInAttempt = false;
+    String status = comms.listenForStatus();
+    if (status.length() > 0) {
+      if (status == "CONN_OK") {
+        if (!isWifiConnected) { 
+          Serial.println(F("Wifi OK"));
+          isWifiConnected = true;
+          configSentInAttempt = true;
         }
-     }
+      } 
+      else if (status.startsWith("CONN_FAIL")) {
+        isWifiConnected = false;
+        configSentInAttempt = false;
+      }
+    }
   }
-  
+
   if (modeChangeFlag) {
     if (currentState == STATE_AUTO) comms.sendMode("AUTO");
     else if (currentState == STATE_MAINTENANCE) comms.sendMode("MAINTENANCE");
     else comms.sendMode("SLEEP");
-    modeChangeFlag = false; 
+
+    modeChangeFlag = false;
   }
 
   if (!isWifiConnected && currentState != STATE_MAINTENANCE) {
-      if (!configSentInAttempt || (millis() - lastWifiConfigSent > RESEND_INTERVAL)) {
-          loadWifiCredentials(); 
-          lastWifiConfigSent = millis();
-          configSentInAttempt = true; 
-      }
-      return; 
+    if (!configSentInAttempt || (millis() - lastWifiConfigSent > RESEND_INTERVAL)) {
+      loadWifiCredentials();
+      lastWifiConfigSent = millis();
+      configSentInAttempt = true;
+    }
+    return;
   }
 
   switch (currentState) {
-    case STATE_AUTO: runAutoMode(); break;
+    case STATE_AUTO:        runAutoMode(); break;
     case STATE_MAINTENANCE: runMaintenanceMode(); break;
-    case STATE_SLEEP: runSleepMode(); break;
+    case STATE_SLEEP:       runSleepMode(); break;
   }
 }
 
+// ------------------------- AUTO MODE -------------------------
 void runAutoMode() {
   if (millis() - previousMillis >= INTERVAL) {
     previousMillis = millis();
+    
     pinMode(A3, INPUT_PULLUP); 
     pinMode(A2, INPUT_PULLUP);
 
-    float p = mySensor.bmpPressure(); 
-    int r = mySensor.rainAnalog(); 
-    int s = mySensor.soilAnalog(); 
-    long w = mySensor.ultrasonicDistance(); 
+    float p = mySensor.bmpPressure();
+    int r = mySensor.rainAnalog();
+    int s = mySensor.soilAnalog();
+    long w = mySensor.ultrasonicDistance();
 
-    if (p < 10.0) p = -1.0; 
+    if (p < 10.0) p = -1.0;
     if (w == 0 || w > 400) w = -1;
 
     comms.sendSensorReport("AUTO", p, r, s, w);
-    Serial.println(F("Data Sent")); 
+
+    Serial.println(F("AUTO: Data Sent"));
   }
 }
 
+// ------------------------ MAINTENANCE MODE ------------------------
 void runMaintenanceMode() {
   char cmd = 0;
+
   if (comms.available() > 0) cmd = comms.read();
   else if (Serial.available() > 0) cmd = Serial.read();
 
   if (cmd == 0) return;
 
   switch (cmd) {
-    case 'U': case 'u': 
-      comms.sendSingleResponse("waterDistanceCM", (float)mySensor.ultrasonicDistance()); break;
-    case 'R': case 'r': 
+    case 'U': case 'u':
+      comms.sendSingleResponse("waterDistanceCM", (float)mySensor.ultrasonicDistance());
+      break;
+    case 'R': case 'r':
       pinMode(A3, INPUT_PULLUP);
-      comms.sendSingleResponse("rainRaw", (float)mySensor.rainAnalog()); break;
-    case 'S': case 's': 
+      comms.sendSingleResponse("rainRaw", (float)mySensor.rainAnalog());
+      break;
+    case 'S': case 's':
       pinMode(A2, INPUT_PULLUP);
-      comms.sendSingleResponse("soilRaw", (float)mySensor.soilAnalog()); break;
-    case 'P': case 'p': 
-      comms.sendSingleResponse("pressureHPA", mySensor.bmpPressure()); break;
-    
+      comms.sendSingleResponse("soilRaw", (float)mySensor.soilAnalog());
+      break;
+    case 'P': case 'p':
+      comms.sendSingleResponse("pressureHPA", mySensor.bmpPressure());
+      break;
     case 'W': case 'w':
-      // --- MEMORY OPTIMIZED WI-FI SETUP ---
-      // Replaces heavy readStringUntil with lightweight char buffer
       Serial.println(F("Wifi Setup:"));
-      while (Serial.available()) Serial.read(); // Clear
-      
+      while (Serial.available()) Serial.read();
       unsigned long start = millis();
-      while(Serial.available() == 0 && (millis() - start < 30000)) {
-         if(digitalRead(BUTTON_PIN) == LOW) return;
+      while (!Serial.available() && (millis() - start < 30000)) {
+        if (digitalRead(BUTTON_PIN) == LOW) return;
       }
       if (!Serial.available()) return;
-
       char buf[60];
       int len = Serial.readBytesUntil('\n', buf, 59);
-      buf[len] = 0; // Null terminate
-
-      // Basic Parse: "SSID,PASS"
-      String raw = String(buf); // Convert once
+      buf[len] = 0;
+      String raw = String(buf);
       int comma = raw.indexOf(',');
-      if (comma > 0) {
-        saveWifiCredentials(raw.substring(0, comma), raw.substring(comma+1));
-      }
+      if (comma > 0) saveWifiCredentials(raw.substring(0, comma), raw.substring(comma + 1));
       break;
   }
 }
 
+// ------------------------------ SLEEP MODE (SIMPLE) ------------------------------
 void runSleepMode() {
-  Serial.println(F("Sleep"));
-  delay(100);
-  
-  set_sleep_mode(SLEEP_MODE_PWR_DOWN);
-  sleep_enable();
-  attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), wakeISR, LOW);
-  sleep_mode(); 
-  sleep_disable(); 
+  Serial.println(F("Entering Sleep Mode..."));
+  delay(200); // small debounce
+
   detachInterrupt(digitalPinToInterrupt(BUTTON_PIN));
 
-  Serial.println(F("Wake"));
-  currentState = STATE_AUTO; 
-  modeChangeFlag = true;
-  attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), changeModeISR, FALLING);
-}
+  set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+  sleep_enable();
 
-void wakeISR() { }
-
-void changeModeISR() {
-  static unsigned long last_time = 0;
-  if (millis() - last_time > 200) {
-    currentState = (SystemState)((currentState + 1) % 3);
-    modeChangeFlag = true; 
+  // Stay asleep as long as button is HIGH
+  while (digitalRead(BUTTON_PIN) == HIGH) {
+    sleep_cpu(); // MCU sleeps here
   }
-  last_time = millis();
+
+  sleep_disable();
+
+  Serial.println(F("Button pressed! Waking up..."));
+
+  // Restore normal button ISR
+  attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), changeModeISR, FALLING);
+
+  // Optionally go back to AUTO or previous state
+  currentState = STATE_AUTO;
+  modeChangeFlag = true;
 }
 
+// ------------------------- INTERRUPTS -------------------------
+void changeModeISR() {
+  static unsigned long last = 0;
+  if (millis() - last > 250) {
+    currentState = (SystemState)((currentState + 1) % 3);
+    modeChangeFlag = true;
+  }
+  last = millis();
+}
+
+// ------------------------- WIFI -------------------------
 void loadWifiCredentials() {
   if (wifiStore.hasCredentials()) {
     char ssid[32], pass[32];
