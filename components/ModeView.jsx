@@ -20,7 +20,7 @@ import {
   LockIcon,
   BellIcon,
 } from "../utils/icons";
-import AICard from "../components/AICard"; 
+import AICard from "./AICard"; 
 import { useAuth } from '../context/AuthContext'; 
 // CRITICAL FIX: Import the fuzzy engine calculation
 import { calculateFloodRisk } from '../utils/fuzzyEngine'; 
@@ -150,7 +150,6 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
   const [alertSentFlag, setAlertSentFlag] = useState(false); 
   
   const [aiAlertStatus, setAiAlertStatus] = useState(null); 
-  const [recoveryStartTime, setRecoveryStartTime] = useState(null); 
   
   const commandMap = { rain: "R", soil: "S", water: "U", pressure: "P" };
   
@@ -191,16 +190,15 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
 
   const toggleTest = (sensorKey) => setActiveTests((prev) => ({ ...prev, [sensorKey]: !prev[sensorKey] }));
 
-  // --- EMAIL ALERT TRIGGER FUNCTION (Sends statusText for dynamic UI) ---
-  const sendAlertEmail = async (alertType, statusText) => { 
+  // --- NEW: EMAIL ALERT TRIGGER FUNCTION for all statuses ---
+  const sendAlertEmail = async (statusText, isCritical) => { 
       if (!userEmail) {
           console.warn("Email Alert Skipped: User email not available.");
           return;
       }
       
-      const alertMessage = alertType === 'ALERT' 
-        ? `CRITICAL BAHA ALERT: System status is ${statusText}. Check dashboard immediately!`
-        : `BAHA RECOVERY NOTICE: System status is stable. AI confirmed stable for 5 seconds.`;
+      const subjectPrefix = isCritical ? `BAHA ALERT: ${statusText}` : `BAHA STATUS UPDATE: ${statusText}`;
+      const alertMessage = `The BAHA system status has changed to **${statusText}**. Please check the dashboard for current sensor readings.`;
       
       try {
           const res = await fetch(API_ENDPOINT, {
@@ -209,8 +207,10 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
               body: JSON.stringify({
                   type: 'SEND_ALERT_EMAIL',
                   userEmail: userEmail,
-                  alertMessage: alertMessage,
-                  alertStatus: statusText, // CRITICAL: Pass the status for API styling
+                  // We pass the full statusText to the API so it can handle dynamic coloring
+                  alertStatus: statusText, 
+                  // NOTE: The API uses the statusText passed above to generate its final HTML message.
+                  alertMessage: alertMessage, 
               }),
           });
           
@@ -218,12 +218,14 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
               const errorData = await res.json();
               console.error("Email API failed:", errorData.error || res.statusText);
           } else {
-              console.log(`Email alert successfully triggered for ${alertType} (${statusText}).`);
-              if (alertType === 'ALERT') {
+              console.log(`Email alert successfully triggered for status: ${statusText}.`);
+              
+              if (isCritical) { 
+                // Only throttle if a critical status was just sent
                 setAlertSentFlag(true); 
+                // Set the 1-hour throttling timer
                 setTimeout(() => setAlertSentFlag(false), 3600000); 
               }
-              setRecoveryStartTime(null); 
           }
       } catch (error) {
           console.error("Network error triggering Email:", error);
@@ -231,11 +233,11 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
   };
 
 
-  // --- CRITICAL MONITORING HOOK (Fixed Logic) ---
+  // --- CRITICAL MONITORING HOOK (Fixed Logic for All Statuses) ---
   useEffect(() => {
     if (mode !== 'Auto' || !userEmail) return; 
 
-    // ⭐ FIX 2: Calculate the AI status directly using the fuzzy engine
+    // Calculate the AI status directly using the fuzzy engine
     const aiResult = calculateFloodRisk(
         liveData.rainRaw, 
         liveData.soilRaw,  
@@ -244,72 +246,44 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
     );
     const currentStatus = aiResult.status; 
     
-    const isCritical = ['ADVISORY', 'WARNING', 'CRITICAL', 'EMERGENCY'].includes(currentStatus);
-    const wasCritical = ['ADVISORY', 'WARNING', 'CRITICAL', 'EMERGENCY'].includes(aiAlertStatus);
-    const isStable = currentStatus === 'STABLE';
+    // Define critical levels for throttling
+    const isCriticalNow = ['ADVISORY', 'WARNING', 'CRITICAL', 'EMERGENCY'].includes(currentStatus);
     
-    // FIX 1: Prevent logic from running on the first render/fetch
+    // 1. Initial Render Check (Prevents sending an email on load)
     if (isInitialRender.current) {
         isInitialRender.current = false;
-        // Initialize state to the current calculated status
         setAiAlertStatus(currentStatus); 
         return; 
     }
     
-    // 1. Handle Alert Status Change
+    // 2. Handle Alert Status Change
     if (currentStatus !== aiAlertStatus) {
         setAiAlertStatus(currentStatus);
         
-        if (isCritical) {
-            // New critical event started or escalated. Clear recovery timer.
-            setRecoveryStartTime(null);
-            
-            // Send Alert only if the NEW status is critical AND we aren't throttled
+        // --- SEND EMAIL ON ANY STATUS CHANGE ---
+        
+        if (isCriticalNow) {
+            // Case 1: Status changed to Critical/Alert level
+            // Only send if not currently throttled
             if (!alertSentFlag) {
-                sendAlertEmail('ALERT', currentStatus); // Pass the status
+                sendAlertEmail(currentStatus, true); 
+            } else {
+                 console.log(`Alert ${currentStatus} detected but email throttled.`);
             }
-            
-        } else if (isStable && wasCritical) { // Only start recovery if the PREVIOUS status was critical
-            // System just recovered from a critical state. Start the 5-second timer.
-            setRecoveryStartTime(Date.now());
             
         } else {
-            // Transition between non-critical states, or from stable to advisory
-            setRecoveryStartTime(null);
+            // Case 2: Status changed to a non-critical level (e.g., STABLE, or if it de-escalates to a less severe status not in our critical list)
+            sendAlertEmail(currentStatus, false); 
+            
+            // Explicitly clear the throttling flag when recovery to non-critical occurs
+            setAlertSentFlag(false);
         }
     }
-
-    // 2. Handle Recovery Cooldown (Checks every second)
-    const recoveryCheck = setInterval(() => {
-        // Recalculate status inside the check loop to ensure it's still stable
-        const currentStatusInCheck = calculateFloodRisk(
-            liveData.rainRaw, 
-            liveData.soilRaw,  
-            liveData.waterDistanceCM, 
-            liveData.pressure
-        ).status;
-
-        // Check: 1. Timer is running, 2. Current recalculated status is STILL STABLE
-        if (recoveryStartTime && currentStatusInCheck === 'STABLE') {
-            const timeElapsed = Date.now() - recoveryStartTime;
-            
-            if (timeElapsed >= 5000) {
-                // Send the recovery notice
-                sendAlertEmail('RECOVERY', 'STABLE'); // Pass 'STABLE' status
-                
-                setAlertSentFlag(false); 
-                clearInterval(recoveryCheck);
-            }
-        } else if (recoveryStartTime && currentStatusInCheck !== 'STABLE') {
-            // Recovery was interrupted (status changed back to WARNING)
-            setRecoveryStartTime(null);
-        }
-    }, 1000); 
-
-    return () => clearInterval(recoveryCheck);
-
+    
+    // NOTE: Removed the old recoveryStartTime/setInterval logic for the 5-second debounce.
+    
     // Dependencies now rely on liveData content
-  }, [mode, userEmail, liveData.rainRaw, liveData.soilRaw, liveData.waterDistanceCM, liveData.pressure, aiAlertStatus, recoveryStartTime, alertSentFlag]); 
+  }, [mode, userEmail, liveData.rainRaw, liveData.soilRaw, liveData.waterDistanceCM, liveData.pressure, aiAlertStatus, alertSentFlag]); 
 
 
   // --- LOCK SCREENS (Simplified) ---
