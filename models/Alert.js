@@ -21,19 +21,18 @@ const AlertDataSchema = new mongoose.Schema({
   timestamps: true,
 });
 
-// --- 2. ATTACH THE PRE-SAVE HOOK ---
-// This must be done immediately after the schema is defined and BEFORE the model is compiled.
+// --- 2. ATTACH THE PRE-SAVE HOOK (The Corrected Syntax) ---
+// 💡 FIX: Using 'function(next)' ensures 'next' is defined and 'this' refers to the document.
 AlertDataSchema.pre('save', function(next) {
-    // 💡 IMPORTANT: Use a standard function declaration (function(next)) 
-    // to correctly bind 'this' (the document) and receive 'next'.
     
+    // Get current time (UTC)
     const now = Date.now();
     
     // Calculate the time by adding the 8-hour PHT offset
     const phtTimeMs = now + PHT_OFFSET_MS;
     const phtDate = new Date(phtTimeMs);
     
-    // 1. Manually set receivedAt (only if it wasn't already provided by the request body)
+    // 1. Manually set receivedAt
     if (!this.receivedAt) {
         this.receivedAt = phtDate;
     }
