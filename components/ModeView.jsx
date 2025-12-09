@@ -24,19 +24,43 @@ import AICard from "./AICard";
 
 const API_ENDPOINT = "https://baha-alert.vercel.app/api";
 
-// --- PLACEHOLDER COMPONENT: Alert Settings UI ---
-// This is where your AlertSettings.js component content will go.
-const AlertSettingsComponent = ({ setMode }) => {
+// --- PLACEHOLDER COMPONENT: Alert Settings UI (Modal Content) ---
+// This component will be rendered inside the modal overlay.
+const AlertSettingsComponent = ({ onClose }) => {
+    // You would integrate the full form logic (from previous discussion) here.
     return (
-        <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center animate-fadeIn">
-            <BellIcon className="w-24 h-24 text-indigo-500 mb-6" />
-            <h3 className="text-3xl font-bold text-white mb-2">Alert Recipient Configuration</h3>
-            <p className="text-slate-400 max-w-md mb-8">
-                This area would contain the form to set and verify the recipient's phone number.
+        <div className="bg-slate-800 p-8 rounded-xl shadow-2xl border border-slate-700 w-full max-w-xl mx-auto relative transform transition-all">
+            <h3 className="text-2xl font-bold text-white mb-4 flex items-center gap-3">
+                <BellIcon className="w-6 h-6 text-indigo-400"/>
+                Configure SMS Alert Recipient
+            </h3>
+            <p className="text-slate-400 mb-6">
+                Enter the phone number (in +E.164 format) and ensure it's verified in the Twilio Console to receive critical alerts.
             </p>
-            <button onClick={() => setMode('Auto')} className="px-8 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl shadow-lg transition-all hover:-translate-y-1">
-                ← Go Back to Dashboard
-            </button>
+
+            {/* Placeholder for the actual input form goes here */}
+            <form>
+                <input
+                    type="tel"
+                    placeholder="+639xxxxxxxxx"
+                    className="w-full p-3 rounded-lg bg-slate-700 text-white border border-slate-600 focus:ring-indigo-500 focus:border-indigo-500 font-mono mb-4"
+                />
+                <div className="flex justify-end space-x-3">
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="px-4 py-2 text-slate-400 border border-slate-600 rounded-lg hover:bg-slate-700 transition-colors"
+                    >
+                        Close
+                    </button>
+                    <button
+                        type="submit"
+                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg transition-colors"
+                    >
+                        Save Settings
+                    </button>
+                </div>
+            </form>
         </div>
     );
 };
@@ -162,6 +186,7 @@ const TestControlCard = ({ Icon, title, sensorKey, dbValue, onToggle, isActive }
 const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
   const [activeTests, setActiveTests] = useState({ rain: false, soil: false, water: false, pressure: false });
   const [dbValues, setDbValues] = useState({ rain: null, soil: null, water: null, pressure: null });
+  const [showSettingsModal, setShowSettingsModal] = useState(false); // ⭐ NEW STATE for the modal
   const commandMap = { rain: "R", soil: "S", water: "U", pressure: "P" };
 
   useEffect(() => {
@@ -195,7 +220,8 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
   const toggleTest = (sensorKey) => setActiveTests((prev) => ({ ...prev, [sensorKey]: !prev[sensorKey] }));
 
   // --- LOCK SCREENS (Unchanged) ---
-  if (liveData.deviceMode === "AUTO" && mode !== "Auto" && mode !== "AlertSettings") {
+  // The lock screen logic handles only the main `mode` switch, not the modal.
+  if (liveData.deviceMode === "AUTO" && mode !== "Auto") {
     return (
       <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center animate-fadeIn">
         <CpuIcon className="w-24 h-24 text-emerald-500 mb-6" />
@@ -206,7 +232,7 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
     );
   }
 
-  if (liveData.deviceMode === "MAINTENANCE" && mode !== "Maintenance" && mode !== "AlertSettings") {
+  if (liveData.deviceMode === "MAINTENANCE" && mode !== "Maintenance") {
     return (
       <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center animate-fadeIn">
         <RefreshCcwIcon className="w-24 h-24 text-yellow-500 mb-6 animate-spin-slow" />
@@ -217,7 +243,7 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
     );
   }
 
-  if (liveData.deviceMode === "SLEEP" && mode !== "Sleep" && mode !== "AlertSettings") {
+  if (liveData.deviceMode === "SLEEP" && mode !== "Sleep") {
     return (
       <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center animate-fadeIn">
         <MoonIcon className="w-24 h-24 text-indigo-400 mb-6 relative z-10" />
@@ -228,12 +254,6 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
     );
   }
 
-  // ============================================
-  //  RENDER ALERT SETTINGS VIEW
-  // ============================================
-  if (mode === "AlertSettings") {
-      return <AlertSettingsComponent setMode={setMode} />;
-  }
 
   // ============================================
   //  RENDER DASHBOARD (Auto & Sleep)
@@ -268,10 +288,10 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
 
         <div className={`transition-all duration-500 ${isSleep ? "opacity-60 grayscale-[0.3] pointer-events-none" : "opacity-100"}`}>
           
-          {/* TOP BAR: ALERTS SETTINGS BUTTON */}
+          {/* TOP BAR: ALERTS SETTINGS BUTTON (Toggles Modal) */}
           <div className="flex justify-end mb-4">
               <button
-                  onClick={() => setMode('AlertSettings')}
+                  onClick={() => setShowSettingsModal(true)} // ⭐ Toggles the modal open
                   className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg shadow-lg shadow-indigo-900/40 transition-all active:scale-95"
                   title="Configure SMS Alert Recipient"
               >
@@ -337,6 +357,13 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
             </div>
           </section>
         </div>
+
+        {/* ⭐ ALERT SETTINGS MODAL OVERLAY (Rendered conditionally) */}
+        {showSettingsModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fadeIn">
+                <AlertSettingsComponent onClose={() => setShowSettingsModal(false)} />
+            </div>
+        )}
       </div>
     );
   }
