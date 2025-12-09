@@ -118,25 +118,29 @@ export const calculateFloodRisk = (rainRaw, soilRaw, waterDist, pressure) => {
         message = "Normal levels.";
     }
 
-   return {
+    // --------------------------------------------
+    // 5. RETURN OBJECT (Fixed for React Dashboard)
+    // --------------------------------------------
+    return {
         score: finalRisk.toFixed(1),
         status,
         message,
         
-        // 1. The "Conversation" (How sensors affect each other)
-        interactions: {
-            runoff_factor: (runoffRisk * 100).toFixed(0),   // Rain + Soil
-            surge_factor: (surgeRisk * 100).toFixed(0),     // Water + Pressure
-            flood_factor: (activeFloodRisk * 100).toFixed(0) // Rain + Water
+        // RESTORED: This matches what your React Dashboard expects.
+        // We use the old names "rain", "soil", "water", "pressure" 
+        // instead of "rain_status" etc.
+        details: {
+            rain: (rainHeavy * 100).toFixed(0),
+            soil: (soilSaturated * 100).toFixed(0),
+            water: (waterCritical * 100).toFixed(0),
+            pressure: (pressureStorm * 100).toFixed(0)
         },
 
-        // 2. The "Individual Voices" (What each sensor is feeling)
-        // <--- I ADDED THIS BACK FOR YOU
-        sensors: {
-            rain_status: (rainHeavy * 100).toFixed(0),
-            soil_status: (soilSaturated * 100).toFixed(0),
-            water_status: (waterCritical * 100).toFixed(0),
-            pressure_status: (pressureStorm * 100).toFixed(0) // <--- Pressure is here now
+        // NEW: The "Conversation" data is still here if you want to add it later
+        interactions: {
+            runoff_factor: (runoffRisk * 100).toFixed(0),
+            surge_factor: (surgeRisk * 100).toFixed(0),
+            flood_factor: (activeFloodRisk * 100).toFixed(0)
         }
     };
 };
