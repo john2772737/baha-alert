@@ -22,7 +22,6 @@ import {
 } from "../utils/icons";
 import AICard from "./AICard"; 
 import { useAuth } from '../context/AuthContext'; 
-// CRITICAL: Import the fuzzy engine calculation for local status determination
 import { calculateFloodRisk } from '../utils/fuzzyEngine'; 
 
 const API_ENDPOINT = "https://baha-alert.vercel.app/api";
@@ -94,13 +93,15 @@ const StatusCard = ({ Icon, title, reading, status, className }) => {
   );
 };
 
-// --- COMPONENT: TestControlCard (Unchanged) ---
-const TestControlCard = ({ Icon, title, sensorKey, dbValue, onToggle, isActive }) => {
+// --- COMPONENT: TestControlCard (Updated with 'disabled' prop) ---
+const TestControlCard = ({ Icon, title, sensorKey, dbValue, onToggle, isActive, disabled }) => {
   const statusObj = getMaintenanceStatus(sensorKey, dbValue);
 
   return (
     <div className={`p-5 rounded-xl border shadow-md flex flex-col justify-between transition-all duration-500 
-            ${isActive ? "bg-indigo-900/30 border-indigo-500 scale-[1.02] ring-2 ring-indigo-500/20" : "bg-slate-800 border-slate-700 hover:border-slate-600"}`}>
+            ${isActive ? "bg-indigo-900/30 border-indigo-500 scale-[1.02] ring-2 ring-indigo-500/20" : "bg-slate-800 border-slate-700"}
+            ${disabled ? "opacity-50 grayscale border-slate-800" : "hover:border-slate-600"}
+            `}>
       
       <div className="flex justify-between items-start mb-4">
         <div className="flex items-center gap-3">
@@ -115,7 +116,7 @@ const TestControlCard = ({ Icon, title, sensorKey, dbValue, onToggle, isActive }
                   <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse"></span>
                   TESTING...
                 </span>
-              ) : "IDLE"}
+              ) : disabled ? "LOCKED" : "IDLE"}
             </span>
           </div>
         </div>
@@ -136,7 +137,17 @@ const TestControlCard = ({ Icon, title, sensorKey, dbValue, onToggle, isActive }
         </div>
       </div>
 
-      <button onClick={() => onToggle(sensorKey)} className={`w-full py-3 rounded-lg font-bold text-sm flex items-center justify-center gap-2 transition-all duration-300 transform active:scale-95 ${isActive ? "bg-red-500/10 text-red-400 border border-red-500/50 hover:bg-red-500 hover:text-white" : "bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg hover:shadow-indigo-500/25"}`}>
+      <button 
+        onClick={() => onToggle(sensorKey)} 
+        disabled={disabled}
+        className={`w-full py-3 rounded-lg font-bold text-sm flex items-center justify-center gap-2 transition-all duration-300 transform active:scale-95 
+            ${isActive 
+                ? "bg-red-500/10 text-red-400 border border-red-500/50 hover:bg-red-500 hover:text-white" 
+                : disabled 
+                    ? "bg-slate-700 text-slate-500 cursor-not-allowed shadow-none"
+                    : "bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg hover:shadow-indigo-500/25"
+            }`}
+      >
         {isActive ? <><XCircleIcon className="w-4 h-4" /> STOP TEST</> : <><ActivityIcon className="w-4 h-4" /> START LOOP</>}
       </button>
     </div>
@@ -148,17 +159,23 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
   const [activeTests, setActiveTests] = useState({ rain: false, soil: false, water: false, pressure: false });
   const [dbValues, setDbValues] = useState({ rain: null, soil: null, water: null, pressure: null });
   const [alertSentFlag, setAlertSentFlag] = useState(false); 
-  
   const [aiAlertStatus, setAiAlertStatus] = useState(null); 
   
   const commandMap = { rain: "R", soil: "S", water: "U", pressure: "P" };
-  
-  // Ref to track the first render
   const isInitialRender = useRef(true); 
-
   const { user } = useAuth();
   const userEmail = user ? user.email : null;
 
+  // Determine if ANY test is currently running
+  const isAnyTestRunning = Object.values(activeTests).some((isActive) => isActive);
+
+  // ⭐ CRITICAL FIX: Reset active tests when mode changes away from Maintenance
+  // This ensures all testing loops stop immediately if the user switches tabs.
+  useEffect(() => {
+    if (mode !== "Maintenance") {
+        setActiveTests({ rain: false, soil: false, water: false, pressure: false });
+    }
+  }, [mode]);
 
   useEffect(() => {
     const intervals = {};
@@ -188,16 +205,30 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
     }
   };
 
-  const toggleTest = (sensorKey) => setActiveTests((prev) => ({ ...prev, [sensorKey]: !prev[sensorKey] }));
+  // ⭐ CRITICAL FIX: Logic to prevent starting a second test
+  const toggleTest = (sensorKey) => {
+    setActiveTests((prev) => {
+        const currentlyActive = prev[sensorKey];
+        
+        // If turning OFF, just turn it off
+        if (currentlyActive) {
+            return { ...prev, [sensorKey]: false };
+        }
 
-  // --- EMAIL ALERT TRIGGER FUNCTION (30s throttle, sends statusText, NO userEmail in payload) ---
+        // If turning ON, check if anything else is running
+        const anyRunning = Object.values(prev).some(v => v);
+        if (anyRunning) {
+            // Safety check (UI should be disabled, but good for logic safety)
+            return prev;
+        }
+
+        return { ...prev, [sensorKey]: true };
+    });
+  };
+
+  // --- EMAIL ALERT TRIGGER FUNCTION (Unchanged) ---
   const sendAlertEmail = async (statusText, isCritical) => { 
-      if (!userEmail) {
-          console.warn("Email Alert Skipped: User email not available.");
-          return;
-      }
-      
-      const subjectPrefix = isCritical ? `BAHA ALERT: ${statusText}` : `BAHA STATUS UPDATE: ${statusText}`;
+      if (!userEmail) return;
       const alertMessage = `The BAHA system status has changed to **${statusText}**. Please check the dashboard for current sensor readings.`;
       
       try {
@@ -206,36 +237,24 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                   type: 'SEND_ALERT_EMAIL',
-                  // CRITICAL: userEmail REMOVED from payload - API now retrieves ALL emails via Firebase
                   alertStatus: statusText, 
                   alertMessage: alertMessage, 
               }),
           });
           
-          if (!res.ok) {
-              const errorData = await res.json();
-              console.error("Email API failed:", errorData.error || res.statusText);
-          } else {
-              console.log(`Email alert successfully triggered for status: ${statusText}.`);
-              
-              if (isCritical) { 
-                // Only throttle if a critical status was just sent
-                setAlertSentFlag(true); 
-                // Set the 30-second throttling timer (30000 ms) for testing
-                setTimeout(() => setAlertSentFlag(false), 30000); 
-              }
+          if (res.ok && isCritical) { 
+            setAlertSentFlag(true); 
+            setTimeout(() => setAlertSentFlag(false), 30000); 
           }
       } catch (error) {
           console.error("Network error triggering Email:", error);
       }
   };
 
-
-  // --- CRITICAL MONITORING HOOK (Fixed Logic) ---
+  // --- CRITICAL MONITORING HOOK (Unchanged) ---
   useEffect(() => {
     if (mode !== 'Auto' || !userEmail) return; 
 
-    // Calculate the AI status directly using the fuzzy engine
     const aiResult = calculateFloodRisk(
         liveData.rainRaw, 
         liveData.soilRaw,  
@@ -243,48 +262,28 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
         liveData.pressure
     );
     const currentStatus = aiResult.status; 
-    
     const isCriticalNow = ['ADVISORY', 'WARNING', 'CRITICAL', 'EMERGENCY'].includes(currentStatus);
     
-    // 1. Initial Render Check (Prevents sending an email on load)
     if (isInitialRender.current) {
         isInitialRender.current = false;
-        // Initialize state to the current calculated status
         setAiAlertStatus(currentStatus); 
         return; 
     }
     
-    // 2. Handle Alert Status Change
     if (currentStatus !== aiAlertStatus) {
         setAiAlertStatus(currentStatus);
-        
-        // --- SEND EMAIL ON ANY STATUS CHANGE ---
-        
         if (isCriticalNow) {
-            // Case 1: Status changed to Critical/Alert level
-            // Only send if not currently throttled
-            if (!alertSentFlag) {
-                sendAlertEmail(currentStatus, true); 
-            } else {
-                 console.log(`Alert ${currentStatus} detected but email throttled.`);
-            }
-            
+            if (!alertSentFlag) sendAlertEmail(currentStatus, true); 
         } else {
-            // Case 2: Status changed to a non-critical level (e.g., STABLE, or if it de-escalates)
             sendAlertEmail(currentStatus, false); 
-            
-            // Explicitly clear the throttling flag when recovery to non-critical occurs
             setAlertSentFlag(false);
         }
     }
-    
-    // Dependencies now rely on liveData content
   }, [mode, userEmail, liveData.rainRaw, liveData.soilRaw, liveData.waterDistanceCM, liveData.pressure, aiAlertStatus, alertSentFlag]); 
 
 
-  // --- LOCK SCREENS (Simplified) ---
+  // --- LOCK SCREENS (Unchanged) ---
   if (liveData.deviceMode === "AUTO" && mode !== "Auto") {
-    // ... Lock Screen UI for AUTO ...
     return (
       <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center animate-fadeIn">
         <CpuIcon className="w-24 h-24 text-emerald-500 mb-6" />
@@ -296,7 +295,6 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
   }
 
   if (liveData.deviceMode === "MAINTENANCE" && mode !== "Maintenance") {
-    // ... Lock Screen UI for MAINTENANCE ...
     return (
       <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center animate-fadeIn">
         <RefreshCcwIcon className="w-24 h-24 text-yellow-500 mb-6 animate-spin-slow" />
@@ -308,7 +306,6 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
   }
 
   if (liveData.deviceMode === "SLEEP" && mode !== "Sleep") {
-    // ... Lock Screen UI for SLEEP ...
     return (
       <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center animate-fadeIn">
         <MoonIcon className="w-24 h-24 text-indigo-400 mb-6 relative z-10" />
@@ -320,7 +317,7 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
   }
 
   // ============================================
-  //  RENDER DASHBOARD (Auto & Sleep)
+  //  RENDER DASHBOARD (Unchanged)
   // ============================================
   if (mode === "Auto" || mode === "Sleep") {
     const rainStatus = getRainStatus(percents.rainPercent);
@@ -352,12 +349,10 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
 
         <div className={`transition-all duration-500 ${isSleep ? "opacity-60 grayscale-[0.3] pointer-events-none" : "opacity-100"}`}>
           
-          {/* TOP BAR: Display Alert Recipient Email */}
           <div className="flex justify-end mb-4">
               <span className="text-sm text-slate-500">Alerts sent to: <strong>{userEmail || 'N/A'}</strong></span>
           </div>
           
-          {/* SECTION 1: SENSOR CARDS (Top Row) */}
           <section className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <StatusCard Icon={CloudRainIcon} title="Rain Sensor" reading={rainStatus.reading} status={rainStatus.status} className="text-sky-400 bg-sky-500/10" />
             <StatusCard Icon={GaugeIcon} title="Pressure" reading={`${liveData.pressure.toFixed(1)} hPa`} status={pressureStatus.status} className="text-purple-400 bg-purple-500/10" />
@@ -365,10 +360,7 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
             <StatusCard Icon={LeafIcon} title="Soil Moisture" reading={soilStatus.reading} status={soilStatus.status} className="text-orange-400 bg-orange-500/10" />
           </section>
 
-          {/* SECTION 2: MAIN GRID (Chart Left, AI + Gauges Right) */}
           <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            
-            {/* LEFT COLUMN: HISTORY CHART (Takes up 2/3 width) */}
             <article className="lg:col-span-2 p-6 bg-slate-800 rounded-2xl shadow-lg border border-slate-700 hover:border-slate-600 transition-colors h-full flex flex-col">
               <div className="flex justify-between items-center mb-6">
                 <h3 className="text-xl font-bold text-white flex items-center gap-2">
@@ -382,13 +374,8 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
               </div>
             </article>
 
-            {/* RIGHT COLUMN: AI CARD + GAUGES (Takes up 1/3 width) */}
             <div className="flex flex-col gap-6 lg:col-span-1">
-              
-              {/* AI CARD (Placed here for visibility) */}
               <AICard liveData={liveData} />
-
-              {/* LIVE GAUGES */}
               <article className="p-6 bg-slate-800 rounded-2xl shadow-lg border border-slate-700 hover:border-slate-600 transition-colors flex-grow">
                 <h3 className="text-xl font-bold mb-6 text-white text-center">Live Gauges</h3>
                 <div className="grid grid-cols-2 gap-4">
@@ -410,7 +397,6 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
                   </div>
                 </div>
               </article>
-
             </div>
           </section>
         </div>
@@ -418,7 +404,7 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
     );
   }
 
-  // RENDER MAINTENANCE (Unchanged)
+  // RENDER MAINTENANCE (Updated)
   if (mode === "Maintenance") {
     return (
       <section className="space-y-6 animate-fadeIn">
@@ -432,10 +418,26 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
           </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <TestControlCard Icon={CloudRainIcon} title="Rain Sensor" sensorKey="rain" dbValue={dbValues.rain} isActive={activeTests.rain} onToggle={toggleTest} />
-          <TestControlCard Icon={LeafIcon} title="Soil Sensor" sensorKey="soil" dbValue={dbValues.soil} isActive={activeTests.soil} onToggle={toggleTest} />
-          <TestControlCard Icon={BoxIcon} title="Water Sensor" sensorKey="water" dbValue={dbValues.water} isActive={activeTests.water} onToggle={toggleTest} />
-          <TestControlCard Icon={GaugeIcon} title="Barometer" sensorKey="pressure" dbValue={dbValues.pressure} isActive={activeTests.pressure} onToggle={toggleTest} />
+          <TestControlCard 
+            Icon={CloudRainIcon} title="Rain Sensor" sensorKey="rain" 
+            dbValue={dbValues.rain} isActive={activeTests.rain} onToggle={toggleTest} 
+            disabled={isAnyTestRunning && !activeTests.rain}
+          />
+          <TestControlCard 
+            Icon={LeafIcon} title="Soil Sensor" sensorKey="soil" 
+            dbValue={dbValues.soil} isActive={activeTests.soil} onToggle={toggleTest} 
+            disabled={isAnyTestRunning && !activeTests.soil}
+          />
+          <TestControlCard 
+            Icon={BoxIcon} title="Water Sensor" sensorKey="water" 
+            dbValue={dbValues.water} isActive={activeTests.water} onToggle={toggleTest} 
+            disabled={isAnyTestRunning && !activeTests.water}
+          />
+          <TestControlCard 
+            Icon={GaugeIcon} title="Barometer" sensorKey="pressure" 
+            dbValue={dbValues.pressure} isActive={activeTests.pressure} onToggle={toggleTest} 
+            disabled={isAnyTestRunning && !activeTests.pressure}
+          />
         </div>
       </section>
     );
