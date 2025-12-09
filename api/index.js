@@ -148,6 +148,61 @@ export default async function handler(req, res) {
     }
   } 
   
+  // ---------------------------------------------------------
+  // 🗑️ NEW DELETE METHOD: CLEANUP (Added for Sunday Deletion)
+  // ---------------------------------------------------------
+  else if (req.method === 'DELETE') {
+      try {
+          let deleteFilter = {};
+          let message = "Cleanup successful.";
+
+          // ⭐ LOGIC TO DELETE SUNDAY DATA
+          if (req.query.date === 'sunday') {
+              // 1. Calculate the date range for the last Sunday
+              const targetDate = new Date();
+              // Adjust targetDate to the last Sunday (day 0)
+              targetDate.setDate(targetDate.getDate() - (targetDate.getDay() + 7) % 7); 
+              targetDate.setHours(0, 0, 0, 0);
+
+              const nextDay = new Date(targetDate);
+              nextDay.setDate(targetDate.getDate() + 1);
+
+              deleteFilter = {
+                  createdAt: { 
+                      $gte: targetDate, // Sunday 00:00:00
+                      $lt: nextDay      // Monday 00:00:00
+                  }
+              };
+              message = `Deleted all sensor data logged on the last Sunday (${targetDate.toLocaleDateString()}).`;
+          } 
+          // Default cleanup (e.g., deleting bad pressure records)
+          else if (req.query.badpressure === 'true') {
+              deleteFilter = { "payload.pressure": -1 };
+              message = "Removed all broken pressure (-1) records.";
+          }
+          // Default: No specific action
+          else {
+              return res.status(400).json({ success: false, message: "Missing specific delete query (e.g., ?date=sunday or ?badpressure=true)." });
+          }
+
+          // Execute deletion
+          const result = await Alert.deleteMany(deleteFilter);
+
+          return res.status(200).json({
+              success: true,
+              message: message,
+              deletedCount: result.deletedCount,
+          });
+
+      } catch (error) {
+          console.error("API DELETE Error:", error);
+          return res.status(500).json({ success: false, error: error.message });
+      }
+  }
+  
+  // ---------------------------------------------------------
+  // 🛑 METHOD NOT ALLOWED
+  // ---------------------------------------------------------
   else {
     return res.status(405).json({ success: false, message: `Method not allowed.` });
   }
