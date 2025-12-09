@@ -175,8 +175,12 @@ const App = () => {
             }
 
             const date = new Date(item.timestamp);
-            const timeStr = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-            
+            const timeStr = date.toLocaleTimeString('en-US', { 
+    hour: '2-digit', 
+    minute: '2-digit', 
+    hour12: false, 
+    timeZone: 'UTC' // <--- Forces it to match the database time exactly
+});
             const p = item.avgPressure ? item.avgPressure.toFixed(1) : '-';
             const r = item.avgRain ? item.avgRain.toFixed(0) : '-';
             const s = item.avgSoil ? item.avgSoil.toFixed(0) : '-';
