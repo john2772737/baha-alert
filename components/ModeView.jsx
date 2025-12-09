@@ -20,213 +20,41 @@ import {
   LockIcon,
   BellIcon,
 } from "../utils/icons";
-import AICard from "../components/AICard"; 
-import { useAuth } from '../context/AuthContext'; // Needed for AlertSettingsComponent
+import AICard from "./AICard"; 
+import { useAuth } from '../context/AuthContext'; 
 
 const API_ENDPOINT = "https://baha-alert.vercel.app/api";
-
-// --- START: ALERT SETTINGS PAGE COMPONENT (Integrated - Kept as placeholder) ---
-const AlertSettingsComponent = ({ setMode }) => {
-    // 1. Get user context
-    const { user, loading } = useAuth(); 
-    const userEmail = user && user.email ? user.email : null; 
-    
-    // 2. State for form and status
-    const [recipientNumber, setRecipientNumber] = useState('');
-    const [currentStatus, setCurrentStatus] = useState(loading ? 'Initializing...' : 'Loading...');
-    const [toastMessage, setToastMessage] = useState(null); 
-
-    // --- Fetch current number ---
-    useEffect(() => {
-        if (loading) {
-            setCurrentStatus('Initializing...');
-            return;
-        }
-        
-        if (!userEmail) {
-            setCurrentStatus('Error: User not logged in.');
-            return;
-        }
-        
-        const fetchCurrentRecipient = async () => {
-            setCurrentStatus('Fetching saved number...');
-            setToastMessage(null);
-            
-            try {
-                const res = await fetch(`${API_ENDPOINT}?recipient_email=${userEmail}`);
-                const data = await res.json();
-                
-                if (data.success && data.phoneNumber) {
-                    setRecipientNumber(data.phoneNumber);
-                    setCurrentStatus('Loaded.');
-                } else {
-                    setRecipientNumber(''); 
-                    setCurrentStatus('Ready to save new number.');
-                }
-            } catch (error) {
-                console.error("Failed to fetch settings:", error);
-                setCurrentStatus('Failed to connect to server.');
-            }
-        };
-        fetchCurrentRecipient();
-    }, [userEmail, loading]);
-
-    // --- Handle saving the new number ---
-    const handleSave = async () => {
-        setToastMessage(null);
-        
-        if (!userEmail) {
-             setToastMessage({ success: false, message: 'User email missing. Cannot save.' });
-             setCurrentStatus('Error');
-             return;
-        }
-        if (!recipientNumber || !recipientNumber.startsWith('+') || recipientNumber.length < 10) {
-            setToastMessage({ success: false, message: 'Invalid number format. Use +CountryCodeNumber.' });
-            setCurrentStatus('Error');
-            return; 
-        }
-
-        setCurrentStatus('Saving...');
-        
-        try {
-            const res = await fetch(API_ENDPOINT, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    type: 'UPDATE_RECIPIENT',
-                    userEmail: userEmail,
-                    phoneNumber: recipientNumber,
-                }),
-            });
-
-            if (res.ok) {
-                const result = await res.json();
-                if (result.success) {
-                    setToastMessage({ success: true, message: 'Settings saved successfully!' });
-                    setTimeout(() => setMode('Auto'), 500); 
-                    return;
-                } else {
-                    setToastMessage({ success: false, message: result.error || 'Server rejected save.' });
-                    setCurrentStatus('Error');
-                }
-            } else {
-                setToastMessage({ success: false, message: `API Error: ${res.status} ${res.statusText}` });
-                setCurrentStatus('Error');
-            }
-        } catch (error) {
-            setToastMessage({ success: false, message: 'Network error during save.' });
-            setCurrentStatus('Error');
-        }
-    };
-
-    const isSaving = currentStatus.includes('Saving');
-    const isLoggedIn = !!userEmail;
-    const isError = currentStatus.includes('Error');
-    
-    return (
-        <div className="animate-fadeIn p-6 bg-slate-900 rounded-2xl border border-slate-700">
-            <h2 className="text-3xl font-bold text-white mb-6 flex items-center gap-3 border-b border-slate-700 pb-4">
-                <BellIcon className='w-8 h-8 text-indigo-400'/>
-                Alert Recipient Configuration
-            </h2>
-            
-            {/* Navigation Header */}
-            <div className="flex justify-between items-center mb-6">
-                <span className='text-md text-slate-400'>
-                    Logged in as: <strong className='text-white'>{userEmail || "N/A"}</strong>
-                </span>
-                <button 
-                    onClick={() => setMode('Auto')} 
-                    className="flex items-center gap-1 px-4 py-2 text-sm bg-slate-700 hover:bg-slate-600 rounded-lg text-white transition-colors"
-                >
-                    <ArrowUpRightIcon className="w-4 h-4 transform rotate-180" /> Back to Dashboard
-                </button>
-            </div>
-
-
-            {/* ⭐ TOAST MESSAGE DISPLAY */}
-            {toastMessage && (
-                <div className={`p-3 mb-6 rounded-lg flex items-center gap-3 font-bold ${
-                    toastMessage.success 
-                        ? 'bg-emerald-900/50 text-emerald-400 border border-emerald-600'
-                        : 'bg-red-900/50 text-red-400 border border-red-600'
-                }`}>
-                    {toastMessage.success 
-                        ? <CheckCircleIcon className='w-5 h-5'/> 
-                        : <XCircleIcon className='w-5 h-5'/>
-                    }
-                    {toastMessage.message}
-                </div>
-            )}
-            
-            {/* FORM */}
-            <form className="space-y-6 bg-slate-800 p-6 rounded-xl border border-slate-700"> 
-                <div>
-                    <label htmlFor="recipient" className="block text-sm font-medium text-slate-400 mb-2">
-                        Recipient Phone Number (E.164 format)
-                    </label>
-                    <input
-                        id="recipient"
-                        type="tel"
-                        value={recipientNumber}
-                        onChange={(e) => setRecipientNumber(e.target.value)}
-                        placeholder="+639xxxxxxxxx"
-                        className="w-full p-3 rounded-lg bg-slate-700 text-white border border-slate-600 focus:ring-indigo-500 focus:border-indigo-500 font-mono"
-                        required
-                        disabled={!isLoggedIn || isSaving}
-                    />
-                    <p className="mt-2 text-xs text-slate-500">
-                        This is the number that receives SMS alerts. It must be manually verified in the Twilio Console due to free trial restrictions.
-                    </p>
-                </div>
-                
-                <div className="flex justify-between items-center pt-4 border-t border-slate-700">
-                    <span className={`text-sm font-medium ${isError ? 'text-red-400' : 'text-indigo-400'}`}>
-                        Current Save Status: {currentStatus}
-                    </span>
-                    <button
-                        type="button" 
-                        onClick={handleSave} 
-                        disabled={!isLoggedIn || isSaving}
-                        className={`px-6 py-2 font-bold rounded-lg shadow-md transition-colors 
-                            ${isLoggedIn && !isSaving ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-slate-500 text-slate-300 cursor-not-allowed'}`}
-                    >
-                        {isSaving ? 'Saving...' : 'Save Configuration'}
-                    </button>
-                </div>
-            </form>
-        </div>
-    );
-};
-
-// --- END: ALERT SETTINGS PAGE COMPONENT ---
-
 
 // --- HELPER: Analog/Raw Status in Maintenance (Unchanged) ---
 const getMaintenanceStatus = (sensor, value) => {
   if (value === null || value === undefined)
     return { label: "WAITING...", color: "text-slate-500" };
-  // ... (rest of getMaintenanceStatus logic) ...
+
   const val = parseFloat(value);
+
   switch (sensor) {
     case "rain":
       if (val < 307) return { label: "HEAVY RAIN", color: "text-red-400" };
       if (val < 512) return { label: "MODERATE RAIN", color: "text-orange-400" };
       if (val < 768) return { label: "LIGHT RAIN", color: "text-yellow-400" };
       return { label: "NO RAIN", color: "text-emerald-400" };
+
     case "soil":
       if (val < 512) return { label: "WET", color: "text-cyan-400" };
       if (val < 819) return { label: "MOIST", color: "text-emerald-400" };
       return { label: "DRY", color: "text-red-400" };
+
    case 'water':
     if (val === 0 || val >= 400) return { label: 'ERROR', color: 'text-red-500 animate-pulse' };
     if (val <= 4) return { label: 'HIGH LEVEL', color: 'text-yellow-400' }; 
     if (val <= 5) return { label: 'NORMAL', color: 'text-emerald-400' };    
     return { label: 'LOW LEVEL', color: 'text-red-400' };
+
     case "pressure":
       if (val < 990) return { label: "LOW PRESSURE", color: "text-red-400" };
       if (val > 1030) return { label: "HIGH PRESSURE", color: "text-yellow-400" };
       return { label: "STABLE", color: "text-emerald-400" };
+
     default:
       return { label: "--", color: "text-slate-500" };
   }
@@ -235,8 +63,7 @@ const getMaintenanceStatus = (sensor, value) => {
 // --- COMPONENT: Status Card (Unchanged) ---
 const StatusCard = ({ Icon, title, reading, status, className }) => {
   const isCritical = className.includes("text-red") || className.includes("text-yellow");
-    // ... (rest of Status Card logic) ...
-    return (
+  return (
     <article
       className={`relative p-5 bg-slate-800 rounded-xl shadow-lg border border-slate-700 transition-all duration-300 hover:scale-105 hover:shadow-2xl overflow-hidden
             ${isCritical ? "border-l-4" : ""} 
@@ -267,7 +94,6 @@ const StatusCard = ({ Icon, title, reading, status, className }) => {
 
 // --- COMPONENT: TestControlCard (Unchanged) ---
 const TestControlCard = ({ Icon, title, sensorKey, dbValue, onToggle, isActive }) => {
-    // ... (rest of TestControlCard logic) ...
   const statusObj = getMaintenanceStatus(sensorKey, dbValue);
 
   return (
@@ -319,10 +145,9 @@ const TestControlCard = ({ Icon, title, sensorKey, dbValue, onToggle, isActive }
 const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
   const [activeTests, setActiveTests] = useState({ rain: false, soil: false, water: false, pressure: false });
   const [dbValues, setDbValues] = useState({ rain: null, soil: null, water: null, pressure: null });
-  const [smsSentFlag, setSmsSentFlag] = useState(false); 
+  const [alertSentFlag, setAlertSentFlag] = useState(false); // Changed to alertSentFlag for clarity
   const commandMap = { rain: "R", soil: "S", water: "U", pressure: "P" };
 
-  // ⭐ Get user context for alerts
   const { user } = useAuth();
   const userEmail = user ? user.email : null;
 
@@ -357,10 +182,10 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
 
   const toggleTest = (sensorKey) => setActiveTests((prev) => ({ ...prev, [sensorKey]: !prev[sensorKey] }));
 
-  // --- NEW ALERT TRIGGER FUNCTION ---
-  const sendAlertSms = async (sensorName, statusText) => {
+  // --- EMAIL ALERT TRIGGER FUNCTION ---
+  const sendAlertEmail = async (sensorName, statusText) => {
       if (!userEmail) {
-          console.warn("SMS Alert Skipped: User email not available.");
+          console.warn("Email Alert Skipped: User email not available.");
           return;
       }
       
@@ -371,7 +196,7 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                  type: 'SEND_ALERT_SMS', // Triggers the Twilio logic
+                  type: 'SEND_ALERT_EMAIL', // Correct API type for email
                   userEmail: userEmail,
                   alertMessage: alertMessage,
               }),
@@ -379,56 +204,50 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
           
           if (!res.ok) {
               const errorData = await res.json();
-              console.error("SMS API failed:", errorData.error || res.statusText);
+              console.error("Email API failed:", errorData.error || res.statusText);
           } else {
-              console.log(`SMS alert successfully triggered for ${sensorName}.`);
-              setSmsSentFlag(true); // Set flag to prevent immediate re-sending
-              // Reset the flag after 1 hour (3600000ms) to allow re-alerting
-              setTimeout(() => setSmsSentFlag(false), 3600000); 
+              console.log(`Email alert successfully triggered for ${sensorName}.`);
+              setAlertSentFlag(true); 
+              setTimeout(() => setAlertSentFlag(false), 3600000); // 1 hour throttle
           }
       } catch (error) {
-          console.error("Network error triggering SMS:", error);
+          console.error("Network error triggering Email:", error);
       }
   };
 
 
   // --- CRITICAL MONITORING HOOK ---
   useEffect(() => {
-    // Only monitor and send alerts if in Auto mode, logged in, and SMS hasn't been sent recently
-    if (mode !== 'Auto' || !userEmail || smsSentFlag) return; 
+    // Only monitor and send alerts if in Auto mode, logged in, and flag is false (not recently sent)
+    if (mode !== 'Auto' || !userEmail || alertSentFlag) return; 
 
     // Recalculate statuses based on latest props
     const rainStatus = getRainStatus(percents.rainPercent);
     const waterTankStatus = getWaterTankStatus(percents.waterPercent, liveData.waterDistanceCM);
     const pressureStatus = getPressureStatus(liveData.pressure);
     
-    // Combine critical checks into a single decision point
     let criticalStatus = null;
 
-    // Check 1: Rain/Storm Conditions (status contains 'ALERT')
     if (rainStatus.status.includes('ALERT')) {
         criticalStatus = { name: 'Rain Sensor', status: rainStatus.status };
     } 
-    // Check 2: Water Level Low (status contains 'Low Reserves')
     else if (waterTankStatus.status.includes('Low Reserves')) {
         criticalStatus = { name: 'Water Level', status: waterTankStatus.status };
     } 
-    // Check 3: Pressure Warning (status contains 'WARNING')
     else if (pressureStatus.status.includes('WARNING')) {
         criticalStatus = { name: 'Barometer Pressure', status: pressureStatus.status };
     }
     
-    // Send SMS if a critical status is found
     if (criticalStatus) {
-        sendAlertSms(criticalStatus.name, criticalStatus.status);
+        sendAlertEmail(criticalStatus.name, criticalStatus.status); // Calls Email function
     }
 
-  }, [mode, userEmail, percents, liveData, smsSentFlag]); 
+  }, [mode, userEmail, percents, liveData, alertSentFlag]); 
 
 
-  // --- LOCK SCREENS (Unchanged) ---
-  if (liveData.deviceMode === "AUTO" && mode !== "Auto" && mode !== "AlertSettings") {
-    // ... (Lock Screen UI) ...
+  // --- LOCK SCREENS (Simplified) ---
+  if (liveData.deviceMode === "AUTO" && mode !== "Auto") {
+    // ... Lock Screen UI for AUTO ...
     return (
       <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center animate-fadeIn">
         <CpuIcon className="w-24 h-24 text-emerald-500 mb-6" />
@@ -439,8 +258,8 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
     );
   }
 
-  if (liveData.deviceMode === "MAINTENANCE" && mode !== "Maintenance" && mode !== "AlertSettings") {
-    // ... (Lock Screen UI) ...
+  if (liveData.deviceMode === "MAINTENANCE" && mode !== "Maintenance") {
+    // ... Lock Screen UI for MAINTENANCE ...
     return (
       <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center animate-fadeIn">
         <RefreshCcwIcon className="w-24 h-24 text-yellow-500 mb-6 animate-spin-slow" />
@@ -451,8 +270,8 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
     );
   }
 
-  if (liveData.deviceMode === "SLEEP" && mode !== "Sleep" && mode !== "AlertSettings") {
-    // ... (Lock Screen UI) ...
+  if (liveData.deviceMode === "SLEEP" && mode !== "Sleep") {
+    // ... Lock Screen UI for SLEEP ...
     return (
       <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center animate-fadeIn">
         <MoonIcon className="w-24 h-24 text-indigo-400 mb-6 relative z-10" />
@@ -461,15 +280,6 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
         <button onClick={() => setMode("Sleep")} className="px-8 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl shadow-lg shadow-indigo-900/20 transition-all hover:-translate-y-1 flex items-center gap-2"><MoonIcon className="w-4 h-4" /> Go to Sleep Mode</button>
       </div>
     );
-  }
-
-
-  // ============================================
-  //  RENDER ALERT SETTINGS VIEW (New Page Mode)
-  // ============================================
-  if (mode === "AlertSettings") {
-      // Pass a dummy onClose as the component expects it, even though we use setMode
-      return <AlertSettingsComponent setMode={setMode} onClose={() => setMode('Auto')} />;
   }
 
   // ============================================
@@ -505,16 +315,9 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
 
         <div className={`transition-all duration-500 ${isSleep ? "opacity-60 grayscale-[0.3] pointer-events-none" : "opacity-100"}`}>
           
-          {/* TOP BAR: ALERTS SETTINGS BUTTON (Toggles Page) */}
+          {/* TOP BAR: Display Alert Recipient Email */}
           <div className="flex justify-end mb-4">
-              <button
-                  onClick={() => setMode('AlertSettings')} 
-                  className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg shadow-lg shadow-indigo-900/40 transition-all active:scale-95"
-                  title="Configure SMS Alert Recipient"
-              >
-                  <BellIcon className="w-5 h-5" />
-                  Alert Settings
-              </button>
+              <span className="text-sm text-slate-500">Alerts sent to: <strong>{userEmail || 'N/A'}</strong></span>
           </div>
           
           {/* SECTION 1: SENSOR CARDS (Top Row) */}

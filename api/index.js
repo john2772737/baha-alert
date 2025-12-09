@@ -2,24 +2,24 @@ import dbConnect from '../lib/dbConnect';
 import Alert from '../models/Alert';
 import MaintenanceLog from '../models/MaintenanceLog';
 import AlertRecipientModel from '../models/AlertRecipient'; 
-import twilio from 'twilio'; // ⭐ Import the Twilio SDK
+import nodemailer from 'nodemailer';
 
-// --- Twilio Client Initialization ---
-const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
-const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
-const TWILIO_PHONE_NUMBER = process.env.TWILIO_PHONE_NUMBER;
+// --- Nodemailer Client Initialization (GMAIL_USER and GMAIL_PASS must be set in Vercel) ---
+const GMAIL_USER = process.env.GMAIL_USER;
+const GMAIL_PASS = process.env.GMAIL_PASS;
 
-// Initialize Twilio client once globally (if credentials are set)
-const twilioClient = TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN 
-    ? twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
-    : null;
+const transporter = (GMAIL_USER && GMAIL_PASS) ? nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+        user: GMAIL_USER,
+        pass: GMAIL_PASS,
+    },
+}) : null;
 // ------------------------------------
 
 export default async function handler(req, res) {
-  // Ensure database connection is active
   await dbConnect(); 
 
-  // Handle CORS Preflight
   if (req.method === 'OPTIONS') {
     return res.status(200).end(); 
   }
@@ -63,31 +63,12 @@ export default async function handler(req, res) {
           return res.status(200).json({ success: true, message: 'Result Saved' });
       }
 
-      // 3. UPDATE ALERT RECIPIENT (UPSERT Logic)
-      if (req.body.type === 'UPDATE_RECIPIENT') {
-          const { userEmail, phoneNumber } = req.body;
-
-          if (!userEmail || !phoneNumber) {
-              return res.status(400).json({ success: false, message: 'Missing userEmail or phoneNumber.' });
-          }
-
-          const updatedRecipient = await AlertRecipientModel.findOneAndUpdate(
-              { userEmail: userEmail },
-              { phoneNumber: phoneNumber, updatedAt: new Date() },
-              { new: true, upsert: true, runValidators: true }
-          );
-          
-          return res.status(200).json({ 
-              success: true, 
-              message: 'Alert recipient saved successfully.',
-              recipient: updatedRecipient.phoneNumber 
-          });
-      }
+      // 🚫 REMOVED: 3. UPDATE ALERT RECIPIENT LOGIC HAS BEEN REMOVED.
       
-      // ⭐ 4. NEW LOGIC: SEND TWILIO SMS ALERT
-      if (req.body.type === 'SEND_ALERT_SMS') {
-          if (!twilioClient) {
-              return res.status(500).json({ success: false, error: 'Twilio client not initialized (check environment variables).' });
+      // 4. SEND GMAIL ALERT (Email Logic)
+      if (req.body.type === 'SEND_ALERT_EMAIL') {
+          if (!transporter) {
+              return res.status(500).json({ success: false, error: 'Email transporter not initialized (check GMAIL_USER/PASS).' });
           }
 
           const { userEmail, alertMessage } = req.body;
@@ -96,26 +77,28 @@ export default async function handler(req, res) {
               return res.status(400).json({ success: false, message: 'Missing userEmail or alertMessage.' });
           }
           
-          // A. Fetch the recipient number from the database
-          const recipientDoc = await AlertRecipientModel.findOne({ userEmail: userEmail });
+          const mailOptions = {
+              from: GMAIL_USER,
+              to: userEmail,
+              subject: `CRITICAL BAHA ALERT: Action Required`,
+              text: alertMessage,
+              html: `
+                <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #ddd; border-left: 5px solid #ff4d4d;">
+                    <h3 style="color: #ff4d4d;">CRITICAL BAHA ALERT</h3>
+                    <p style="font-size: 16px;">${alertMessage}</p>
+                    <p>Please check the Baha Dashboard immediately for the latest sensor readings and conditions.</p>
+                    <hr style="border: 0; border-top: 1px solid #eee;">
+                    <p style="font-size: 12px; color: #888;">This is an automated notification. Do not reply.</p>
+                </div>
+              `
+          };
           
-          if (!recipientDoc || !recipientDoc.phoneNumber) {
-              return res.status(404).json({ success: false, message: `Alert recipient not found for ${userEmail}.` });
-          }
-
-          const recipientNumber = recipientDoc.phoneNumber;
-          
-          // B. Send the SMS via Twilio
-          const messageResponse = await twilioClient.messages.create({
-              body: alertMessage,
-              to: recipientNumber,
-              from: TWILIO_PHONE_NUMBER,
-          });
+          const info = await transporter.sendMail(mailOptions);
 
           return res.status(200).json({ 
               success: true, 
-              message: 'SMS alert sent successfully.', 
-              sid: messageResponse.sid 
+              message: 'Email alert sent successfully.', 
+              messageId: info.messageId
           });
       }
 
@@ -160,16 +143,6 @@ export default async function handler(req, res) {
             });
         }
 
-        // 3. GET RECIPIENT PHONE NUMBER
-        if (req.query.recipient_email) {
-            const recipient = await AlertRecipientModel.findOne({ userEmail: req.query.recipient_email });
-            if (recipient) {
-                return res.status(200).json({ success: true, phoneNumber: recipient.phoneNumber });
-            } else {
-                return res.status(200).json({ success: true, phoneNumber: null });
-            }
-        }
-        
         // 4. PDF REPORT: TODAY'S LOGS (10-minute samples)
         if (req.query.today === 'true') {
             const startOfDay = new Date();
