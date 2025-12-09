@@ -12,9 +12,9 @@ const AlertSettings = ({ onClose }) => {
     
     const [recipientNumber, setRecipientNumber] = useState('');
     const [currentStatus, setCurrentStatus] = useState(loading ? 'Initializing...' : 'Loading...');
-    const [toastMessage, setToastMessage] = useState(null); // ⭐ NEW STATE for Toast
+    const [toastMessage, setToastMessage] = useState(null); 
 
-    // --- Fetch current number ---
+    // --- 1. Fetch current number when the component loads ---
     useEffect(() => {
         if (loading || !userEmail) {
             if (!loading && !userEmail) {
@@ -45,24 +45,25 @@ const AlertSettings = ({ onClose }) => {
         fetchCurrentRecipient();
     }, [userEmail, loading]);
 
-    // --- Handle saving the new number ---
-    // Removed 'e' argument as button type is 'button' and we rely on onClick
+    // --- 2. Handle saving the new number ---
     const handleSave = async () => {
-        setToastMessage(null); // Clear previous errors
-        setCurrentStatus('Saving...');
-
+        setToastMessage(null); // Clear previous errors (Keep this here for general flow)
+        
+        // ⭐ SYNCHRONOUS VALIDATION (Handles immediate errors)
         if (!userEmail) {
-             setToastMessage('User email missing. Please log in.');
+             setToastMessage({ success: false, message: 'User email missing. Please log in.' });
              setCurrentStatus('Error');
              return;
         }
-
         if (!recipientNumber.startsWith('+') || recipientNumber.length < 10) {
-            setToastMessage('Number must be in +E.164 format (e.g., +639...).');
+            // ⭐ FIX: Display error and STOP execution immediately
+            setToastMessage({ success: false, message: 'Number must be in +E.164 format (e.g., +639...).' });
             setCurrentStatus('Error');
-            return;
+            return; 
         }
 
+        setCurrentStatus('Saving...');
+        
         try {
             const res = await fetch(API_ENDPOINT, {
                 method: 'POST',
@@ -78,8 +79,8 @@ const AlertSettings = ({ onClose }) => {
                 const result = await res.json();
                 if (result.success) {
                     setToastMessage({ success: true, message: 'Settings saved successfully!' });
-                    // ⭐ CLOSE MODAL ON SUCCESS
-                    setTimeout(onClose, 500); // Give time for success message to register before closing
+                    // Close after a brief delay for user confirmation
+                    setTimeout(onClose, 500); 
                     return;
                 } else {
                     setToastMessage({ success: false, message: result.error || 'Server rejected save.' });
@@ -122,7 +123,7 @@ const AlertSettings = ({ onClose }) => {
                 </div>
             )}
             
-            {/* FORM */}
+            {/* FORM (Action is purely via onClick) */}
             <form className="space-y-4"> 
                 <div>
                     <label htmlFor="recipient" className="block text-sm font-medium text-slate-400 mb-1">
