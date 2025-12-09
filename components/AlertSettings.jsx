@@ -96,57 +96,43 @@ const AlertSettings = ({ onClose }) => {
     const isSaving = currentStatus.includes('Saving');
     const isLoggedIn = !!userEmail;
     
-    return (
-        <div className="bg-slate-800 p-8 rounded-xl shadow-2xl border border-slate-700 w-full max-w-xl mx-auto relative">
-            <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-3">
-                🔔 Alert Recipient Settings 
-                <span className='text-sm text-slate-500 font-normal'>({userEmail || (loading ? 'Loading...' : 'Not Logged In')})</span>
-            </h2>
-            
-            <form onSubmit={handleSave} className="space-y-4">
-                {/* ... (Form fields remain the same) ... */}
-                <div>
-                    <label htmlFor="recipient" className="block text-sm font-medium text-slate-400 mb-1">
-                        Recipient Phone Number (E.164 format)
-                    </label>
-                    <input
-                        id="recipient"
-                        type="tel"
-                        value={recipientNumber}
-                        onChange={(e) => setRecipientNumber(e.target.value)}
-                        placeholder="+639xxxxxxxxx"
-                        className="w-full p-3 rounded-lg bg-slate-700 text-white border border-slate-600 focus:ring-indigo-500 focus:border-indigo-500 font-mono"
-                        required
-                        disabled={!isLoggedIn || isSaving}
-                    />
-                    <p className="mt-1 text-xs text-slate-500">Example: +639171234567. This number must be verified in the Twilio Console.</p>
-                </div>
+   // Inside src/components/AlertSettings.js
 
-                <div className="flex justify-between items-center pt-2">
-                    <span className={`text-sm font-medium ${currentStatus.includes('Error') ? 'text-red-400' : 'text-indigo-400'}`}>
-                        Status: {currentStatus}
-                    </span>
-                    <div className='space-x-2'>
-                         <button
-                            type="button"
-                            onClick={onClose}
-                            className="px-6 py-2 text-slate-400 border border-slate-600 rounded-lg hover:bg-slate-700 transition-colors"
-                        >
-                            Close
-                        </button>
-                        <button
-                            type="submit"
-                            disabled={!isLoggedIn || isSaving}
-                            className={`px-6 py-2 font-bold rounded-lg shadow-md transition-colors 
-                                ${isLoggedIn ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-slate-500 text-slate-300 cursor-not-allowed'}`}
-                        >
-                            {isSaving ? 'Saving...' : 'Save Number'}
-                        </button>
-                    </div>
+return (
+    <div className="bg-slate-800 p-8 rounded-xl shadow-2xl border border-slate-700 w-full max-w-xl mx-auto relative">
+        {/* ... existing header and status display ... */}
+        
+        {/* ⭐ Change the form tag: Remove onSubmit, rely on the button click */}
+        <form className="space-y-4"> 
+            {/* ... form fields ... */}
+            
+            <div className="flex justify-between items-center pt-2">
+                <span className={`text-sm font-medium ${currentStatus.includes('Error') ? 'text-red-400' : 'text-indigo-400'}`}>
+                    Status: {currentStatus}
+                </span>
+                <div className='space-x-2'>
+                     <button
+                        type="button" // Type MUST be 'button' to avoid native submission
+                        onClick={onClose}
+                        className="px-6 py-2 text-slate-400 border border-slate-600 rounded-lg hover:bg-slate-700 transition-colors"
+                    >
+                        Close
+                    </button>
+                    {/* ⭐ Change the save button: Type is 'button', handler is onClick */}
+                    <button
+                        type="button" // MUST be type="button"
+                        onClick={handleSave} // Calls your JS function directly
+                        disabled={!isLoggedIn || isSaving}
+                        className={`px-6 py-2 font-bold rounded-lg shadow-md transition-colors 
+                            ${isLoggedIn ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-slate-500 text-slate-300 cursor-not-allowed'}`}
+                    >
+                        {isSaving ? 'Saving...' : 'Save Number'}
+                    </button>
                 </div>
-            </form>
-        </div>
-    );
+            </div>
+        </form>
+    </div>
+);
 };
 
 export default AlertSettings;
