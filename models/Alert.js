@@ -21,29 +21,26 @@ const AlertDataSchema = new mongoose.Schema({
 });
 
 // --- PRE-SAVE HOOK TO APPLY PHT OFFSET TO ALL TIMESTAMPS ---
-AlertDataSchema.pre('save', function(next) {
+// 💡 CORRECT SYNTAX: Use 'function (next)'
+AlertDataSchema.pre('save', function(next) { 
     const now = Date.now();
-    
-    // 💡 CRITICAL FIX: Calculate the time by adding the 8-hour offset to the current UTC time
+    const PHT_OFFSET_MS = 28800000;
     const phtTimeMs = now + PHT_OFFSET_MS;
     const phtDate = new Date(phtTimeMs);
     
-    // 1. Manually set receivedAt (only if it wasn't already provided by the request body)
+    // ... (Your time logic) ...
     if (!this.receivedAt) {
         this.receivedAt = phtDate;
     }
-    
-    // 2. Manually set createdAt (overwrites Mongoose default, only runs on new documents)
-    // This ensures the recorded date is Wednesday, not Tuesday.
     if (this.isNew) {
         this.createdAt = phtDate;
     }
-
-    // 3. Manually set updatedAt (overwrites Mongoose default, runs on new and updated documents)
     this.updatedAt = phtDate;
 
-    next();
+    // Call next() to allow Mongoose to proceed with the save operation
+    next(); 
 });
+// -----------------------------------------------------------
 // -----------------------------------------------------------
 
 // Reuse the model if it's already been compiled to avoid OverwriteModelError
