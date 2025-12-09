@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react"; // Added useRef
+import React, { useState, useEffect, useRef } from "react"; 
 import {
   getRainStatus,
   getSoilStatus,
@@ -147,13 +147,13 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
   const [dbValues, setDbValues] = useState({ rain: null, soil: null, water: null, pressure: null });
   const [alertSentFlag, setAlertSentFlag] = useState(false); 
   
-  // NEW STATE: Tracks the current AI Alert status (used to detect recovery)
   const [aiAlertStatus, setAiAlertStatus] = useState(null); 
-  
-  // NEW STATE: Tracks the time when the system recovered to STABLE
   const [recoveryStartTime, setRecoveryStartTime] = useState(null); 
   
   const commandMap = { rain: "R", soil: "S", water: "U", pressure: "P" };
+  
+  // Ref to track the first render (for initialization check)
+  const isInitialRender = useRef(true); 
 
   const { user } = useAuth();
   const userEmail = user ? user.email : null;
@@ -189,8 +189,8 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
 
   const toggleTest = (sensorKey) => setActiveTests((prev) => ({ ...prev, [sensorKey]: !prev[sensorKey] }));
 
-  // --- EMAIL ALERT TRIGGER FUNCTION (Unchanged) ---
-  const sendAlertEmail = async (alertType, statusText) => {
+  // --- EMAIL ALERT TRIGGER FUNCTION (MODIFIED to pass statusText) ---
+  const sendAlertEmail = async (alertType, statusText) => { // Now accepts statusText
       if (!userEmail) {
           console.warn("Email Alert Skipped: User email not available.");
           return;
@@ -208,6 +208,7 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
                   type: 'SEND_ALERT_EMAIL',
                   userEmail: userEmail,
                   alertMessage: alertMessage,
+                  alertStatus: statusText, // CRITICAL: Pass the status to the API for dynamic UI/Subject
               }),
           });
           
@@ -215,14 +216,11 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
               const errorData = await res.json();
               console.error("Email API failed:", errorData.error || res.statusText);
           } else {
-              console.log(`Email alert successfully triggered for ${alertType}.`);
-              // Only throttle the initial alert. Recovery notification is one-off.
+              console.log(`Email alert successfully triggered for ${alertType} (${statusText}).`);
               if (alertType === 'ALERT') {
                 setAlertSentFlag(true); 
-                // Throttle for 1 hour to prevent spamming during long events
                 setTimeout(() => setAlertSentFlag(false), 3600000); 
               }
-              // Reset recovery state after sending
               setRecoveryStartTime(null); 
           }
       } catch (error) {
@@ -231,15 +229,22 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
   };
 
 
-  // --- CRITICAL MONITORING HOOK ---
+  // --- CRITICAL MONITORING HOOK (Modified Logic to fix initial alert) ---
   useEffect(() => {
     if (mode !== 'Auto' || !userEmail) return; 
 
-    // **ASSUMPTION:** We are getting the aggregated AI status from liveData.
-    // The AICard component must update this field based on its internal logic.
     const currentStatus = liveData.aiStatus || 'STABLE'; 
     const isCritical = ['ADVISORY', 'WARNING', 'CRITICAL', 'EMERGENCY'].includes(currentStatus);
+    const wasCritical = ['ADVISORY', 'WARNING', 'CRITICAL', 'EMERGENCY'].includes(aiAlertStatus);
     const isStable = currentStatus === 'STABLE';
+    
+    // FIX 1: Prevent logic from running on the first render/fetch
+    if (isInitialRender.current) {
+        isInitialRender.current = false;
+        // Initialize state to the current status from liveData to prevent change detection on load
+        setAiAlertStatus(currentStatus); 
+        return; 
+    }
     
     // 1. Handle Alert Status Change
     if (currentStatus !== aiAlertStatus) {
@@ -249,41 +254,40 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
             // New critical event started or escalated. Clear recovery timer.
             setRecoveryStartTime(null);
             
-            // Only send the *initial* critical alert if not currently throttled
+            // Send Alert only if the NEW status is critical AND we aren't throttled
             if (!alertSentFlag) {
-                sendAlertEmail('ALERT', currentStatus);
+                sendAlertEmail('ALERT', currentStatus); // Pass the status
             }
             
-        } else if (isStable) {
-            // Just hit stable. Start the recovery timer.
+        } else if (isStable && wasCritical) { // Only start recovery if the PREVIOUS status was critical
+            // System just recovered from a critical state. Start the 5-second timer.
             setRecoveryStartTime(Date.now());
             
         } else {
-            // Neutral/non-alert status: Clear recovery timer.
+            // Transition between non-critical states, or from stable to advisory
             setRecoveryStartTime(null);
         }
     }
 
     // 2. Handle Recovery Cooldown (Checks every second)
     const recoveryCheck = setInterval(() => {
-        if (recoveryStartTime && isStable) {
+        // Check: 1. Timer is running, 2. Current live data is STILL STABLE
+        if (recoveryStartTime && liveData.aiStatus === 'STABLE') {
             const timeElapsed = Date.now() - recoveryStartTime;
             
-            // If 5 seconds (5000ms) have passed and the status is still STABLE
             if (timeElapsed >= 5000) {
                 // Send the recovery notice
-                sendAlertEmail('RECOVERY', currentStatus);
+                sendAlertEmail('RECOVERY', 'STABLE'); // Pass 'STABLE' status
                 
-                // Clear the throttle flag to allow future alerts immediately
                 setAlertSentFlag(false); 
-                
-                // Clear the interval
                 clearInterval(recoveryCheck);
             }
+        } else if (recoveryStartTime && liveData.aiStatus !== 'STABLE') {
+            // Recovery was interrupted (e.g., status changed back to WARNING)
+            setRecoveryStartTime(null);
         }
-    }, 1000); // Check recovery status every 1 second
+    }, 1000); 
 
-    // Cleanup: Clear the interval when the component unmounts or dependencies change
     return () => clearInterval(recoveryCheck);
 
   }, [mode, userEmail, liveData.aiStatus, aiAlertStatus, recoveryStartTime, alertSentFlag]); 
