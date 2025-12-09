@@ -1,6 +1,9 @@
 import dbConnect from '../lib/dbConnect';
 import Alert from '../models/Alert';
 import MaintenanceLog from '../models/MaintenanceLog';
+// Assuming you have defined the Mongoose model for recipients:
+import AlertRecipientModel from '../models/AlertRecipient'; 
+// NOTE: I'm using AlertRecipientModel to avoid conflict with component names
 
 export default async function handler(req, res) {
   await dbConnect();
@@ -11,7 +14,7 @@ export default async function handler(req, res) {
   }
 
   // ---------------------------------------------------------
-  // 💾 POST METHOD: SAVE DATA (UNTOUCHED)
+  // 💾 POST METHOD: SAVE DATA
   // ---------------------------------------------------------
   if (req.method === 'POST') {
     if (!req.body) return res.status(400).json({ success: false, message: 'No payload.' });
@@ -49,13 +52,36 @@ export default async function handler(req, res) {
           return res.status(200).json({ success: true, message: 'Result Saved' });
       }
 
-      // 3. Normal Data (Auto Mode)
+      // ⭐ 3. NEW LOGIC: UPDATE ALERT RECIPIENT
+      if (req.body.type === 'UPDATE_RECIPIENT') {
+          const { userEmail, phoneNumber } = req.body;
+
+          if (!userEmail || !phoneNumber) {
+              return res.status(400).json({ success: false, message: 'Missing userEmail or phoneNumber.' });
+          }
+
+          // Mongoose UPSERT: Update if userEmail exists, insert if it doesn't.
+          const updatedRecipient = await AlertRecipientModel.findOneAndUpdate(
+              { userEmail: userEmail },
+              { phoneNumber: phoneNumber, updatedAt: new Date() },
+              { new: true, upsert: true, runValidators: true } // key options
+          );
+          
+          return res.status(200).json({ 
+              success: true, 
+              message: 'Alert recipient saved successfully.',
+              recipient: updatedRecipient.phoneNumber 
+          });
+      }
+
+      // 4. Normal Data (Auto Mode)
       const newAlert = await Alert.create({ payload: req.body });
       return res.status(201).json({ success: true, message: 'Data Logged', id: newAlert._id });
 
     } catch (error) {
       console.error("API POST Error:", error);
-      return res.status(500).json({ success: false, error: error.message });
+      // Mongoose validation errors will fall here
+      return res.status(400).json({ success: false, error: error.message });
     }
   } 
   
@@ -64,6 +90,8 @@ export default async function handler(req, res) {
   // ---------------------------------------------------------
   else if (req.method === 'GET') {
     try {
+        // ... (existing GET logic remains here) ...
+        
         // 1. ESP32 Polling
         if (req.query.maintenance === 'true') {
             const pendingCmd = await MaintenanceLog.findOneAndUpdate(
@@ -89,7 +117,17 @@ export default async function handler(req, res) {
             });
         }
 
-        // 3. PDF REPORT: TODAY'S LOGS (10-minute samples)
+        // ⭐ 3. NEW LOGIC: GET RECIPIENT PHONE NUMBER
+        if (req.query.recipient_email) {
+            const recipient = await AlertRecipientModel.findOne({ userEmail: req.query.recipient_email });
+            if (recipient) {
+                return res.status(200).json({ success: true, phoneNumber: recipient.phoneNumber });
+            } else {
+                return res.status(200).json({ success: true, phoneNumber: null });
+            }
+        }
+        
+        // 4. PDF REPORT: TODAY'S LOGS (10-minute samples)
         if (req.query.today === 'true') {
             const startOfDay = new Date();
             startOfDay.setHours(0, 0, 0, 0);
@@ -118,7 +156,7 @@ export default async function handler(req, res) {
             return res.status(200).json({ success: true, data: todayData });
         }
 
-        // 4. CHART: 7-DAY HISTORY (Daily Averages) -- ⭐ RESTORED
+        // 5. CHART: 7-DAY HISTORY (Daily Averages) -- ⭐ RESTORED
         if (req.query.history === 'true') {
             const sevenDaysAgo = new Date();
             sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
@@ -139,7 +177,7 @@ export default async function handler(req, res) {
             return res.status(200).json({ success: true, data: historyData });
         }
 
-        // 5. Default: Latest Alert (Live Dashboard)
+        // 6. Default: Latest Alert (Live Dashboard)
         const latestAlert = await Alert.findOne({}).sort({ createdAt: -1 }).exec();
         return res.status(200).json({ success: true, data: latestAlert });
 
@@ -149,7 +187,7 @@ export default async function handler(req, res) {
   } 
   
   // ---------------------------------------------------------
-  // 🗑️ NEW DELETE METHOD: CLEANUP (UPDATED FOR SPECIFIC DATE)
+  // 🗑️ NEW DELETE METHOD: CLEANUP (UNTOUCHED)
   // ---------------------------------------------------------
   else if (req.method === 'DELETE') {
       try {

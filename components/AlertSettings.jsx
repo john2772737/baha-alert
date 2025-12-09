@@ -1,71 +1,110 @@
-// src/components/AlertSettings.js or similar
+// src/components/AlertSettings.js
+
 import React, { useState, useEffect } from 'react';
+import { useAuth } from '../context/AuthContext'; // ⭐ Import the context hook
+// You will need to ensure this path is correct: '../context/AuthContext'
+// or adjust it based on where AlertSettings.js is located relative to AuthContext.js
 
 const API_ENDPOINT = 'https://baha-alert.vercel.app/api';
 
-const AlertSettings = () => {
+const AlertSettings = ({ onClose }) => {
+    // ⭐ Get user and loading state from the context
+    const { user, loading } = useAuth(); 
+    
+    // ⭐ Derive the userEmail from the user object
+    const userEmail = user && user.email ? user.email : null; 
+    
     const [recipientNumber, setRecipientNumber] = useState('');
-    const [currentStatus, setCurrentStatus] = useState('Loading...');
+    const [currentStatus, setCurrentStatus] = useState(loading ? 'Initializing...' : 'Loading...');
 
-    // 1. Fetch current number when the component loads
+    // --- 1. Fetch current number when the component loads ---
     useEffect(() => {
-        // You'll need a simple GET endpoint in your Vercel API 
-        // that returns the current USER_ALERT_RECIPIENT environment variable value.
+        // Stop if still loading the auth state or if no email is available
+        if (loading || !userEmail) {
+            if (!loading && !userEmail) {
+                 setCurrentStatus('Error: User not logged in.');
+            }
+            return;
+        }
+        
         const fetchCurrentRecipient = async () => {
+            setCurrentStatus('Fetching saved number...');
+            
             try {
-                // Assuming you set up a GET request to fetch the current recipient number
-                const res = await fetch(`${API_ENDPOINT}?config=recipient`);
+                // Fetch recipient using the logged-in email as the unique query ID
+                const res = await fetch(`${API_ENDPOINT}?recipient_email=${userEmail}`);
                 const data = await res.json();
-                if (data.number) {
-                    setRecipientNumber(data.number);
+                
+                if (data.success && data.phoneNumber) {
+                    setRecipientNumber(data.phoneNumber);
                     setCurrentStatus('Loaded.');
+                } else {
+                    setRecipientNumber(''); 
+                    setCurrentStatus('Ready to save new number.');
                 }
             } catch (error) {
                 console.error("Failed to fetch settings:", error);
-                setCurrentStatus('Failed to load settings.');
+                setCurrentStatus('Failed to connect to server.');
             }
         };
         fetchCurrentRecipient();
-    }, []);
+    }, [userEmail, loading]); // Depend on userEmail and loading state
 
-    // 2. Handle saving the new number
+    // --- 2. Handle saving the new number ---
     const handleSave = async (e) => {
         e.preventDefault();
         setCurrentStatus('Saving...');
 
-        // IMPORTANT: The number must be in E.164 format (+639xxxxxxxxx)
+        if (!userEmail) {
+             setCurrentStatus('Error: Cannot save, user email missing.');
+             return;
+        }
+
+        // Validate E.164 format
         if (!recipientNumber.startsWith('+') || recipientNumber.length < 10) {
             setCurrentStatus('Error: Number must be in +E.164 format.');
             return;
         }
 
         try {
-            // This POST endpoint must be handled on your Vercel backend 
-            // to update the recipient number securely (e.g., in a database or config file).
+            // POST BODY: Including both phoneNumber and the unique userEmail
             const res = await fetch(API_ENDPOINT, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     type: 'UPDATE_RECIPIENT',
-                    number: recipientNumber,
+                    userEmail: userEmail, // ⭐ Pass the email obtained from Firebase Auth
+                    phoneNumber: recipientNumber,
                 }),
             });
 
             if (res.ok) {
-                setCurrentStatus('Saved! Remember to verify this number in Twilio Console.');
+                const result = await res.json();
+                if (result.success) {
+                    setCurrentStatus('Saved! Remember to verify this number in Twilio Console.');
+                } else {
+                    setCurrentStatus(`Error: ${result.error || 'Server rejected save.'}`);
+                }
             } else {
-                setCurrentStatus('Error saving number.');
+                setCurrentStatus('Network error saving number.');
             }
         } catch (error) {
             setCurrentStatus('Network error during save.');
         }
     };
 
+    const isSaving = currentStatus.includes('Saving');
+    const isLoggedIn = !!userEmail;
+    
     return (
-        <div className="p-8 bg-slate-800 rounded-xl shadow-2xl border border-slate-700 max-w-lg mx-auto">
-            <h2 className="text-2xl font-bold text-white mb-6">🔔 Alert Recipient Settings</h2>
+        <div className="bg-slate-800 p-8 rounded-xl shadow-2xl border border-slate-700 w-full max-w-xl mx-auto relative">
+            <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-3">
+                🔔 Alert Recipient Settings 
+                <span className='text-sm text-slate-500 font-normal'>({userEmail || (loading ? 'Loading...' : 'Not Logged In')})</span>
+            </h2>
             
             <form onSubmit={handleSave} className="space-y-4">
+                {/* ... (Form fields remain the same) ... */}
                 <div>
                     <label htmlFor="recipient" className="block text-sm font-medium text-slate-400 mb-1">
                         Recipient Phone Number (E.164 format)
@@ -78,20 +117,32 @@ const AlertSettings = () => {
                         placeholder="+639xxxxxxxxx"
                         className="w-full p-3 rounded-lg bg-slate-700 text-white border border-slate-600 focus:ring-indigo-500 focus:border-indigo-500 font-mono"
                         required
+                        disabled={!isLoggedIn || isSaving}
                     />
-                    <p className="mt-1 text-xs text-slate-500">Example: +639171234567. Must be verified in the Twilio Console.</p>
+                    <p className="mt-1 text-xs text-slate-500">Example: +639171234567. This number must be verified in the Twilio Console.</p>
                 </div>
 
                 <div className="flex justify-between items-center pt-2">
                     <span className={`text-sm font-medium ${currentStatus.includes('Error') ? 'text-red-400' : 'text-indigo-400'}`}>
                         Status: {currentStatus}
                     </span>
-                    <button
-                        type="submit"
-                        className="px-6 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg shadow-md transition-colors"
-                    >
-                        Save Number
-                    </button>
+                    <div className='space-x-2'>
+                         <button
+                            type="button"
+                            onClick={onClose}
+                            className="px-6 py-2 text-slate-400 border border-slate-600 rounded-lg hover:bg-slate-700 transition-colors"
+                        >
+                            Close
+                        </button>
+                        <button
+                            type="submit"
+                            disabled={!isLoggedIn || isSaving}
+                            className={`px-6 py-2 font-bold rounded-lg shadow-md transition-colors 
+                                ${isLoggedIn ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-slate-500 text-slate-300 cursor-not-allowed'}`}
+                        >
+                            {isSaving ? 'Saving...' : 'Save Number'}
+                        </button>
+                    </div>
                 </div>
             </form>
         </div>
