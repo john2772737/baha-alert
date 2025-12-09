@@ -1,10 +1,6 @@
 import mongoose from 'mongoose';
 
-// Ensure Mongoose is only initialized once
-if (mongoose.models.AlertRecipient) {
-  module.exports = mongoose.model('AlertRecipient');
-}
-
+// Define the schema
 const AlertRecipientSchema = new mongoose.Schema({
   // 1. User Identifier (Primary Key)
   userEmail: {
@@ -27,21 +23,15 @@ const AlertRecipientSchema = new mongoose.Schema({
       message: props => `${props.value} is not a valid E.164 phone number format (+CountryCodeNumber).`
     },
   },
-
-  // 3. Verification Status (Best Practice, even if skipped in trial)
-  isVerified: {
-    type: Boolean,
-    default: false,
-  },
   
-  // 4. Timestamp
+  // 3. Timestamp
   updatedAt: {
     type: Date,
     default: Date.now,
   },
 });
 
-// Create the model and export it
+// Create the model and export it (using existing check to prevent redefinition)
 const AlertRecipient = mongoose.models.AlertRecipient || mongoose.model('AlertRecipient', AlertRecipientSchema);
 
 export default AlertRecipient;
