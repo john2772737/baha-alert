@@ -29,6 +29,23 @@ const App = () => {
     // ⭐ Theme State Management
     const [theme, setTheme] = useState('dark');
     
+    // Auth & Router Logic
+    const { user, logOut, loading } = useAuth();
+    const router = useRouter();
+
+    // State (Updated)
+    // ⭐ FIX: Initialize isClient to false, but ensure it's toggled quickly in the first effect.
+    const [isClient, setIsClient] = useState(false); 
+    const [scriptsLoaded, setScriptsLoaded] = useState(false);
+    const [isDownloading, setIsDownloading] = useState(false);
+    const [selectedDate, setSelectedDate] = useState(formatDateForAPI(new Date()));
+    const [showQR, setShowQR] = useState(false);
+    const [qrValue, setQrValue] = useState(''); 
+    const [mode, setMode] = useState('Auto');
+    const modes = ['Auto', 'Maintenance', 'Sleep'];
+    const [currentTime, setCurrentTime] = useState('Loading...');
+    const [todayData, setTodayData] = useState([]); 
+    
     // ⭐ Effect to read system preference/localStorage on mount and apply theme
     useEffect(() => {
         // Read theme from local storage or system preference
@@ -42,7 +59,8 @@ const App = () => {
         } else {
             setTheme('light');
         }
-
+        
+        // This is the earliest reliable point to set isClient to true.
         setIsClient(true);
     }, []);
 
@@ -62,22 +80,6 @@ const App = () => {
     const toggleTheme = () => {
         setTheme(theme === 'dark' ? 'light' : 'dark');
     };
-
-    // Auth & Router Logic (Unchanged)
-    const { user, logOut, loading } = useAuth();
-    const router = useRouter();
-
-    // State (Updated)
-    const [isClient, setIsClient] = useState(false);
-    const [scriptsLoaded, setScriptsLoaded] = useState(false);
-    const [isDownloading, setIsDownloading] = useState(false);
-    const [selectedDate, setSelectedDate] = useState(formatDateForAPI(new Date()));
-    const [showQR, setShowQR] = useState(false);
-    const [qrValue, setQrValue] = useState(''); 
-    const [mode, setMode] = useState('Auto');
-    const modes = ['Auto', 'Maintenance', 'Sleep'];
-    const [currentTime, setCurrentTime] = useState('Loading...');
-    const [todayData, setTodayData] = useState([]); 
 
     // ⭐ 1. Protect Route
     useEffect(() => {
