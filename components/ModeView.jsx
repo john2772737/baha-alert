@@ -22,7 +22,7 @@ import {
 } from "../utils/icons";
 import AICard from "./AICard"; 
 import { useAuth } from '../context/AuthContext'; 
-// CRITICAL FIX: Import the fuzzy engine calculation
+// CRITICAL: Import the fuzzy engine calculation for local status determination
 import { calculateFloodRisk } from '../utils/fuzzyEngine'; 
 
 const API_ENDPOINT = "https://baha-alert.vercel.app/api";
@@ -190,7 +190,7 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
 
   const toggleTest = (sensorKey) => setActiveTests((prev) => ({ ...prev, [sensorKey]: !prev[sensorKey] }));
 
-  // --- EMAIL ALERT TRIGGER FUNCTION (Sends statusText for dynamic UI and 30s throttle) ---
+  // --- EMAIL ALERT TRIGGER FUNCTION (30s throttle, sends statusText, NO userEmail in payload) ---
   const sendAlertEmail = async (statusText, isCritical) => { 
       if (!userEmail) {
           console.warn("Email Alert Skipped: User email not available.");
@@ -206,10 +206,8 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                   type: 'SEND_ALERT_EMAIL',
-                  userEmail: userEmail,
-                  // We pass the full statusText to the API so it can handle dynamic coloring
+                  // CRITICAL: userEmail REMOVED from payload - API now retrieves ALL emails via Firebase
                   alertStatus: statusText, 
-                  // CRITICAL: The API uses the statusText passed above to generate its final HTML message.
                   alertMessage: alertMessage, 
               }),
           });
@@ -223,7 +221,7 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
               if (isCritical) { 
                 // Only throttle if a critical status was just sent
                 setAlertSentFlag(true); 
-                // Set the 30-second throttling timer (30000 ms)
+                // Set the 30-second throttling timer (30000 ms) for testing
                 setTimeout(() => setAlertSentFlag(false), 30000); 
               }
           }

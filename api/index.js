@@ -1,10 +1,11 @@
 import dbConnect from '../lib/dbConnect';
 import Alert from '../models/Alert';
 import MaintenanceLog from '../models/MaintenanceLog';
-import AlertRecipientModel from '../models/AlertRecipient'; // Still imported, but its methods are no longer called.
+import AlertRecipientModel from '../models/AlertRecipient'; 
 import nodemailer from 'nodemailer';
+import admin from 'firebase-admin'; 
 
-// --- Nodemailer Client Initialization (GMAIL_USER and GMAIL_PASS must be set in Vercel) ---
+// --- Nodemailer Client Initialization ---
 const GMAIL_USER = process.env.GMAIL_USER;
 const GMAIL_PASS = process.env.GMAIL_PASS;
 
@@ -15,6 +16,19 @@ const transporter = (GMAIL_USER && GMAIL_PASS) ? nodemailer.createTransport({
         pass: GMAIL_PASS,
     },
 }) : null;
+
+// --- Firebase Admin Initialization ---
+// Initialize Firebase Admin only if it hasn't been initialized and credentials exist
+if (!admin.apps.length && process.env.FIREBASE_ADMIN_CREDENTIALS) {
+    try {
+        const credentials = JSON.parse(process.env.FIREBASE_ADMIN_CREDENTIALS);
+        admin.initializeApp({
+            credential: admin.credential.cert(credentials),
+        });
+    } catch (error) {
+        console.error("Firebase Admin Initialization Failed:", error);
+    }
+}
 // ------------------------------------
 
 export default async function handler(req, res) {
@@ -65,76 +79,82 @@ export default async function handler(req, res) {
           return res.status(200).json({ success: true, message: 'Result Saved' });
       }
 
-      // 🚫 Removed: 3. UPDATE ALERT RECIPIENT logic has been removed.
+      // 🚫 Removed: UPDATE ALERT RECIPIENT logic has been removed.
       
-      // ⭐ 4. SEND GMAIL ALERT (Dynamically styled based on alertStatus)
+      // ⭐ 4. SEND GMAIL ALERT (Send to ALL Registered Users)
       if (req.body.type === 'SEND_ALERT_EMAIL') {
           if (!transporter) {
               return res.status(500).json({ success: false, error: 'Email transporter not initialized (check GMAIL_USER/PASS).' });
           }
+          if (!admin.apps.length) {
+              return res.status(500).json({ success: false, error: 'Firebase Admin not initialized (check FIREBASE_ADMIN_CREDENTIALS).' });
+          }
 
-          // CRITICAL: Captures the status string (e.g., 'CRITICAL', 'STABLE') from the frontend
-          const { userEmail, alertMessage, alertStatus } = req.body; 
+          const { alertMessage, alertStatus } = req.body; 
+          let usersToEmail = [];
 
-          if (!userEmail || !alertMessage || !alertStatus) {
+          if (!alertMessage || !alertStatus) {
               return res.status(400).json({ success: false, message: 'Missing required alert data.' });
           }
 
-          // --- Dynamic Email UI Logic ---
+          // --- 1. Fetch All User Emails from Firebase Authentication ---
+          try {
+              let nextPageToken = undefined;
+              do {
+                  const listUsersResult = await admin.auth().listUsers(1000, nextPageToken);
+                  listUsersResult.users.forEach(userRecord => {
+                      // CRITICAL: Only add emails that exist (Firebase Auth sometimes lists non-email users)
+                      if (userRecord.email) {
+                          usersToEmail.push(userRecord.email);
+                      }
+                  });
+                  nextPageToken = listUsersResult.pageToken;
+              } while (nextPageToken);
+          } catch (error) {
+              console.error("Error fetching Firebase users:", error);
+              return res.status(500).json({ success: false, error: 'Failed to fetch user list from Firebase.' });
+          }
+          
+          // --- 2. Dynamic Email UI Logic ---
           let colorHex = '#22c55e'; // Default: Emerald (STABLE/RECOVERY)
           let severityText = 'BAHA NOTICE';
           let subjectPrefix = 'BAHA NOTICE';
 
           switch (alertStatus) {
-              case 'ADVISORY':
-                  colorHex = '#facc15'; // Yellow
-                  severityText = 'ADVISORY';
-                  subjectPrefix = 'BAHA ADVISORY';
-                  break;
-              case 'WARNING':
-                  colorHex = '#f97316'; // Orange
-                  severityText = 'WARNING';
-                  subjectPrefix = 'BAHA WARNING';
-                  break;
+              case 'ADVISORY': colorHex = '#facc15'; severityText = 'ADVISORY'; subjectPrefix = 'BAHA ADVISORY'; break;
+              case 'WARNING': colorHex = '#f97316'; severityText = 'WARNING'; subjectPrefix = 'BAHA WARNING'; break;
               case 'CRITICAL':
-              case 'EMERGENCY':
-                  colorHex = '#ef4444'; // Red
-                  severityText = alertStatus.toUpperCase();
-                  subjectPrefix = 'CRITICAL BAHA ALERT';
-                  break;
-              case 'STABLE':
-                  colorHex = '#22c55e'; // Green
-                  severityText = 'RECOVERY NOTICE';
-                  subjectPrefix = 'BAHA RECOVERY';
-                  break;
-              default:
-                  // Use default if status is unknown
-                  break;
+              case 'EMERGENCY': colorHex = '#ef4444'; severityText = alertStatus.toUpperCase(); subjectPrefix = 'CRITICAL BAHA ALERT'; break;
+              case 'STABLE': colorHex = '#22c55e'; severityText = 'RECOVERY NOTICE'; subjectPrefix = 'BAHA RECOVERY'; break;
+              default: break;
           }
-          // -------------------------
 
-          const mailOptions = {
-              from: GMAIL_USER,
-              to: userEmail,
-              subject: `${subjectPrefix}: Action Required`, // Use dynamic subject
-              text: alertMessage,
-              html: `
-                <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #ddd; border-left: 5px solid ${colorHex};">
-                    <h3 style="color: ${colorHex};">${severityText}</h3>
-                    <p style="font-size: 16px;">${alertMessage}</p>
-                    <p>Please check the Baha Dashboard immediately for the latest sensor readings and conditions.</p>
-                    <hr style="border: 0; border-top: 1px solid #eee;">
-                    <p style="font-size: 12px; color: #888;">This is an automated notification. Do not reply.</p>
-                </div>
-              `
-          };
-          
-          const info = await transporter.sendMail(mailOptions);
+          // --- 3. Prepare and Send Emails ---
+          const mailPromises = usersToEmail.map(recipientEmail => {
+              const mailOptions = {
+                  from: GMAIL_USER,
+                  to: recipientEmail, // Send to current user in the map
+                  subject: `${subjectPrefix}: Action Required`, 
+                  text: alertMessage,
+                  html: `
+                    <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #ddd; border-left: 5px solid ${colorHex};">
+                        <h3 style="color: ${colorHex};">${severityText}</h3>
+                        <p style="font-size: 16px;">${alertMessage}</p>
+                        <p>Please check the Baha Dashboard immediately for the latest sensor readings and conditions.</p>
+                        <hr style="border: 0; border-top: 1px solid #eee;">
+                        <p style="font-size: 12px; color: #888;">This is an automated notification. Do not reply.</p>
+                    </div>
+                  `
+              };
+              return transporter.sendMail(mailOptions);
+          });
+
+          // Wait for all emails to be sent (Promise.allSettled allows some to fail without stopping others)
+          await Promise.allSettled(mailPromises);
 
           return res.status(200).json({ 
               success: true, 
-              message: 'Email alert sent successfully.', 
-              messageId: info.messageId
+              message: `Alert sent successfully to ${usersToEmail.length} registered users.`,
           });
       }
 
@@ -180,7 +200,6 @@ export default async function handler(req, res) {
         }
 
         // 🚫 Removed: 3. GET ALERT SETTINGS logic has been removed.
-        // We'll return an error if this deprecated endpoint is accessed
         if (req.query.recipient_email) {
             return res.status(400).json({ success: false, message: "Recipient settings endpoint is deprecated." });
         }
