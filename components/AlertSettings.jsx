@@ -49,8 +49,6 @@ const AlertSettings = ({ onClose }) => {
     }, [userEmail, loading]);
 
     // --- 2. Handle saving the new number ---
-    // Note: We are using a pure onClick handler, so e.preventDefault() is implicitly handled 
-    // by ensuring the button type is NOT "submit".
     const handleSave = async () => {
         // No need for e.preventDefault() since the button type is "button"
         setCurrentStatus('Saving...');
@@ -81,7 +79,9 @@ const AlertSettings = ({ onClose }) => {
             if (res.ok) {
                 const result = await res.json();
                 if (result.success) {
-                    setCurrentStatus('Saved! Remember to verify this number in Twilio Console.');
+                    // ⭐ THE FIX: Close the modal upon successful save
+                    onClose(); 
+                    return;
                 } else {
                     setCurrentStatus(`Error: ${result.error || 'Server rejected save.'}`);
                 }
@@ -103,7 +103,6 @@ const AlertSettings = ({ onClose }) => {
             <span className='text-sm text-slate-500 font-normal'>({userEmail || (loading ? 'Loading...' : 'Not Logged In')})</span>
         </h2>
         
-        {/* ⭐ FORM: Now primarily a container, submission is handled by the button's onClick */}
         <form className="space-y-4"> 
             <div>
                 <label htmlFor="recipient" className="block text-sm font-medium text-slate-400 mb-1">
@@ -134,7 +133,6 @@ const AlertSettings = ({ onClose }) => {
                     >
                         Close
                     </button>
-                    {/* ⭐ SAVE BUTTON: Explicitly calls handleSave on click. */}
                     <button
                         type="button" 
                         onClick={handleSave} 
