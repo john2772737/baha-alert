@@ -190,7 +190,7 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
 
   const toggleTest = (sensorKey) => setActiveTests((prev) => ({ ...prev, [sensorKey]: !prev[sensorKey] }));
 
-  // --- NEW: EMAIL ALERT TRIGGER FUNCTION for all statuses ---
+  // --- NEW: EMAIL ALERT TRIGGER FUNCTION for all statuses (30-second throttle applied) ---
   const sendAlertEmail = async (statusText, isCritical) => { 
       if (!userEmail) {
           console.warn("Email Alert Skipped: User email not available.");
@@ -223,8 +223,8 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
               if (isCritical) { 
                 // Only throttle if a critical status was just sent
                 setAlertSentFlag(true); 
-                // Set the 1-hour throttling timer
-                setTimeout(() => setAlertSentFlag(false), 3600000); 
+                // Set the 30-second throttling timer (30000 ms)
+                setTimeout(() => setAlertSentFlag(false), 30000); 
               }
           }
       } catch (error) {
@@ -272,15 +272,13 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
             }
             
         } else {
-            // Case 2: Status changed to a non-critical level (e.g., STABLE, or if it de-escalates to a less severe status not in our critical list)
+            // Case 2: Status changed to a non-critical level (e.g., STABLE, or if it de-escalates)
             sendAlertEmail(currentStatus, false); 
             
             // Explicitly clear the throttling flag when recovery to non-critical occurs
             setAlertSentFlag(false);
         }
     }
-    
-    // NOTE: Removed the old recoveryStartTime/setInterval logic for the 5-second debounce.
     
     // Dependencies now rely on liveData content
   }, [mode, userEmail, liveData.rainRaw, liveData.soilRaw, liveData.waterDistanceCM, liveData.pressure, aiAlertStatus, alertSentFlag]); 
