@@ -118,7 +118,7 @@ export const calculateFloodRisk = (rainRaw, soilRaw, waterDist, pressure) => {
         message = "Normal levels.";
     }
 
-    return {
+   return {
         score: finalRisk.toFixed(1),
         status,
         message,
@@ -139,5 +139,4 @@ export const calculateFloodRisk = (rainRaw, soilRaw, waterDist, pressure) => {
             pressure_status: (pressureStorm * 100).toFixed(0) // <--- Pressure is here now
         }
     };
-};
 };
