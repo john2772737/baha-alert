@@ -5,12 +5,12 @@ import mongoose from 'mongoose';
 const PHT_OFFSET_MS = 28800000;
 
 const AlertDataSchema = new mongoose.Schema({
-  // The 'receivedAt' field is removed from the default Date.now to allow the hook to set it.
+  // 1. receivedAt: The time the API received the data (will be set by the hook)
   receivedAt: {
     type: Date,
   },
   
-  // 'payload' holds the JSON object sent directly from the ESP32.
+  // 2. payload: JSON object from the ESP32
   payload: {
     type: mongoose.Schema.Types.Mixed,
     required: true,
@@ -34,6 +34,7 @@ AlertDataSchema.pre('save', function(next) {
     }
     
     // 2. Manually set createdAt (overwrites Mongoose default, only runs on new documents)
+    // This ensures the recorded date is Wednesday, not Tuesday.
     if (this.isNew) {
         this.createdAt = phtDate;
     }
@@ -46,6 +47,7 @@ AlertDataSchema.pre('save', function(next) {
 // -----------------------------------------------------------
 
 // Reuse the model if it's already been compiled to avoid OverwriteModelError
+// The model is named 'AlertData' based on your schema definition.
 const AlertData = mongoose.models.AlertData || mongoose.model('AlertData', AlertDataSchema);
 
 export default AlertData;
