@@ -4,11 +4,15 @@
 const isLow = (val, trueThreshold, falseThreshold) => {
     if (val <= trueThreshold) return 1.0; 
     if (val >= falseThreshold) return 0.0; 
+    // Linear membership function
     return (falseThreshold - val) / (falseThreshold - trueThreshold);
 };
 
 const isMiddle = (val, start, peak, end) => {
-    return Math.max(0, Math.min((val - start) / (peak - start), (end - val) / (end - peak)));
+    // Calculates the triangular membership function output
+    let left = (val - start) / (peak - start);
+    let right = (end - val) / (end - peak);
+    return Math.max(0, Math.min(left, right));
 };
 
 // --- MAIN AI FUNCTION ---
@@ -18,39 +22,45 @@ export const calculateFloodRisk = (rainRaw, soilRaw, waterDist, pressure) => {
     // 1. FUZZIFICATION (Inputs -> 0.0 to 1.0)
     // ============================================
 
-    // Rain (Low value = Wet)
+    // --- RAIN SENSOR (Raw: 0-1023) ---
     const rainHeavy = isLow(rainRaw, 307, 511);        
     const rainModerate = isMiddle(rainRaw, 307, 511, 767); 
     
-    // Soil (Low value = Wet)
+    // --- SOIL MOISTURE (Raw: 0-1023) ---
+    // soilSaturated: From 511 (wet) to 818 (moist).
     const soilSaturated = isLow(soilRaw, 511, 818);    
+    // ⭐ NEW: soilMoist: Peaks around 818 (moist), transitions from 511 (wet) to 1023 (dry)
+    const soilMoist = isMiddle(soilRaw, 511, 818, 1023); 
     
-    // Water Level (Low distance = High/Full)
-    const waterHigh = isLow(waterDist, 4, 10); 
-    const waterCritical = isLow(waterDist, 4, 5);     
-
-    // Pressure (Low value = Storm)
+    // --- WATER LEVEL (Distance: 0-50 CM) ---
+    const waterCritical = isLow(waterDist, 3, 5);     
+    const waterHigh = isLow(waterDist, 3, 10); 
+    
+    // --- BAROMETRIC PRESSURE (hPa) ---
     const pressureStorm = isLow(pressure, 990, 1000);  
 
     // ============================================
     // 2. INFERENCE (The "Communication" Rules)
     // ============================================
 
-    /* Here, sensors "talk" to each other using Math.min() (AND gate). */
+    // RULE A: The "Heavy Runoff" Effect (Heavy Rain + Soil Saturated)
+    const heavyRunoffRisk = Math.min(rainHeavy, soilSaturated);
 
-    // RULE A: The "Runoff" Effect (Rain + Soil)
-    const runoffRisk = Math.min(rainHeavy, soilSaturated);
-
-    // RULE B: The "Storm Surge" Effect (Water + Pressure)
-    // This risk is kept low to reflect reduced importance.
+    // RULE B: The "Storm Surge" Effect (Water High + Pressure Storm)
     const surgeRisk = Math.min(waterHigh, pressureStorm); 
 
-    // RULE C: The "Active Flood" Effect (Rain + Water)
+    // RULE C: The "Active Flood" Effect (Heavy Rain + Water Critical)
     const activeFloodRisk = Math.min(rainHeavy, waterCritical);
 
-    // ⭐ MODIFICATION: RULE D is now a 3-sensor failure (Pressure removed)
-    // The three most immediate flood indicators failing together.
+    // RULE D: The "Triple Failure" Combo (Heavy Rain + Soil Saturated + Water Critical)
     const systemFailure = Math.min(rainHeavy, soilSaturated, waterCritical);
+
+    // RULE E: The "Persistence" Effect (Moderate Rain + Soil Saturated)
+    const persistenceRisk = Math.min(rainModerate, soilSaturated);
+    
+    // ⭐ NEW RULE F: The "Moist Runoff" Effect (Heavy Rain + Soil Moist)
+    // Heavy rain on moist soil is a precursor risk.
+    const moistRunoffRisk = Math.min(rainHeavy, soilMoist);
 
 
     // ============================================
@@ -66,17 +76,22 @@ export const calculateFloodRisk = (rainRaw, soilRaw, waterDist, pressure) => {
     else {
         // Otherwise, weigh the specific interactions:
         
-        // Active Flooding (Rain + Water) is the most dangerous scenario (weight 60)
+        // Active Flooding (Rule C) is the most dangerous scenario (weight 60)
         totalRisk = (activeFloodRisk * 60);
         
-        // Runoff (Rain + Soil) adds moderate risk (weight 35)
-        totalRisk += (runoffRisk * 35);
+        // Heavy Runoff (Rule A) adds high risk (weight 35)
+        totalRisk += (heavyRunoffRisk * 35);
         
-        // ⭐ MODIFICATION: Reduced Surge (Pressure + Water) weight significantly (weight 5)
+        // Persistence Risk (Rule E) adds low/moderate risk (weight 15)
+        totalRisk += (persistenceRisk * 15);
+        
+        // ⭐ NEW: Moist Runoff Risk (Rule F) adds minor precursor risk (weight 10)
+        totalRisk += (moistRunoffRisk * 10);
+        
+        // Reduced Surge (Rule B) low weight (weight 5)
         totalRisk += (surgeRisk * 5); 
         
         // Base risk if Water is critical on its own (failsafe)
-        // Weight increased slightly to compensate for overall loss of pressure's influence
         totalRisk += (waterCritical * 50);
     }
 
@@ -84,8 +99,8 @@ export const calculateFloodRisk = (rainRaw, soilRaw, waterDist, pressure) => {
     let finalRisk = Math.min(100, totalRisk);
     
     // --- STATUS TEXT (Unchanged) ---
-    let status = "SAFE";
-    let message = "Conditions stable.";
+    let status = "STABLE";
+    let message = "Normal levels.";
 
     if (finalRisk >= 90) {
         status = "EMERGENCY";
@@ -104,7 +119,7 @@ export const calculateFloodRisk = (rainRaw, soilRaw, waterDist, pressure) => {
         message = "Sensors detecting potential runoff.";
     } 
     else {
-        status = "SAFE";
+        status = "STABLE";
         message = "Normal levels.";
     }
 
@@ -124,7 +139,7 @@ export const calculateFloodRisk = (rainRaw, soilRaw, waterDist, pressure) => {
         },
 
         interactions: {
-            runoff_factor: (runoffRisk * 100).toFixed(0),
+            runoff_factor: (heavyRunoffRisk * 100).toFixed(0),
             surge_factor: (surgeRisk * 100).toFixed(0),
             flood_factor: (activeFloodRisk * 100).toFixed(0)
         }
