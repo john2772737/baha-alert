@@ -7,7 +7,7 @@ const AICard = ({ liveData }) => {
     const aiResult = useMemo(() => {
         return calculateFloodRisk(
             liveData.rainRaw, 
-            liveData.soilRaw, 
+            liveData.soilRaw,  
             liveData.waterDistanceCM, 
             liveData.pressure
         );
