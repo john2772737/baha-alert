@@ -22,10 +22,8 @@ import {
 } from "../utils/icons";
 import AICard from "./AICard"; 
 import { useAuth } from '../context/AuthContext'; 
-import { calculateFloodRisk } from '../utils/fuzzyEngine';
-
- const isCritical = aiResult.score >= 80;
-    const isWarning = aiResult.score >= 50 && aiResult.score < 80;
+// CRITICAL FIX: Import the fuzzy engine calculation
+import { calculateFloodRisk } from '../utils/fuzzyEngine'; 
 
 const API_ENDPOINT = "https://baha-alert.vercel.app/api";
 
@@ -156,7 +154,7 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
   
   const commandMap = { rain: "R", soil: "S", water: "U", pressure: "P" };
   
-  // Ref to track the first render (for initialization check)
+  // Ref to track the first render
   const isInitialRender = useRef(true); 
 
   const { user } = useAuth();
@@ -193,8 +191,8 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
 
   const toggleTest = (sensorKey) => setActiveTests((prev) => ({ ...prev, [sensorKey]: !prev[sensorKey] }));
 
-  // --- EMAIL ALERT TRIGGER FUNCTION (MODIFIED to pass statusText) ---
-  const sendAlertEmail = async (alertType, statusText) => { // Now accepts statusText
+  // --- EMAIL ALERT TRIGGER FUNCTION (Sends statusText for dynamic UI) ---
+  const sendAlertEmail = async (alertType, statusText) => { 
       if (!userEmail) {
           console.warn("Email Alert Skipped: User email not available.");
           return;
@@ -212,7 +210,7 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
                   type: 'SEND_ALERT_EMAIL',
                   userEmail: userEmail,
                   alertMessage: alertMessage,
-                  alertStatus: statusText, // CRITICAL: Pass the status to the API for dynamic UI/Subject
+                  alertStatus: statusText, // CRITICAL: Pass the status for API styling
               }),
           });
           
@@ -233,11 +231,19 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
   };
 
 
-  // --- CRITICAL MONITORING HOOK (Modified Logic to fix initial alert) ---
+  // --- CRITICAL MONITORING HOOK (Fixed Logic) ---
   useEffect(() => {
     if (mode !== 'Auto' || !userEmail) return; 
 
-    const currentStatus = liveData.aiStatus || 'STABLE'; 
+    // ⭐ FIX 2: Calculate the AI status directly using the fuzzy engine
+    const aiResult = calculateFloodRisk(
+        liveData.rainRaw, 
+        liveData.soilRaw,  
+        liveData.waterDistanceCM, 
+        liveData.pressure
+    );
+    const currentStatus = aiResult.status; 
+    
     const isCritical = ['ADVISORY', 'WARNING', 'CRITICAL', 'EMERGENCY'].includes(currentStatus);
     const wasCritical = ['ADVISORY', 'WARNING', 'CRITICAL', 'EMERGENCY'].includes(aiAlertStatus);
     const isStable = currentStatus === 'STABLE';
@@ -245,7 +251,7 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
     // FIX 1: Prevent logic from running on the first render/fetch
     if (isInitialRender.current) {
         isInitialRender.current = false;
-        // Initialize state to the current status from liveData to prevent change detection on load
+        // Initialize state to the current calculated status
         setAiAlertStatus(currentStatus); 
         return; 
     }
@@ -275,8 +281,16 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
 
     // 2. Handle Recovery Cooldown (Checks every second)
     const recoveryCheck = setInterval(() => {
-        // Check: 1. Timer is running, 2. Current live data is STILL STABLE
-        if (recoveryStartTime && liveData.aiStatus === 'STABLE') {
+        // Recalculate status inside the check loop to ensure it's still stable
+        const currentStatusInCheck = calculateFloodRisk(
+            liveData.rainRaw, 
+            liveData.soilRaw,  
+            liveData.waterDistanceCM, 
+            liveData.pressure
+        ).status;
+
+        // Check: 1. Timer is running, 2. Current recalculated status is STILL STABLE
+        if (recoveryStartTime && currentStatusInCheck === 'STABLE') {
             const timeElapsed = Date.now() - recoveryStartTime;
             
             if (timeElapsed >= 5000) {
@@ -286,15 +300,16 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
                 setAlertSentFlag(false); 
                 clearInterval(recoveryCheck);
             }
-        } else if (recoveryStartTime && liveData.aiStatus !== 'STABLE') {
-            // Recovery was interrupted (e.g., status changed back to WARNING)
+        } else if (recoveryStartTime && currentStatusInCheck !== 'STABLE') {
+            // Recovery was interrupted (status changed back to WARNING)
             setRecoveryStartTime(null);
         }
     }, 1000); 
 
     return () => clearInterval(recoveryCheck);
 
-  }, [mode, userEmail, liveData.aiStatus, aiAlertStatus, recoveryStartTime, alertSentFlag]); 
+    // Dependencies now rely on liveData content
+  }, [mode, userEmail, liveData.rainRaw, liveData.soilRaw, liveData.waterDistanceCM, liveData.pressure, aiAlertStatus, recoveryStartTime, alertSentFlag]); 
 
 
   // --- LOCK SCREENS (Simplified) ---
