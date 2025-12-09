@@ -25,8 +25,7 @@ import { useAuth } from '../context/AuthContext'; // Needed for AlertSettingsCom
 
 const API_ENDPOINT = "https://baha-alert.vercel.app/api";
 
-// --- START: ALERT SETTINGS PAGE COMPONENT (Integrated) ---
-
+// --- START: ALERT SETTINGS PAGE COMPONENT (Integrated - Kept as placeholder) ---
 const AlertSettingsComponent = ({ setMode }) => {
     // 1. Get user context
     const { user, loading } = useAuth(); 
@@ -104,7 +103,6 @@ const AlertSettingsComponent = ({ setMode }) => {
                 const result = await res.json();
                 if (result.success) {
                     setToastMessage({ success: true, message: 'Settings saved successfully!' });
-                    // ⭐ SUCCESS ACTION: Navigate back to the dashboard
                     setTimeout(() => setMode('Auto'), 500); 
                     return;
                 } else {
@@ -208,32 +206,27 @@ const AlertSettingsComponent = ({ setMode }) => {
 const getMaintenanceStatus = (sensor, value) => {
   if (value === null || value === undefined)
     return { label: "WAITING...", color: "text-slate-500" };
-
+  // ... (rest of getMaintenanceStatus logic) ...
   const val = parseFloat(value);
-
   switch (sensor) {
     case "rain":
       if (val < 307) return { label: "HEAVY RAIN", color: "text-red-400" };
       if (val < 512) return { label: "MODERATE RAIN", color: "text-orange-400" };
       if (val < 768) return { label: "LIGHT RAIN", color: "text-yellow-400" };
       return { label: "NO RAIN", color: "text-emerald-400" };
-
     case "soil":
       if (val < 512) return { label: "WET", color: "text-cyan-400" };
       if (val < 819) return { label: "MOIST", color: "text-emerald-400" };
       return { label: "DRY", color: "text-red-400" };
-
    case 'water':
     if (val === 0 || val >= 400) return { label: 'ERROR', color: 'text-red-500 animate-pulse' };
     if (val <= 4) return { label: 'HIGH LEVEL', color: 'text-yellow-400' }; 
     if (val <= 5) return { label: 'NORMAL', color: 'text-emerald-400' };    
     return { label: 'LOW LEVEL', color: 'text-red-400' };
-
     case "pressure":
       if (val < 990) return { label: "LOW PRESSURE", color: "text-red-400" };
       if (val > 1030) return { label: "HIGH PRESSURE", color: "text-yellow-400" };
       return { label: "STABLE", color: "text-emerald-400" };
-
     default:
       return { label: "--", color: "text-slate-500" };
   }
@@ -242,7 +235,8 @@ const getMaintenanceStatus = (sensor, value) => {
 // --- COMPONENT: Status Card (Unchanged) ---
 const StatusCard = ({ Icon, title, reading, status, className }) => {
   const isCritical = className.includes("text-red") || className.includes("text-yellow");
-  return (
+    // ... (rest of Status Card logic) ...
+    return (
     <article
       className={`relative p-5 bg-slate-800 rounded-xl shadow-lg border border-slate-700 transition-all duration-300 hover:scale-105 hover:shadow-2xl overflow-hidden
             ${isCritical ? "border-l-4" : ""} 
@@ -273,6 +267,7 @@ const StatusCard = ({ Icon, title, reading, status, className }) => {
 
 // --- COMPONENT: TestControlCard (Unchanged) ---
 const TestControlCard = ({ Icon, title, sensorKey, dbValue, onToggle, isActive }) => {
+    // ... (rest of TestControlCard logic) ...
   const statusObj = getMaintenanceStatus(sensorKey, dbValue);
 
   return (
@@ -324,7 +319,13 @@ const TestControlCard = ({ Icon, title, sensorKey, dbValue, onToggle, isActive }
 const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
   const [activeTests, setActiveTests] = useState({ rain: false, soil: false, water: false, pressure: false });
   const [dbValues, setDbValues] = useState({ rain: null, soil: null, water: null, pressure: null });
+  const [smsSentFlag, setSmsSentFlag] = useState(false); 
   const commandMap = { rain: "R", soil: "S", water: "U", pressure: "P" };
+
+  // ⭐ Get user context for alerts
+  const { user } = useAuth();
+  const userEmail = user ? user.email : null;
+
 
   useEffect(() => {
     const intervals = {};
@@ -356,8 +357,78 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
 
   const toggleTest = (sensorKey) => setActiveTests((prev) => ({ ...prev, [sensorKey]: !prev[sensorKey] }));
 
+  // --- NEW ALERT TRIGGER FUNCTION ---
+  const sendAlertSms = async (sensorName, statusText) => {
+      if (!userEmail) {
+          console.warn("SMS Alert Skipped: User email not available.");
+          return;
+      }
+      
+      const alertMessage = `CRITICAL BAHA ALERT: ${sensorName} status is ${statusText}. Check dashboard.`;
+      
+      try {
+          const res = await fetch(API_ENDPOINT, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                  type: 'SEND_ALERT_SMS', // Triggers the Twilio logic
+                  userEmail: userEmail,
+                  alertMessage: alertMessage,
+              }),
+          });
+          
+          if (!res.ok) {
+              const errorData = await res.json();
+              console.error("SMS API failed:", errorData.error || res.statusText);
+          } else {
+              console.log(`SMS alert successfully triggered for ${sensorName}.`);
+              setSmsSentFlag(true); // Set flag to prevent immediate re-sending
+              // Reset the flag after 1 hour (3600000ms) to allow re-alerting
+              setTimeout(() => setSmsSentFlag(false), 3600000); 
+          }
+      } catch (error) {
+          console.error("Network error triggering SMS:", error);
+      }
+  };
+
+
+  // --- CRITICAL MONITORING HOOK ---
+  useEffect(() => {
+    // Only monitor and send alerts if in Auto mode, logged in, and SMS hasn't been sent recently
+    if (mode !== 'Auto' || !userEmail || smsSentFlag) return; 
+
+    // Recalculate statuses based on latest props
+    const rainStatus = getRainStatus(percents.rainPercent);
+    const waterTankStatus = getWaterTankStatus(percents.waterPercent, liveData.waterDistanceCM);
+    const pressureStatus = getPressureStatus(liveData.pressure);
+    
+    // Combine critical checks into a single decision point
+    let criticalStatus = null;
+
+    // Check 1: Rain/Storm Conditions (status contains 'ALERT')
+    if (rainStatus.status.includes('ALERT')) {
+        criticalStatus = { name: 'Rain Sensor', status: rainStatus.status };
+    } 
+    // Check 2: Water Level Low (status contains 'Low Reserves')
+    else if (waterTankStatus.status.includes('Low Reserves')) {
+        criticalStatus = { name: 'Water Level', status: waterTankStatus.status };
+    } 
+    // Check 3: Pressure Warning (status contains 'WARNING')
+    else if (pressureStatus.status.includes('WARNING')) {
+        criticalStatus = { name: 'Barometer Pressure', status: pressureStatus.status };
+    }
+    
+    // Send SMS if a critical status is found
+    if (criticalStatus) {
+        sendAlertSms(criticalStatus.name, criticalStatus.status);
+    }
+
+  }, [mode, userEmail, percents, liveData, smsSentFlag]); 
+
+
   // --- LOCK SCREENS (Unchanged) ---
   if (liveData.deviceMode === "AUTO" && mode !== "Auto" && mode !== "AlertSettings") {
+    // ... (Lock Screen UI) ...
     return (
       <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center animate-fadeIn">
         <CpuIcon className="w-24 h-24 text-emerald-500 mb-6" />
@@ -369,6 +440,7 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
   }
 
   if (liveData.deviceMode === "MAINTENANCE" && mode !== "Maintenance" && mode !== "AlertSettings") {
+    // ... (Lock Screen UI) ...
     return (
       <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center animate-fadeIn">
         <RefreshCcwIcon className="w-24 h-24 text-yellow-500 mb-6 animate-spin-slow" />
@@ -380,6 +452,7 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
   }
 
   if (liveData.deviceMode === "SLEEP" && mode !== "Sleep" && mode !== "AlertSettings") {
+    // ... (Lock Screen UI) ...
     return (
       <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center animate-fadeIn">
         <MoonIcon className="w-24 h-24 text-indigo-400 mb-6 relative z-10" />
