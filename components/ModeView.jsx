@@ -16,9 +16,6 @@ import {
   CheckCircleIcon,
   XCircleIcon,
   ActivityIcon,
-  ArrowUpRightIcon,
-  LockIcon,
-  BellIcon,
 } from "../utils/icons";
 import AICard from "./AICard"; 
 import { useAuth } from '../context/AuthContext'; 
@@ -93,7 +90,7 @@ const StatusCard = ({ Icon, title, reading, status, className }) => {
   );
 };
 
-// --- COMPONENT: TestControlCard (Updated with 'disabled' prop) ---
+// --- COMPONENT: TestControlCard (With locking logic) ---
 const TestControlCard = ({ Icon, title, sensorKey, dbValue, onToggle, isActive, disabled }) => {
   const statusObj = getMaintenanceStatus(sensorKey, dbValue);
 
@@ -166,17 +163,19 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
   const { user } = useAuth();
   const userEmail = user ? user.email : null;
 
-  // Determine if ANY test is currently running
+  // Determine if ANY test is currently running to disable other buttons
   const isAnyTestRunning = Object.values(activeTests).some((isActive) => isActive);
 
-  // ⭐ CRITICAL FIX: Reset active tests when mode changes away from Maintenance
-  // This ensures all testing loops stop immediately if the user switches tabs.
+  // ⭐ CRITICAL FIX: SAFETY STOP SWITCH
+  // If the user switches the UI Mode (tabs) OR the Physical Device Mode changes,
+  // we immediately kill all active tests. This stops the interval loops and API saving.
   useEffect(() => {
-    if (mode !== "Maintenance") {
+    if (mode !== "Maintenance" || liveData.deviceMode !== "MAINTENANCE") {
         setActiveTests({ rain: false, soil: false, water: false, pressure: false });
     }
-  }, [mode]);
+  }, [mode, liveData.deviceMode]);
 
+  // Test Runner Loop
   useEffect(() => {
     const intervals = {};
     Object.keys(activeTests).forEach((sensorKey) => {
@@ -205,20 +204,21 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
     }
   };
 
-  // ⭐ CRITICAL FIX: Logic to prevent starting a second test
+  // ⭐ CRITICAL FIX: LOCK LOGIC
+  // Prevents starting a new test if another is already running
   const toggleTest = (sensorKey) => {
     setActiveTests((prev) => {
         const currentlyActive = prev[sensorKey];
         
-        // If turning OFF, just turn it off
+        // If turning OFF the current test, allow it.
         if (currentlyActive) {
             return { ...prev, [sensorKey]: false };
         }
 
-        // If turning ON, check if anything else is running
+        // If turning ON, check if anything else is currently active.
         const anyRunning = Object.values(prev).some(v => v);
         if (anyRunning) {
-            // Safety check (UI should be disabled, but good for logic safety)
+            // Block the action if another test is running
             return prev;
         }
 
@@ -226,7 +226,7 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
     });
   };
 
-  // --- EMAIL ALERT TRIGGER FUNCTION (Unchanged) ---
+  // --- EMAIL ALERT TRIGGER (Unchanged) ---
   const sendAlertEmail = async (statusText, isCritical) => { 
       if (!userEmail) return;
       const alertMessage = `The BAHA system status has changed to **${statusText}**. Please check the dashboard for current sensor readings.`;
@@ -235,11 +235,7 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
           const res = await fetch(API_ENDPOINT, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                  type: 'SEND_ALERT_EMAIL',
-                  alertStatus: statusText, 
-                  alertMessage: alertMessage, 
-              }),
+              body: JSON.stringify({ type: 'SEND_ALERT_EMAIL', alertStatus: statusText, alertMessage: alertMessage }),
           });
           
           if (res.ok && isCritical) { 
@@ -255,12 +251,7 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
   useEffect(() => {
     if (mode !== 'Auto' || !userEmail) return; 
 
-    const aiResult = calculateFloodRisk(
-        liveData.rainRaw, 
-        liveData.soilRaw,  
-        liveData.waterDistanceCM, 
-        liveData.pressure
-    );
+    const aiResult = calculateFloodRisk(liveData.rainRaw, liveData.soilRaw, liveData.waterDistanceCM, liveData.pressure);
     const currentStatus = aiResult.status; 
     const isCriticalNow = ['ADVISORY', 'WARNING', 'CRITICAL', 'EMERGENCY'].includes(currentStatus);
     
@@ -317,7 +308,7 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
   }
 
   // ============================================
-  //  RENDER DASHBOARD (Unchanged)
+  //  RENDER DASHBOARD (Auto & Sleep)
   // ============================================
   if (mode === "Auto" || mode === "Sleep") {
     const rainStatus = getRainStatus(percents.rainPercent);
@@ -349,10 +340,12 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
 
         <div className={`transition-all duration-500 ${isSleep ? "opacity-60 grayscale-[0.3] pointer-events-none" : "opacity-100"}`}>
           
+          {/* TOP BAR: Display Alert Recipient Email */}
           <div className="flex justify-end mb-4">
               <span className="text-sm text-slate-500">Alerts sent to: <strong>{userEmail || 'N/A'}</strong></span>
           </div>
           
+          {/* SECTION 1: SENSOR CARDS */}
           <section className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <StatusCard Icon={CloudRainIcon} title="Rain Sensor" reading={rainStatus.reading} status={rainStatus.status} className="text-sky-400 bg-sky-500/10" />
             <StatusCard Icon={GaugeIcon} title="Pressure" reading={`${liveData.pressure.toFixed(1)} hPa`} status={pressureStatus.status} className="text-purple-400 bg-purple-500/10" />
@@ -360,6 +353,7 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
             <StatusCard Icon={LeafIcon} title="Soil Moisture" reading={soilStatus.reading} status={soilStatus.status} className="text-orange-400 bg-orange-500/10" />
           </section>
 
+          {/* SECTION 2: MAIN GRID */}
           <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <article className="lg:col-span-2 p-6 bg-slate-800 rounded-2xl shadow-lg border border-slate-700 hover:border-slate-600 transition-colors h-full flex flex-col">
               <div className="flex justify-between items-center mb-6">
@@ -404,7 +398,7 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
     );
   }
 
-  // RENDER MAINTENANCE (Updated)
+  // RENDER MAINTENANCE (Updated to use disabled prop)
   if (mode === "Maintenance") {
     return (
       <section className="space-y-6 animate-fadeIn">

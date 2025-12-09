@@ -50,6 +50,19 @@ void setup() {
 
   attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), changeModeISR, FALLING);
 
+  // Define unused digital pins
+  int unusedPins[] = {3, 8, 9, 10, 11, 12, 13}; 
+  for (int i = 0; i < 7; i++) {
+    pinMode(unusedPins[i], OUTPUT);
+    digitalWrite(unusedPins[i], LOW);
+  }
+
+  // Define unused analog pins (using them as digital outputs)
+  pinMode(A0, OUTPUT);
+  digitalWrite(A0, LOW);
+  pinMode(A1, OUTPUT);
+  digitalWrite(A1, LOW);
+
   Serial.println(F("Started: AUTO"));
 }
 
