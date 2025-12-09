@@ -18,10 +18,29 @@ import {
   ActivityIcon,
   ArrowUpRightIcon,
   LockIcon,
+  BellIcon, // Imported for the new button
 } from "../utils/icons";
 import AICard from "./AICard"; 
 
 const API_ENDPOINT = "https://baha-alert.vercel.app/api";
+
+// --- PLACEHOLDER COMPONENT: Alert Settings UI ---
+// This is where your AlertSettings.js component content will go.
+const AlertSettingsComponent = ({ setMode }) => {
+    return (
+        <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center animate-fadeIn">
+            <BellIcon className="w-24 h-24 text-indigo-500 mb-6" />
+            <h3 className="text-3xl font-bold text-white mb-2">Alert Recipient Configuration</h3>
+            <p className="text-slate-400 max-w-md mb-8">
+                This area would contain the form to set and verify the recipient's phone number.
+            </p>
+            <button onClick={() => setMode('Auto')} className="px-8 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl shadow-lg transition-all hover:-translate-y-1">
+                ← Go Back to Dashboard
+            </button>
+        </div>
+    );
+};
+
 
 // --- HELPER: Analog/Raw Status in Maintenance ---
 const getMaintenanceStatus = (sensor, value) => {
@@ -176,7 +195,7 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
   const toggleTest = (sensorKey) => setActiveTests((prev) => ({ ...prev, [sensorKey]: !prev[sensorKey] }));
 
   // --- LOCK SCREENS (Unchanged) ---
-  if (liveData.deviceMode === "AUTO" && mode !== "Auto") {
+  if (liveData.deviceMode === "AUTO" && mode !== "Auto" && mode !== "AlertSettings") {
     return (
       <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center animate-fadeIn">
         <CpuIcon className="w-24 h-24 text-emerald-500 mb-6" />
@@ -187,7 +206,7 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
     );
   }
 
-  if (liveData.deviceMode === "MAINTENANCE" && mode !== "Maintenance") {
+  if (liveData.deviceMode === "MAINTENANCE" && mode !== "Maintenance" && mode !== "AlertSettings") {
     return (
       <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center animate-fadeIn">
         <RefreshCcwIcon className="w-24 h-24 text-yellow-500 mb-6 animate-spin-slow" />
@@ -198,7 +217,7 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
     );
   }
 
-  if (liveData.deviceMode === "SLEEP" && mode !== "Sleep") {
+  if (liveData.deviceMode === "SLEEP" && mode !== "Sleep" && mode !== "AlertSettings") {
     return (
       <div className="p-10 bg-slate-800 rounded-2xl border border-slate-700 text-center flex flex-col items-center min-h-[40vh] justify-center animate-fadeIn">
         <MoonIcon className="w-24 h-24 text-indigo-400 mb-6 relative z-10" />
@@ -210,8 +229,14 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
   }
 
   // ============================================
+  //  RENDER ALERT SETTINGS VIEW
+  // ============================================
+  if (mode === "AlertSettings") {
+      return <AlertSettingsComponent setMode={setMode} />;
+  }
+
+  // ============================================
   //  RENDER DASHBOARD (Auto & Sleep)
-  //  FIXED LAYOUT & POSITIONING
   // ============================================
   if (mode === "Auto" || mode === "Sleep") {
     const rainStatus = getRainStatus(percents.rainPercent);
@@ -242,6 +267,18 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
         )}
 
         <div className={`transition-all duration-500 ${isSleep ? "opacity-60 grayscale-[0.3] pointer-events-none" : "opacity-100"}`}>
+          
+          {/* TOP BAR: ALERTS SETTINGS BUTTON */}
+          <div className="flex justify-end mb-4">
+              <button
+                  onClick={() => setMode('AlertSettings')}
+                  className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg shadow-lg shadow-indigo-900/40 transition-all active:scale-95"
+                  title="Configure SMS Alert Recipient"
+              >
+                  <BellIcon className="w-5 h-5" />
+                  Alert Settings
+              </button>
+          </div>
           
           {/* SECTION 1: SENSOR CARDS (Top Row) */}
           <section className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
