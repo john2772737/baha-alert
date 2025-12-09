@@ -12,6 +12,19 @@ import ModeView from '../components/ModeView';
 const REAL_API_ENDPOINT = 'https://baha-alert.vercel.app/api'; 
 const FETCH_TODAY_LOG_INTERVAL_MS = 600000; 
 
+// Helper to format date as YYYY-MM-DD for API query
+const formatDateForAPI = (date) => {
+    const d = new Date(date);
+    let month = '' + (d.getMonth() + 1);
+    let day = '' + d.getDate();
+    const year = d.getFullYear();
+
+    if (month.length < 2) month = '0' + month;
+    if (day.length < 2) day = '0' + day;
+
+    return [year, month, day].join('-');
+};
+
 const App = () => {
     // ⭐ Auth & Router Logic
     const { user, logOut, loading } = useAuth();
@@ -22,7 +35,10 @@ const App = () => {
     const [scriptsLoaded, setScriptsLoaded] = useState(false);
     const [isDownloading, setIsDownloading] = useState(false);
     
-    // ⭐ QR Logic States
+    // ⭐ NEW STATE: Date Picker Logic
+    const [selectedDate, setSelectedDate] = useState(formatDateForAPI(new Date()));
+    
+    // QR Logic States
     const [showQR, setShowQR] = useState(false);
     const [qrValue, setQrValue] = useState(''); // Stores the dynamic secure URL
 
@@ -38,7 +54,7 @@ const App = () => {
         }
     }, [user, loading, router]);
 
-    // ⭐ 2. Function to Generate Secure Session QR
+    // ⭐ 2. Function to Generate Secure Session QR (Unchanged)
     const generateSecureQR = async () => {
         if (!user) return;
         setQrValue(''); // Clear previous value to show loading state
@@ -69,18 +85,18 @@ const App = () => {
         }
     };
 
-    // 3. Fetch Data & Calculate Percentages
+    // 3. Fetch Data & Calculate Percentages (Unchanged)
     const { liveData, historyData, fetchError, rainPercent, soilPercent, waterPercent } = useSensorData(isClient, mode);
     
-    // 4. Initialize Dashboard Libraries
+    // 4. Initialize Dashboard Libraries (Unchanged)
     const dashboardRefs = useDashboardInit(
         liveData, historyData, mode, rainPercent, soilPercent, waterPercent
     );
 
     const percents = useMemo(() => ({ rainPercent, soilPercent, waterPercent }), [rainPercent, soilPercent, waterPercent]);
 
-    // ⭐ PDF Download Logic
-    const downloadReportPDF = useCallback((dataToDownload) => {
+    // ⭐ PDF Download Logic (Modified to include date)
+    const downloadReportPDF = useCallback((dataToDownload, dateString) => {
         if (typeof window.jsPDF === 'undefined') {
             console.error('PDF library jsPDF not loaded.');
             return;
@@ -114,7 +130,8 @@ const App = () => {
         currentY += 8;
 
         doc.setTextColor(60, 60, 60); 
-        centerText(`Daily Log Report: ${getFormattedTime()}`, currentY, 12);
+        // Use the selected date in the report title
+        centerText(`Daily Log Report: ${dateString}`, currentY, 12);
         currentY += 7;
         
         centerText(`Device Mode: ${liveData.deviceMode}`, currentY, 10, 'courier', 'bold');
@@ -177,32 +194,46 @@ const App = () => {
         doc.setDrawColor(200, 200, 200);
         doc.line(margin, currentY - 5, pageWidth - margin, currentY - 5);
 
-        doc.save(`weather_report_${new Date().toISOString().substring(0, 10)}.pdf`);
+        // Use the selected date for the filename
+        doc.save(`weather_report_${dateString}.pdf`);
 
     }, [liveData.deviceMode]);
 
-    // Orchestrator
+    // ⭐ Orchestrator (Modified to use selectedDate)
     const fetchAndDownloadLogs = useCallback(async () => {
-        if (!isClient || isDownloading) return;
+        if (!isClient || isDownloading || !selectedDate) return;
         setIsDownloading(true);
         
+        // Use the selected date to build the API query
+        const queryDate = formatDateForAPI(selectedDate);
+        
         try {
-            const response = await fetch(`${REAL_API_ENDPOINT}?today=true`);
+            // API call now uses ?date=YYYY-MM-DD
+            const response = await fetch(`${REAL_API_ENDPOINT}?today=true&date=${queryDate}`);
             if (!response.ok) throw new Error("Fetch failed.");
             const result = await response.json();
             
             if (result.success && Array.isArray(result.data)) {
+                // IMPORTANT: If API doesn't find data, it returns an empty array, which is fine.
+                if (result.data.length === 0) {
+                    alert(`No log data found for ${queryDate}.`);
+                }
+                
+                // Set the fetched data (optional, but good for debugging)
                 setTodayData(result.data); 
-                downloadReportPDF(result.data); 
+                
+                // Pass the date string to PDF function for naming/title
+                downloadReportPDF(result.data, queryDate); 
             }
         } catch (e) {
             console.error("Download Orchestration Error:", e);
+            alert(`Error fetching data for ${queryDate}.`);
         } finally {
             setIsDownloading(false);
         }
-    }, [isClient, isDownloading, downloadReportPDF]);
+    }, [isClient, isDownloading, selectedDate, downloadReportPDF]);
     
-    // Init Effects
+    // Init Effects (Unchanged)
     useEffect(() => {
         setIsClient(true);
         const cdnUrls = [
@@ -239,11 +270,13 @@ const App = () => {
         return () => clearInterval(timeInterval);
     }, []);
     
-    // Passive Fetch
+    // Passive Fetch (Modified to fetch for today's date)
     useEffect(() => {
+        // Function to fetch data for the current day only
         const fetchTodayDataPassive = async () => {
+             const todayString = formatDateForAPI(new Date());
              try {
-                const response = await fetch(`${REAL_API_ENDPOINT}?today=true`);
+                const response = await fetch(`${REAL_API_ENDPOINT}?today=true&date=${todayString}`);
                 if (!response.ok) throw new Error("Passive fetch failed");
                 const result = await response.json();
                 if (result.success && Array.isArray(result.data)) {
@@ -253,6 +286,8 @@ const App = () => {
                 console.error("Passive Fetch Error:", e);
             }
         };
+        
+        // This passive fetch will only run for TODAY's date to keep the live data view fresh
         fetchTodayDataPassive();
         const interval = setInterval(fetchTodayDataPassive, FETCH_TODAY_LOG_INTERVAL_MS);
         return () => clearInterval(interval);
@@ -271,6 +306,16 @@ const App = () => {
                 .gauges-container { display: grid; grid-template-columns: repeat(2, 1fr); gap: 2rem; }
                 .gauge-wrapper canvas { max-width: 100%; height: auto; }
                 @media (min-width: 1024px) { .gauges-container { grid-template-columns: repeat(4, 1fr); } .chart-container { height: 400px; } }
+                /* Dark mode input styling */
+                .dark-input {
+                    background-color: #1e293b; /* slate-800 */
+                    border: 1px solid #475569; /* slate-600 */
+                    color: #f1f5f9; /* slate-100 */
+                }
+                .dark-input:focus {
+                    border-color: #10b981; /* emerald-500 */
+                    outline: none;
+                }
             `}</style>
             
             {/* Header */}
@@ -355,6 +400,20 @@ const App = () => {
             {mode === 'Auto' && liveData.deviceMode === 'AUTO' && (
                 <div className="mt-8 p-4 bg-slate-800 rounded-2xl border border-slate-700 text-center">
                     <h3 className="text-xl font-bold mb-4 text-slate-200">Daily Report Generation</h3>
+                    
+                    <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-4">
+                        <label htmlFor="report-date" className="text-slate-400 font-medium">Select Date:</label>
+                        <input
+                            type="date"
+                            id="report-date"
+                            value={selectedDate}
+                            onChange={(e) => setSelectedDate(e.target.value)}
+                            className="dark-input p-2 rounded-lg text-sm w-full sm:w-auto"
+                            // Set max date to today
+                            max={formatDateForAPI(new Date())}
+                        />
+                    </div>
+                    
                     <button
                         onClick={fetchAndDownloadLogs}
                         disabled={isDownloading}
@@ -371,7 +430,7 @@ const App = () => {
                         ) : (
                             <>
                                 <svg className='w-4 h-4 mr-2' xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                                Fetch & Download Today's Log
+                                Download Log for {selectedDate}
                             </>
                         )}
                     </button>
