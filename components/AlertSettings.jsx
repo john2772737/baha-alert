@@ -2,22 +2,20 @@
 
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext'; 
+import { BellIcon, XCircleIcon, CheckCircleIcon } from '../utils/icons'; // Assuming these are available
 
 const API_ENDPOINT = 'https://baha-alert.vercel.app/api';
 
 const AlertSettings = ({ onClose }) => {
-    // ⭐ Get user and loading state from the context
     const { user, loading } = useAuth(); 
-    
-    // ⭐ Derive the userEmail from the user object
     const userEmail = user && user.email ? user.email : null; 
     
     const [recipientNumber, setRecipientNumber] = useState('');
     const [currentStatus, setCurrentStatus] = useState(loading ? 'Initializing...' : 'Loading...');
+    const [toastMessage, setToastMessage] = useState(null); // ⭐ NEW STATE for Toast
 
-    // --- 1. Fetch current number when the component loads ---
+    // --- Fetch current number ---
     useEffect(() => {
-        // Stop if still loading the auth state or if no email is available
         if (loading || !userEmail) {
             if (!loading && !userEmail) {
                  setCurrentStatus('Error: User not logged in.');
@@ -29,7 +27,6 @@ const AlertSettings = ({ onClose }) => {
             setCurrentStatus('Fetching saved number...');
             
             try {
-                // Fetch recipient using the logged-in email as the unique query ID
                 const res = await fetch(`${API_ENDPOINT}?recipient_email=${userEmail}`);
                 const data = await res.json();
                 
@@ -48,24 +45,25 @@ const AlertSettings = ({ onClose }) => {
         fetchCurrentRecipient();
     }, [userEmail, loading]);
 
-    // --- 2. Handle saving the new number ---
+    // --- Handle saving the new number ---
+    // Removed 'e' argument as button type is 'button' and we rely on onClick
     const handleSave = async () => {
-        // No need for e.preventDefault() since the button type is "button"
+        setToastMessage(null); // Clear previous errors
         setCurrentStatus('Saving...');
 
         if (!userEmail) {
-             setCurrentStatus('Error: Cannot save, user email missing.');
+             setToastMessage('User email missing. Please log in.');
+             setCurrentStatus('Error');
              return;
         }
 
-        // Validate E.164 format
         if (!recipientNumber.startsWith('+') || recipientNumber.length < 10) {
-            setCurrentStatus('Error: Number must be in +E.164 format.');
+            setToastMessage('Number must be in +E.164 format (e.g., +639...).');
+            setCurrentStatus('Error');
             return;
         }
 
         try {
-            // POST BODY: Including both phoneNumber and the unique userEmail
             const res = await fetch(API_ENDPOINT, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -79,74 +77,96 @@ const AlertSettings = ({ onClose }) => {
             if (res.ok) {
                 const result = await res.json();
                 if (result.success) {
-                    // ⭐ THE FIX: Close the modal upon successful save
-                    onClose(); 
+                    setToastMessage({ success: true, message: 'Settings saved successfully!' });
+                    // ⭐ CLOSE MODAL ON SUCCESS
+                    setTimeout(onClose, 500); // Give time for success message to register before closing
                     return;
                 } else {
-                    setCurrentStatus(`Error: ${result.error || 'Server rejected save.'}`);
+                    setToastMessage({ success: false, message: result.error || 'Server rejected save.' });
+                    setCurrentStatus('Error');
                 }
             } else {
-                setCurrentStatus('Network error saving number.');
+                setToastMessage({ success: false, message: `API Error: ${res.status} ${res.statusText}` });
+                setCurrentStatus('Error');
             }
         } catch (error) {
-            setCurrentStatus('Network error during save.');
+            setToastMessage({ success: false, message: 'Network error during save.' });
+            setCurrentStatus('Error');
         }
     };
 
     const isSaving = currentStatus.includes('Saving');
     const isLoggedIn = !!userEmail;
+    const isError = currentStatus.includes('Error');
     
-   return (
-    <div className="bg-slate-800 p-8 rounded-xl shadow-2xl border border-slate-700 w-full max-w-xl mx-auto relative">
-        <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-3">
-            🔔 Alert Recipient Settings 
-            <span className='text-sm text-slate-500 font-normal'>({userEmail || (loading ? 'Loading...' : 'Not Logged In')})</span>
-        </h2>
-        
-        <form className="space-y-4"> 
-            <div>
-                <label htmlFor="recipient" className="block text-sm font-medium text-slate-400 mb-1">
-                    Recipient Phone Number (E.164 format)
-                </label>
-                <input
-                    id="recipient"
-                    type="tel"
-                    value={recipientNumber}
-                    onChange={(e) => setRecipientNumber(e.target.value)}
-                    placeholder="+639xxxxxxxxx"
-                    className="w-full p-3 rounded-lg bg-slate-700 text-white border border-slate-600 focus:ring-indigo-500 focus:border-indigo-500 font-mono"
-                    required
-                    disabled={!isLoggedIn || isSaving}
-                />
-                <p className="mt-1 text-xs text-slate-500">Example: +639171234567. This number must be verified in the Twilio Console.</p>
-            </div>
+    return (
+        <div className="bg-slate-800 p-8 rounded-xl shadow-2xl border border-slate-700 w-full max-w-xl mx-auto relative">
+            <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-3">
+                <BellIcon className='w-6 h-6 text-indigo-400'/>
+                Alert Recipient Settings 
+                <span className='text-sm text-slate-500 font-normal'>({userEmail || (loading ? 'Loading...' : 'Not Logged In')})</span>
+            </h2>
             
-            <div className="flex justify-between items-center pt-2">
-                <span className={`text-sm font-medium ${currentStatus.includes('Error') ? 'text-red-400' : 'text-indigo-400'}`}>
-                    Status: {currentStatus}
-                </span>
-                <div className='space-x-2'>
-                     <button
-                        type="button" 
-                        onClick={onClose}
-                        className="px-6 py-2 text-slate-400 border border-slate-600 rounded-lg hover:bg-slate-700 transition-colors"
-                    >
-                        Close
-                    </button>
-                    <button
-                        type="button" 
-                        onClick={handleSave} 
-                        disabled={!isLoggedIn || isSaving}
-                        className={`px-6 py-2 font-bold rounded-lg shadow-md transition-colors 
-                            ${isLoggedIn && !isSaving ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-slate-500 text-slate-300 cursor-not-allowed'}`}
-                    >
-                        {isSaving ? 'Saving...' : 'Save Number'}
-                    </button>
+            {/* ⭐ TOAST MESSAGE DISPLAY */}
+            {toastMessage && (
+                <div className={`p-3 mb-4 rounded-lg flex items-center gap-3 font-bold ${
+                    toastMessage.success 
+                        ? 'bg-emerald-900/50 text-emerald-400 border border-emerald-600'
+                        : 'bg-red-900/50 text-red-400 border border-red-600'
+                }`}>
+                    {toastMessage.success 
+                        ? <CheckCircleIcon className='w-5 h-5'/> 
+                        : <XCircleIcon className='w-5 h-5'/>
+                    }
+                    {toastMessage.message}
                 </div>
-            </div>
-        </form>
-    </div>
-);
+            )}
+            
+            {/* FORM */}
+            <form className="space-y-4"> 
+                <div>
+                    <label htmlFor="recipient" className="block text-sm font-medium text-slate-400 mb-1">
+                        Recipient Phone Number (E.164 format)
+                    </label>
+                    <input
+                        id="recipient"
+                        type="tel"
+                        value={recipientNumber}
+                        onChange={(e) => setRecipientNumber(e.target.value)}
+                        placeholder="+639xxxxxxxxx"
+                        className="w-full p-3 rounded-lg bg-slate-700 text-white border border-slate-600 focus:ring-indigo-500 focus:border-indigo-500 font-mono"
+                        required
+                        disabled={!isLoggedIn || isSaving}
+                    />
+                    <p className="mt-1 text-xs text-slate-500">Must be manually verified in the Twilio Console (Free Trial requirement).</p>
+                </div>
+                
+                <div className="flex justify-between items-center pt-2">
+                    <span className={`text-sm font-medium ${isError ? 'text-red-400' : 'text-indigo-400'}`}>
+                        Status: {currentStatus}
+                    </span>
+                    <div className='space-x-2'>
+                         <button
+                            type="button" 
+                            onClick={onClose}
+                            className="px-6 py-2 text-slate-400 border border-slate-600 rounded-lg hover:bg-slate-700 transition-colors"
+                        >
+                            Close
+                        </button>
+                        <button
+                            type="button" 
+                            onClick={handleSave} 
+                            disabled={!isLoggedIn || isSaving}
+                            className={`px-6 py-2 font-bold rounded-lg shadow-md transition-colors 
+                                ${isLoggedIn && !isSaving ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-slate-500 text-slate-300 cursor-not-allowed'}`}
+                        >
+                            {isSaving ? 'Saving...' : 'Save Number'}
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    );
 };
 
 export default AlertSettings;
