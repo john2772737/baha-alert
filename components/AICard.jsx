@@ -11,7 +11,7 @@ const AICard = ({ liveData }) => {
             liveData.waterDistanceCM, 
             liveData.pressure
         );
-    }, [liveData]);
+    }, [liveData]); 
 
     const isCritical = aiResult.score >= 80;
     const isWarning = aiResult.score >= 50 && aiResult.score < 80;
