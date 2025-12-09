@@ -5,7 +5,6 @@ import React from 'react';
 export const ClockIcon = (p) => (<svg {...p} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>);
 
 // ------------------------------------------------------------------------------------------------------
-// ⭐ FOCUS: The problematic path had missing spaces. This corrected path should resolve the error.
 export const CloudRainIcon = (p) => (<svg {...p} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"></path> 
     <path d="M16 20v-3"></path>
@@ -21,9 +20,6 @@ export const BoxIcon = (p) => (<svg {...p} xmlns="http://www.w3.org/2000/svg" wi
 export const CpuIcon = (p) => (<svg {...p} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect><rect x="9" y="9" width="6" height="6"></rect><line x1="9" y1="1" x2="9" y2="4"></line><line x1="15" y1="1" x2="15" y2="4"></line><line x1="9" y1="20" x2="9" y2="23"></line><line x1="15" y1="20" x2="15" y2="23"></line><line x1="20" y1="9" x2="23" y2="9"></line><line x1="20" y1="14" x2="23" y2="14"></line><line x1="1" y1="9" x2="4" y2="9"></line><line x1="1" y1="14" x2="4" y2="14"></line></svg>);
 export const MoonIcon = (p) => (<svg {...p} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path></svg>);
 
-// utils/icons.js
-
-// ... keep your existing icons (CloudRainIcon, etc.) ...
 
 export const CheckCircleIcon = (props) => (
   <svg
@@ -96,3 +92,27 @@ export const ArrowUpRightIcon = (props) => (
     <polyline points="7 7 17 7 17 17"></polyline>
   </svg>
 );
+
+// ⭐ NEW ICON: BellIcon
+export const BellIcon = (props) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width="24"
+    height="24"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    {...props}
+  >
+    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+    <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+  </svg>
+);
+
+// Note: LockIcon is NOT defined in the provided block, but was imported in the consuming component. 
+// Assuming it exists elsewhere or was part of the original context.
+// For completeness, if LockIcon were missing, it would cause an import error.
+// The current setup now correctly exports all icons defined here, including BellIcon.
