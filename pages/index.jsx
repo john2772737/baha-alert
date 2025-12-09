@@ -20,7 +20,7 @@ import {
   LockIcon,
   BellIcon,
 } from "../utils/icons";
-import AICard from "./AICard"; 
+import AICard from "../components/AICard"; 
 import { useAuth } from '../context/AuthContext'; // Needed for AlertSettingsComponent
 
 const API_ENDPOINT = "https://baha-alert.vercel.app/api";
