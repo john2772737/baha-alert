@@ -1,482 +1,351 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { useRouter } from 'next/router'; 
-import { useAuth } from '../context/AuthContext'; 
-import QRCode from 'react-qr-code'; 
+import dbConnect from '../lib/dbConnect';
+import Alert from '../models/Alert';
+import MaintenanceLog from '../models/MaintenanceLog';
+import AlertRecipientModel from '../models/AlertRecipient'; 
+import nodemailer from 'nodemailer';
+import admin from 'firebase-admin'; 
 
-import { getFormattedTime } from '../utils/sensorUtils';
-import { useSensorData } from '../hooks/useSensorData';
-import { useDashboardInit } from '../hooks/useDashboardInit';
-import { ClockIcon, RefreshCcwIcon, CpuIcon, MoonIcon, SunIcon } from '../utils/icons'; // Import MoonIcon and SunIcon
-import ModeView from '../components/ModeView'; 
+// --- Nodemailer Client Initialization ---
+const GMAIL_USER = process.env.GMAIL_USER;
+const GMAIL_PASS = process.env.GMAIL_PASS;
 
-const REAL_API_ENDPOINT = 'https://baha-alert.vercel.app/api'; 
-const FETCH_TODAY_LOG_INTERVAL_MS = 600000; 
+const transporter = (GMAIL_USER && GMAIL_PASS) ? nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+        user: GMAIL_USER,
+        pass: GMAIL_PASS,
+    },
+}) : null;
 
-// Helper to format date as YYYY-MM-DD for API query
-const formatDateForAPI = (date) => {
-    const d = new Date(date);
-    let month = '' + (d.getMonth() + 1);
-    let day = '' + d.getDate();
-    const year = d.getFullYear();
-
-    if (month.length < 2) month = '0' + month;
-    if (day.length < 2) day = '0' + day;
-
-    return [year, month, day].join('-');
-};
-
-const App = () => {
-    // ⭐ Theme State Management
-    const [theme, setTheme] = useState('dark');
-    
-    // ⭐ Effect to read system preference/localStorage on mount and apply theme
-    useEffect(() => {
-        // Read theme from local storage or system preference
-        const savedTheme = localStorage.getItem('theme');
-        const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-
-        if (savedTheme) {
-            setTheme(savedTheme);
-        } else if (systemPrefersDark) {
-            setTheme('dark');
-        } else {
-            setTheme('light');
-        }
-
-        setIsClient(true);
-    }, []);
-
-    // ⭐ Effect to apply the theme class to the HTML element
-    useEffect(() => {
-        if (!isClient) return;
-        const root = window.document.documentElement;
-        
-        // Remove the opposite class
-        root.classList.remove(theme === 'dark' ? 'light' : 'dark');
-        // Add the current theme class
-        root.classList.add(theme);
-        
-        localStorage.setItem('theme', theme);
-    }, [theme, isClient]);
-    
-    const toggleTheme = () => {
-        setTheme(theme === 'dark' ? 'light' : 'dark');
-    };
-
-    // Auth & Router Logic (Unchanged)
-    const { user, logOut, loading } = useAuth();
-    const router = useRouter();
-
-    // State (Updated)
-    const [isClient, setIsClient] = useState(false);
-    const [scriptsLoaded, setScriptsLoaded] = useState(false);
-    const [isDownloading, setIsDownloading] = useState(false);
-    const [selectedDate, setSelectedDate] = useState(formatDateForAPI(new Date()));
-    const [showQR, setShowQR] = useState(false);
-    const [qrValue, setQrValue] = useState(''); 
-    const [mode, setMode] = useState('Auto');
-    const modes = ['Auto', 'Maintenance', 'Sleep'];
-    const [currentTime, setCurrentTime] = useState('Loading...');
-    const [todayData, setTodayData] = useState([]); 
-
-    // ⭐ 1. Protect Route
-    useEffect(() => {
-        if (!loading && !user) {
-            router.push('/login');
-        }
-    }, [user, loading, router]);
-
-    // ⭐ 2. Function to Generate Secure Session QR (Unchanged)
-    const generateSecureQR = async () => {
-        if (!user) return;
-        setQrValue(''); 
-        setShowQR(true); 
-
-        try {
-            const idToken = await user.getIdToken();
-            
-            const response = await fetch('/api/generate-qr', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ idToken })
-            });
-            
-            const data = await response.json();
-            
-            if (data.token) {
-                const magicLink = `https://baha-alert.vercel.app/login?token=${data.token}`;
-                setQrValue(magicLink);
-            } else {
-                console.error("Failed to generate token");
-            }
-        } catch (error) {
-            console.error("QR Generation Error:", error);
-        }
-    };
-
-    // 3. Fetch Data & Calculate Percentages (Unchanged)
-    const { liveData, historyData, fetchError, rainPercent, soilPercent, waterPercent } = useSensorData(isClient, mode);
-    
-    // 4. Initialize Dashboard Libraries (Unchanged)
-    const dashboardRefs = useDashboardInit(
-        liveData, historyData, mode, rainPercent, soilPercent, waterPercent
-    );
-
-    const percents = useMemo(() => ({ rainPercent, soilPercent, waterPercent }), [rainPercent, soilPercent, waterPercent]);
-
-    // ⭐ PDF Download Logic (Modified to include date)
-    const downloadReportPDF = useCallback((dataToDownload, dateString) => {
-        if (typeof window.jsPDF === 'undefined') {
-            console.error('PDF library jsPDF not loaded.');
-            return;
-        }
-
-        const { jsPDF } = window;
-        if (!dataToDownload || dataToDownload.length === 0) {
-            console.error('No data available to generate report.');
-            return;
-        }
-
-        const doc = new jsPDF('p', 'mm', 'a4');
-        const pageWidth = doc.internal.pageSize.getWidth();
-        const pageHeight = doc.internal.pageSize.getHeight();
-        
-        const margin = 15;
-        let currentY = 20; 
-        const lineHeight = 8;
-        
-        const centerText = (text, y, size = 10, font = 'helvetica', style = 'normal') => {
-            doc.setFont(font, style);
-            doc.setFontSize(size);
-            const textWidth = doc.getStringUnitWidth(text) * size / doc.internal.scaleFactor;
-            const x = (pageWidth - textWidth) / 2;
-            doc.text(text, x, y);
-        };
-
-        // Header
-        doc.setTextColor(22, 163, 74); 
-        centerText('SMART WEATHER STATION', currentY, 18, 'helvetica', 'bold');
-        currentY += 8;
-
-        doc.setTextColor(60, 60, 60); 
-        // Use the selected date in the report title
-        centerText(`Daily Log Report: ${dateString}`, currentY, 12);
-        currentY += 7;
-        
-        centerText(`Device Mode: ${liveData.deviceMode}`, currentY, 10, 'courier', 'bold');
-        currentY += 15;
-
-        // Table Header
-        const col1 = margin;                   
-        const col2 = margin + 35;              
-        const col3 = margin + 75;              
-        const col4 = margin + 105;             
-        const col5 = margin + 135;             
-
-        doc.setFillColor(240, 240, 240); 
-        doc.rect(margin, currentY - 5, pageWidth - (margin * 2), 8, 'F');
-
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(9);
-        doc.setTextColor(0, 0, 0);
-        
-        doc.text('TIME', col1, currentY);
-        doc.text('PRESSURE (hPa)', col2, currentY);
-        doc.text('RAIN (Raw)', col3, currentY);
-        doc.text('SOIL (Raw)', col4, currentY);
-        doc.text('WATER (cm)', col5, currentY);
-        
-        currentY += 10; 
-
-        // Data Rows
-        doc.setFont('helvetica', 'normal');
-        doc.setTextColor(50, 50, 50);
-
-        dataToDownload.forEach((item, index) => {
-            if (currentY > pageHeight - 20) {
-                doc.addPage();
-                currentY = 20;
-            }
-
-            if (index % 2 === 0) {
-                 doc.setFillColor(252, 252, 252);
-                 doc.rect(margin, currentY - 5, pageWidth - (margin * 2), lineHeight, 'F');
-            }
-
-            const date = new Date(item.timestamp);
-            const timeStr = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-            
-            const p = item.avgPressure ? item.avgPressure.toFixed(1) : '-';
-            const r = item.avgRain ? item.avgRain.toFixed(0) : '-';
-            const s = item.avgSoil ? item.avgSoil.toFixed(0) : '-';
-            const w = item.avgWaterDistance ? item.avgWaterDistance.toFixed(1) : '-';
-
-            doc.text(timeStr, col1, currentY);
-            doc.text(p, col2, currentY);
-            doc.text(r, col3, currentY); 
-            doc.text(s, col4, currentY);
-            doc.text(w, col5, currentY);
-
-            currentY += lineHeight;
+// --- Firebase Admin Initialization ---
+// Initialize Firebase Admin only if it hasn't been initialized and credentials exist
+if (!admin.apps.length && process.env.FIREBASE_ADMIN_CREDENTIALS) {
+    try {
+        const credentials = JSON.parse(process.env.FIREBASE_ADMIN_CREDENTIALS);
+        admin.initializeApp({
+            credential: admin.credential.cert(credentials),
         });
-
-        doc.setDrawColor(200, 200, 200);
-        doc.line(margin, currentY - 5, pageWidth - margin, currentY - 5);
-
-        // Use the selected date for the filename
-        doc.save(`weather_report_${dateString}.pdf`);
-
-    }, [liveData.deviceMode]);
-
-    // ⭐ Orchestrator (Modified to use selectedDate)
-    const fetchAndDownloadLogs = useCallback(async () => {
-        if (!isClient || isDownloading || !selectedDate) return;
-        setIsDownloading(true);
-        
-        // Use the selected date to build the API query
-        const queryDate = formatDateForAPI(selectedDate);
-        
-        try {
-            // API call now uses ?today=true&date=YYYY-MM-DD
-            const response = await fetch(`${REAL_API_ENDPOINT}?today=true&date=${queryDate}`);
-            if (!response.ok) throw new Error("Fetch failed.");
-            const result = await response.json();
-            
-            if (result.success && Array.isArray(result.data)) {
-                if (result.data.length === 0) {
-                    alert(`No log data found for ${queryDate}.`);
-                }
-                
-                setTodayData(result.data); 
-                downloadReportPDF(result.data, queryDate); 
-            }
-        } catch (e) {
-            console.error("Download Orchestration Error:", e);
-            alert(`Error fetching data for ${queryDate}.`);
-        } finally {
-            setIsDownloading(false);
-        }
-    }, [isClient, isDownloading, selectedDate, downloadReportPDF]);
-    
-    // Init Effects
-    useEffect(() => {
-        const cdnUrls = [
-            "https://cdnjs.cloudflare.com/ajax/libs/gauge.js/1.3.7/gauge.min.js",
-            "https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js",
-            "https://cdn.tailwindcss.com", // Tailwind CDN
-            "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js",
-            "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js",
-        ];
-        
-        const loadScript = (url) => new Promise(resolve => {
-            const script = document.createElement('script');
-            script.src = url; script.async = true; 
-            if (url.includes('jspdf')) {
-                script.onload = () => {
-                     if (window.jspdf && window.jspdf.jsPDF) window.jsPDF = window.jspdf.jsPDF;
-                     resolve();
-                };
-            } else {
-                 script.onload = resolve; 
-            }
-            if (url.includes('tailwindcss')) document.head.prepend(script); else document.head.appendChild(script);
-            if (url.includes('tailwindcss')) resolve(); 
-        });
-
-        Promise.all(cdnUrls.map(loadScript)).then(() => { 
-            if (typeof window.Gauge !== 'undefined' && typeof window.Chart !== 'undefined' && typeof window.jsPDF !== 'undefined' && typeof window.html2canvas !== 'undefined') {
-                setScriptsLoaded(true); 
-            }
-        });
-        
-        setCurrentTime(getFormattedTime());
-        const timeInterval = setInterval(() => setCurrentTime(getFormattedTime()), 10000);
-        return () => clearInterval(timeInterval);
-    }, []);
-    
-    // Passive Fetch (Modified to fetch for today's date)
-    useEffect(() => {
-        // Function to fetch data for the current day only
-        const fetchTodayDataPassive = async () => {
-             const todayString = formatDateForAPI(new Date());
-             try {
-                const response = await fetch(`${REAL_API_ENDPOINT}?today=true&date=${todayString}`);
-                if (!response.ok) throw new Error("Passive fetch failed");
-                const result = await response.json();
-                if (result.success && Array.isArray(result.data)) {
-                    setTodayData(result.data);
-                }
-            } catch (e) {
-                console.error("Passive Fetch Error:", e);
-            }
-        };
-        
-        fetchTodayDataPassive();
-        const interval = setInterval(fetchTodayDataPassive, FETCH_TODAY_LOG_INTERVAL_MS);
-        return () => clearInterval(interval);
-    }, [isClient]);
-
-    // Auth Loading State
-    if (loading || !user) return <div className="flex justify-center items-center h-screen bg-slate-900 text-emerald-400 font-inter">Checking Access...</div>;
-
-    if (!isClient || !scriptsLoaded) return <div className="flex justify-center items-center h-screen bg-slate-900 text-emerald-400 font-inter"><RefreshCcwIcon className="animate-spin w-8 h-8 mr-2" /> Initializing...</div>;
-
-    // --- RENDER ---
-    return (
-        <div className="min-h-screen bg-gray-100 text-slate-900 p-4 sm:p-10 font-inter transition-colors duration-500
-                        dark:bg-slate-900 dark:text-slate-100">
-            <style>{`
-                /* Dark mode input styling (Adjusted for CDN environment) */
-                .dark-input {
-                    background-color: #f1f5f9; /* Light mode default (slate-100) */
-                    border: 1px solid #94a3b8; /* slate-400 */
-                    color: #1e293b; /* slate-900 */
-                }
-                .dark .dark-input {
-                    background-color: #1e293b; /* slate-800 in dark mode */
-                    border: 1px solid #475569; /* slate-600 */
-                    color: #f1f5f9; /* slate-100 */
-                }
-                .dark-input:focus {
-                    border-color: #10b981; /* emerald-500 */
-                    outline: none;
-                }
-            `}</style>
-            
-            {/* Header */}
-            <header className="mb-8 p-5 bg-white rounded-3xl shadow-lg border-b-4 border-emerald-500/50 flex flex-col md:flex-row justify-between items-center transition-colors duration-500
-                             dark:bg-slate-800 dark:border-emerald-500 dark:shadow-none">
-                <div className="flex flex-col">
-                    <h1 className="text-3xl font-extrabold text-emerald-600 mb-2 md:mb-0 dark:text-emerald-400">BABAD</h1>
-                    <div className="flex flex-wrap items-center gap-2 mt-2">
-                        {/* Device Mode Badge */}
-                        <div className="flex items-center text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded-md border border-slate-300 w-fit
-                                        dark:text-slate-400 dark:bg-slate-900 dark:border-slate-700">
-                            <CpuIcon className="w-3 h-3 mr-1 text-yellow-600 dark:text-yellow-400" />
-                            MODE: <span className="text-slate-800 ml-1 font-mono font-bold dark:text-emerald-300">{liveData.deviceMode}</span>
-                        </div>
-                        {/* QR Toggle Button - Calls the Secure Gen Function */}
-                        <button onClick={generateSecureQR} className="text-xs bg-indigo-600 px-2 py-1 rounded text-white font-bold hover:bg-indigo-500 transition-colors">
-                             SHOW QR
-                        </button>
-                    </div>
-                </div>
-                
-                <div className="flex flex-col md:items-end gap-2 mt-4 md:mt-0">
-                    {/* Theme Toggle Button */}
-                    <button onClick={toggleTheme} className={`p-2 rounded-full transition-colors duration-300 ${theme === 'dark' ? 'bg-slate-700 text-yellow-300' : 'bg-gray-200 text-indigo-700'}`}>
-                        {theme === 'dark' ? (
-                            <SunIcon className="w-5 h-5" />
-                        ) : (
-                            <MoonIcon className="w-5 h-5" />
-                        )}
-                    </button>
-
-                    <div className="flex items-center text-slate-500 bg-slate-100 px-4 py-2 rounded-xl border border-slate-300
-                                    dark:text-slate-400 dark:bg-slate-900 dark:border-slate-700">
-                        <ClockIcon className="w-5 h-5 mr-2 text-indigo-600 dark:text-indigo-400" />
-                        <span>{currentTime}</span>
-                    </div>
-                     {/* User Info & Logout */}
-                    <div className="flex items-center gap-3">
-                        <span className="text-xs text-slate-500">{user.email}</span>
-                        <button onClick={logOut} className="text-xs text-red-600 border border-red-300 px-2 py-1 rounded hover:bg-red-50 transition-colors
-                                        dark:text-red-400 dark:border-red-900/50 dark:hover:bg-red-900/20">
-                            Logout
-                        </button>
-                    </div>
-                </div>
-            </header>
-
-            {/* ⭐ QR Code Modal (Secure) */}
-            {showQR && (
-                <div className="fixed inset-0 bg-black/80 z-50 flex flex-col items-center justify-center p-4" onClick={() => setShowQR(false)}>
-                    <div className="bg-white p-6 rounded-2xl flex flex-col items-center shadow-2xl" onClick={e => e.stopPropagation()}>
-                        <h3 className="text-black text-lg font-bold mb-4">Scan to Share Session</h3>
-                        
-                        <div className="bg-white p-2 border-2 border-slate-200 rounded-lg flex items-center justify-center" style={{ minHeight: '200px', minWidth: '200px' }}>
-                            {/* QR code itself remains black/white */}
-                            {qrValue ? (
-                                <QRCode 
-                                    value={qrValue} 
-                                    size={200} 
-                                />
-                            ) : (
-                                <div className="flex flex-col items-center text-slate-500">
-                                    <RefreshCcwIcon className="w-8 h-8 animate-spin mb-2 text-indigo-500" />
-                                    <span className="text-xs">Generating Secure Key...</span>
-                                </div>
-                            )}
-                        </div>
-                        <p className="text-slate-500 text-xs mt-4 font-mono">
-                            {qrValue ? "Valid for 1 Hour" : "Requesting Server..."}
-                        </p>
-                    </div>
-                    <button className="mt-6 text-white text-sm underline hover:text-emerald-400">Tap anywhere to close</button>
-                </div>
-            )}
-
-            <main className="space-y-8">
-                {/* UI Mode Selector */}
-                <div className="flex bg-gray-200 p-1.5 rounded-xl border border-gray-300 dark:bg-slate-800 dark:border-slate-700">
-                    {modes.map(m => (
-                        <button key={m} onClick={() => setMode(m)} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${mode === m ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-600 hover:text-slate-800 hover:bg-gray-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-700'}`}>{m}</button>
-                    ))}
-                </div>
-                
-                <ModeView
-                    mode={mode}
-                    setMode={setMode}
-                    liveData={liveData}
-                    fetchError={fetchError}
-                    refs={dashboardRefs}
-                    percents={percents}
-                />
-            </main>
-            
-            {/* Fetch & Download Button */}
-            {mode === 'Auto' && liveData.deviceMode === 'AUTO' && (
-                <div className="mt-8 p-4 bg-white rounded-2xl border border-gray-300 text-center dark:bg-slate-800 dark:border-slate-700">
-                    <h3 className="text-xl font-bold mb-4 text-slate-800 dark:text-slate-200">Daily Report Generation</h3>
-                    
-                    <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-4">
-                        <label htmlFor="report-date" className="text-slate-600 dark:text-slate-400 font-medium">Select Date:</label>
-                        <input
-                            type="date"
-                            id="report-date"
-                            value={selectedDate}
-                            onChange={(e) => setSelectedDate(e.target.value)}
-                            className="dark-input p-2 rounded-lg text-sm w-full sm:w-auto"
-                            // Set max date to today
-                            max={formatDateForAPI(new Date())}
-                        />
-                    </div>
-                    
-                    <button
-                        onClick={fetchAndDownloadLogs}
-                        disabled={isDownloading}
-                        className={`flex items-center justify-center mx-auto px-6 py-2 font-semibold rounded-lg shadow-md transition-colors 
-                            ${isDownloading 
-                                ? 'bg-indigo-400 text-white cursor-wait' 
-                                : 'bg-indigo-600 hover:bg-indigo-700 text-white'}`}
-                    >
-                        {isDownloading ? (
-                            <>
-                                <RefreshCcwIcon className='w-4 h-4 mr-2 animate-spin'/>
-                                Generating Report...
-                            </>
-                        ) : (
-                            <>
-                                <svg className='w-4 h-4 mr-2' xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 a2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                                Download Log for {selectedDate}
-                            </>
-                        )}
-                    </button>
-                    <p className='text-xs text-slate-500 mt-2'>Downloads sampled data (every 10 minutes).</p>
-                </div>
-            )}
-        </div>
-    );
+    } catch (error) {
+        console.error("Firebase Admin Initialization Failed:", error);
+    }
 }
+// ------------------------------------
 
-export default App;
+export default async function handler(req, res) {
+  // Ensure database connection is active
+  await dbConnect(); 
+
+  // Handle CORS Preflight
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end(); 
+  }
+
+  // ---------------------------------------------------------
+  // 💾 POST METHOD: SAVE DATA / SEND ALERTS
+  // ---------------------------------------------------------
+  if (req.method === 'POST') {
+    if (!req.body) return res.status(400).json({ success: false, message: 'No payload.' });
+
+    try {
+      // 1. Maintenance Queue
+      if (req.body.type === 'MAINTENANCE_TEST') {
+          const maintenanceEntry = await MaintenanceLog.create({
+              sensor: req.body.sensor,
+              command: req.body.command,
+              status: 'PENDING',
+              timestamp: req.body.timestamp || new Date(),
+              deviceMode: 'MAINTENANCE'
+          });
+          return res.status(201).json({ success: true, data: maintenanceEntry });
+      }
+
+      // 2. Maintenance Result
+      if (req.body.type === 'MAINTENANCE_RESULT') {
+          const updatedLog = await MaintenanceLog.findOneAndUpdate(
+              { status: 'FETCHED' }, 
+              { status: 'COMPLETED', value: req.body.val, timestamp: new Date() },
+              { sort: { timestamp: -1 }, new: true } 
+          );
+          
+          if (!updatedLog) {
+             await MaintenanceLog.create({
+                 sensor: req.body.sensor || 'unknown',
+                 command: 'RESULT',
+                 status: 'COMPLETED',
+                 value: req.body.val,
+                 deviceMode: 'MAINTENANCE'
+             });
+          }
+          return res.status(200).json({ success: true, message: 'Result Saved' });
+      }
+
+      // ⭐ 4. SEND GMAIL ALERT (Send to ALL Registered Users)
+      if (req.body.type === 'SEND_ALERT_EMAIL') {
+          if (!transporter) {
+              return res.status(500).json({ success: false, error: 'Email transporter not initialized (check GMAIL_USER/PASS).' });
+          }
+          if (!admin.apps.length) {
+              return res.status(500).json({ success: false, error: 'Firebase Admin not initialized (check FIREBASE_ADMIN_CREDENTIALS).' });
+          }
+
+          const { alertMessage, alertStatus } = req.body; 
+          let usersToEmail = [];
+
+          if (!alertMessage || !alertStatus) {
+              return res.status(400).json({ success: false, message: 'Missing required alert data.' });
+          }
+
+          // --- 1. Fetch All User Emails from Firebase Authentication ---
+          try {
+              let nextPageToken = undefined;
+              do {
+                  const listUsersResult = await admin.auth().listUsers(1000, nextPageToken);
+                  listUsersResult.users.forEach(userRecord => {
+                      // CRITICAL: Only add emails that exist 
+                      if (userRecord.email) {
+                          usersToEmail.push(userRecord.email);
+                      }
+                  });
+                  nextPageToken = listUsersResult.pageToken;
+              } while (nextPageToken);
+          } catch (error) {
+              console.error("Error fetching Firebase users:", error);
+              return res.status(500).json({ success: false, error: 'Failed to fetch user list from Firebase.' });
+          }
+          
+          // --- 2. Dynamic Email UI Logic ---
+          let colorHex = '#22c55e'; // Default: Emerald (STABLE/RECOVERY)
+          let severityText = 'BAHA NOTICE';
+          let subjectPrefix = 'BAHA NOTICE';
+
+          switch (alertStatus) {
+              case 'ADVISORY': colorHex = '#facc15'; severityText = 'ADVISORY'; subjectPrefix = 'BAHA ADVISORY'; break;
+              case 'WARNING': colorHex = '#f97316'; severityText = 'WARNING'; subjectPrefix = 'BAHA WARNING'; break;
+              case 'CRITICAL':
+              case 'EMERGENCY': colorHex = '#ef4444'; severityText = alertStatus.toUpperCase(); subjectPrefix = 'CRITICAL BAHA ALERT'; break;
+              case 'STABLE': colorHex = '#22c55e'; severityText = 'RECOVERY NOTICE'; subjectPrefix = 'BAHA RECOVERY'; break;
+              default: break;
+          }
+
+          // --- 3. Prepare and Send Emails ---
+          const mailPromises = usersToEmail.map(recipientEmail => {
+              const mailOptions = {
+                  from: GMAIL_USER,
+                  to: recipientEmail, // Send to current user in the map
+                  subject: `${subjectPrefix}: Action Required`, 
+                  text: alertMessage,
+                  html: `
+                    <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #ddd; border-left: 5px solid ${colorHex};">
+                        <h3 style="color: ${colorHex};">${severityText}</h3>
+                        <p style="font-size: 16px;">${alertMessage}</p>
+                        <p>Please check the Baha Dashboard immediately for the latest sensor readings and conditions.</p>
+                        <hr style="border: 0; border-top: 1px solid #eee;">
+                        <p style="font-size: 12px; color: #888;">This is an automated notification. Do not reply.</p>
+                    </div>
+                  `
+              };
+              return transporter.sendMail(mailOptions);
+          });
+
+          // Wait for all emails to be sent (Promise.allSettled allows some to fail without stopping others)
+          await Promise.allSettled(mailPromises);
+
+          return res.status(200).json({ 
+              success: true, 
+              message: `Alert sent successfully to ${usersToEmail.length} registered users.`,
+          });
+      }
+
+
+      // 5. Normal Data (Auto Mode)
+      const newAlert = await Alert.create({ payload: req.body });
+      return res.status(201).json({ success: true, message: 'Data Logged', id: newAlert._id });
+
+    } catch (error) {
+      console.error("API POST Error:", error);
+      return res.status(400).json({ success: false, error: error.message });
+    }
+  } 
+  
+  // ---------------------------------------------------------
+  // 🔍 GET METHOD: FETCH DATA (UPDATED FOR DATE FILTERING)
+  // ---------------------------------------------------------
+  else if (req.method === 'GET') {
+    try {
+        // 1. ESP32 Polling
+        if (req.query.maintenance === 'true') {
+            const pendingCmd = await MaintenanceLog.findOneAndUpdate(
+                { status: 'PENDING' },
+                { $set: { status: 'FETCHED' } }, 
+                { sort: { timestamp: 1 }, new: true }
+            );
+            if (pendingCmd) return res.status(200).json({ success: true, hasCommand: true, command: pendingCmd.command });
+            else return res.status(200).json({ success: true, hasCommand: false });
+        }
+
+        // 2. UI Polling (Live Test Results)
+        if (req.query.latest_result === 'true') {
+            const result = await MaintenanceLog.findOne({
+                sensor: req.query.sensor,
+                status: 'COMPLETED',
+                value: { $ne: null }
+            }).sort({ timestamp: -1 });
+
+            return res.status(200).json({ 
+                success: true, 
+                value: result ? result.value : 'Waiting...' 
+            });
+        }
+        
+        // 4. PDF REPORT: DAILY LOGS (10-minute samples)
+        if (req.query.today === 'true') {
+            
+            let targetDate;
+
+            // Check if a specific date is provided (YYYY-MM-DD format)
+            if (req.query.date) {
+                targetDate = new Date(req.query.date);
+                // Validate date input
+                if (isNaN(targetDate)) {
+                    return res.status(400).json({ success: false, message: "Invalid date format. Use YYYY-MM-DD." });
+                }
+            } else {
+                // Default to today if no date parameter is provided
+                targetDate = new Date();
+            }
+
+            // Set times for the start and end of the target day
+            const startOfDay = new Date(targetDate);
+            startOfDay.setHours(0, 0, 0, 0);
+            
+            const endOfDay = new Date(targetDate);
+            endOfDay.setHours(23, 59, 59, 999);
+            
+
+            const todayData = await Alert.aggregate([
+                { $match: { createdAt: { $gte: startOfDay, $lte: endOfDay } } }, // Use $gte and $lte for date range
+                {
+                    $group: {
+                        _id: {
+                            year: { $year: "$createdAt" },
+                            month: { $month: "$createdAt" },
+                            day: { $dayOfMonth: "$createdAt" },
+                            hour: { $hour: "$createdAt" },
+                            minute: { $multiply: [{ $floor: { $divide: [{ $minute: "$createdAt" }, 10] } }, 10] }
+                        },
+                        avgPressure: { $avg: "$payload.pressure" },
+                        avgRain: { $avg: "$payload.rain" }, 
+                        avgSoil: { $avg: "$payload.soil" },
+                        avgWaterDistance: { $avg: "$payload.waterDistanceCM" },
+                        timestamp: { $min: "$createdAt" }
+                    }
+                },
+                { $sort: { timestamp: 1 } },
+                { $project: { _id: 0, timestamp: 1, avgPressure: 1, avgRain: 1, avgSoil: 1, avgWaterDistance: 1 } }
+            ]);
+            return res.status(200).json({ success: true, data: todayData });
+        }
+
+        // 5. CHART: 7-DAY HISTORY (Daily Averages)
+        if (req.query.history === 'true') {
+            const sevenDaysAgo = new Date();
+            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+            const historyData = await Alert.aggregate([
+                { $match: { createdAt: { $gte: sevenDaysAgo } } },
+                {
+                    $group: {
+                        _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
+                        avgPressure: { $avg: "$payload.pressure" },
+                        avgRain: { $avg: "$payload.rain" }, 
+                        avgSoil: { $avg: "$payload.soil" },
+                        avgWaterDistance: { $avg: "$payload.waterDistanceCM" }
+                    }
+                },
+                { $sort: { _id: 1 } }
+            ]);
+            return res.status(200).json({ success: true, data: historyData });
+        }
+
+        // 6. Default: Latest Alert (Live Dashboard)
+        const latestAlert = await Alert.findOne({}).sort({ createdAt: -1 }).exec();
+        return res.status(200).json({ success: true, data: latestAlert });
+
+    } catch (error) {
+      return res.status(500).json({ success: false, error: error.message });
+    }
+  } 
+  
+  // ---------------------------------------------------------
+  // 🗑️ DELETE METHOD: CLEANUP
+  // ---------------------------------------------------------
+  else if (req.method === 'DELETE') {
+      try {
+          let deleteFilter = {};
+          let message = "Cleanup successful.";
+
+          if (req.query.date) {
+              const dateString = req.query.date;
+              const targetDate = new Date(dateString);
+
+              if (isNaN(targetDate)) {
+                  return res.status(400).json({ success: false, message: "Invalid date format. Use YYYY-MM-DD." });
+              }
+
+              targetDate.setHours(0, 0, 0, 0);
+              const nextDay = new Date(targetDate);
+              nextDay.setDate(targetDate.getDate() + 1);
+
+              deleteFilter = {
+                  createdAt: { 
+                      $gte: targetDate, 
+                      $lt: nextDay      
+                  }
+              };
+              message = `Deleted all sensor data logged on ${targetDate.toLocaleDateString()}.`;
+          }
+          else if (req.query.lastsunday === 'true') {
+              const targetDate = new Date();
+              targetDate.setDate(targetDate.getDate() - (targetDate.getDay() + 7) % 7); 
+              targetDate.setHours(0, 0, 0, 0);
+
+              const nextDay = new Date(targetDate);
+              nextDay.setDate(targetDate.getDate() + 1);
+
+              deleteFilter = {
+                  createdAt: { 
+                      $gte: targetDate,
+                      $lt: nextDay
+                  }
+              };
+              message = `Deleted all sensor data logged on the last Sunday (${targetDate.toLocaleDateString()}).`;
+          } 
+          else if (req.query.badpressure === 'true') {
+              deleteFilter = { "payload.pressure": -1 };
+              message = "Removed all broken pressure (-1) records.";
+          }
+          else {
+              return res.status(400).json({ success: false, message: "Missing specific delete query (e.g., ?date=YYYY-MM-DD, ?lastsunday=true, or ?badpressure=true)." });
+          }
+
+          const result = await Alert.deleteMany(deleteFilter);
+
+          return res.status(200).json({
+              success: true,
+              message: message,
+              deletedCount: result.deletedCount,
+          });
+
+      } catch (error) {
+          console.error("API DELETE Error:", error);
+          return res.status(500).json({ success: false, error: error.message });
+      }
+  }
+  
+  // ---------------------------------------------------------
+  // 🛑 METHOD NOT ALLOWED
+  // ---------------------------------------------------------
+  else {
+    return res.status(405).json({ success: false, message: `Method not allowed.` });
+  }
+}
