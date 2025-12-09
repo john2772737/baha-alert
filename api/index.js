@@ -2,39 +2,17 @@ import dbConnect from '../lib/dbConnect';
 import Alert from '../models/Alert';
 import MaintenanceLog from '../models/MaintenanceLog';
 
-// --- CONFIG ---
-const ALERT_COLLECTION_NAME = 'Alert'; // Assuming this maps to your 'alertdatas' collection
-
-// --- HELPER FUNCTION: Sanitize Sensor Input ---
-const sanitizePayload = (payload) => {
-    // We expect pressure, rain, soil, waterDistanceCM to be numbers.
-    // If a sensor is broken, it sends -1. We change this to null before saving.
-    const sanitizedPressure = (payload.pressure && payload.pressure < 0) ? null : payload.pressure;
-    const sanitizedRain = (payload.rain && payload.rain < 0) ? null : payload.rain;
-    const sanitizedSoil = (payload.soil && payload.soil < 0) ? null : payload.soil;
-    const sanitizedWater = (payload.waterDistanceCM && payload.waterDistanceCM < 0) ? null : payload.waterDistanceCM;
-
-    return {
-        ...payload,
-        pressure: sanitizedPressure,
-        rain: sanitizedRain,
-        soil: sanitizedSoil,
-        waterDistanceCM: sanitizedWater,
-    };
-};
-
-
 export default async function handler(req, res) {
   await dbConnect();
 
-  // ⭐ Handle CORS Preflight (Always include this for web API calls)
+  // ⭐ FIX 1: Handle CORS Preflight
   if (req.method === 'OPTIONS') {
     return res.status(200).end(); 
   }
 
-  // =========================================================
+  // ---------------------------------------------------------
   // 💾 POST METHOD: SAVE DATA
-  // =========================================================
+  // ---------------------------------------------------------
   if (req.method === 'POST') {
     if (!req.body) return res.status(400).json({ success: false, message: 'No payload.' });
 
@@ -53,7 +31,6 @@ export default async function handler(req, res) {
 
       // 2. Maintenance Result (ESP32 -> Database)
       if (req.body.type === 'MAINTENANCE_RESULT') {
-          // Logic for updating the log... (assuming this part is okay)
           const updatedLog = await MaintenanceLog.findOneAndUpdate(
               { status: 'FETCHED' }, 
               { status: 'COMPLETED', value: req.body.val, timestamp: new Date() },
@@ -72,12 +49,8 @@ export default async function handler(req, res) {
           return res.status(200).json({ success: true, message: 'Result Saved' });
       }
 
-      // 3. Normal Data (Auto Mode) - ⭐ SANITIZE INPUT BEFORE SAVING
-      const sanitizedPayload = sanitizePayload(req.body);
-      
-      // Assuming 'Alert' model schema already has 'payload' field correctly defined
-      const newAlert = await Alert.create({ payload: sanitizedPayload }); 
-      
+      // 3. Normal Data (Auto Mode)
+      const newAlert = await Alert.create({ payload: req.body });
       return res.status(201).json({ success: true, message: 'Data Logged', id: newAlert._id });
 
     } catch (error) {
@@ -86,12 +59,11 @@ export default async function handler(req, res) {
     }
   } 
   
-  // =========================================================
-  // 🔍 GET METHOD: FETCH DATA (Unchanged)
-  // =========================================================
+  // ---------------------------------------------------------
+  // 🔍 GET METHOD: FETCH DATA
+  // ---------------------------------------------------------
   else if (req.method === 'GET') {
     try {
-        // ... (GET logic remains the same) ...
         // 1. ESP32 Polling (Give Commands)
         if (req.query.maintenance === 'true') {
             const pendingCmd = await MaintenanceLog.findOneAndUpdate(
@@ -133,8 +105,7 @@ export default async function handler(req, res) {
                             hour: { $hour: "$createdAt" },
                             minute: { $multiply: [{ $floor: { $divide: [{ $minute: "$createdAt" }, 10] } }, 10] }
                         },
-                        // We use the aggregation framework to safely average the pressure
-                        avgPressure: { $avg: "$payload.pressure" }, 
+                        avgPressure: { $avg: "$payload.pressure" },
                         avgRain: { $avg: "$payload.rain" }, 
                         avgSoil: { $avg: "$payload.soil" },
                         avgWaterDistance: { $avg: "$payload.waterDistanceCM" },
@@ -176,34 +147,62 @@ export default async function handler(req, res) {
       return res.status(500).json({ success: false, error: error.message });
     }
   } 
-
-  // =========================================================
-  // 🗑️ NEW DELETE METHOD: CLEANUP
-  // =========================================================
+  
+  // ---------------------------------------------------------
+  // 🗑️ NEW DELETE METHOD: CLEANUP (Added for Sunday Deletion)
+  // ---------------------------------------------------------
   else if (req.method === 'DELETE') {
-    // Note: You might want to add a secret key/admin check here!
-    
-    try {
-        const deleteFilter = { "payload.pressure": -1 };
-        
-        // Use the model derived from your 'Alert' schema/collection
-        const result = await Alert.deleteMany(deleteFilter);
+      try {
+          let deleteFilter = {};
+          let message = "Cleanup successful.";
 
-        return res.status(200).json({
-            success: true,
-            message: `Cleanup successful. Removed ${result.deletedCount} bad pressure records.`,
-            deletedCount: result.deletedCount,
-        });
+          // ⭐ LOGIC TO DELETE SUNDAY DATA
+          if (req.query.date === 'sunday') {
+              // 1. Calculate the date range for the last Sunday
+              const targetDate = new Date();
+              // Adjust targetDate to the last Sunday (day 0)
+              targetDate.setDate(targetDate.getDate() - (targetDate.getDay() + 7) % 7); 
+              targetDate.setHours(0, 0, 0, 0);
 
-    } catch (error) {
-        console.error("API DELETE Error:", error);
-        return res.status(500).json({ success: false, error: error.message });
-    }
+              const nextDay = new Date(targetDate);
+              nextDay.setDate(targetDate.getDate() + 1);
+
+              deleteFilter = {
+                  createdAt: { 
+                      $gte: targetDate, // Sunday 00:00:00
+                      $lt: nextDay      // Monday 00:00:00
+                  }
+              };
+              message = `Deleted all sensor data logged on the last Sunday (${targetDate.toLocaleDateString()}).`;
+          } 
+          // Default cleanup (e.g., deleting bad pressure records)
+          else if (req.query.badpressure === 'true') {
+              deleteFilter = { "payload.pressure": -1 };
+              message = "Removed all broken pressure (-1) records.";
+          }
+          // Default: No specific action
+          else {
+              return res.status(400).json({ success: false, message: "Missing specific delete query (e.g., ?date=sunday or ?badpressure=true)." });
+          }
+
+          // Execute deletion
+          const result = await Alert.deleteMany(deleteFilter);
+
+          return res.status(200).json({
+              success: true,
+              message: message,
+              deletedCount: result.deletedCount,
+          });
+
+      } catch (error) {
+          console.error("API DELETE Error:", error);
+          return res.status(500).json({ success: false, error: error.message });
+      }
   }
   
-  // =========================================================
+  // ---------------------------------------------------------
   // 🛑 METHOD NOT ALLOWED
-  // =========================================================
+  // ---------------------------------------------------------
   else {
     return res.status(405).json({ success: false, message: `Method not allowed.` });
   }
