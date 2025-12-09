@@ -22,6 +22,10 @@ import {
 } from "../utils/icons";
 import AICard from "./AICard"; 
 import { useAuth } from '../context/AuthContext'; 
+import { calculateFloodRisk } from '../utils/fuzzyEngine';
+
+ const isCritical = aiResult.score >= 80;
+    const isWarning = aiResult.score >= 50 && aiResult.score < 80;
 
 const API_ENDPOINT = "https://baha-alert.vercel.app/api";
 
