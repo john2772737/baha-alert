@@ -11,13 +11,13 @@ export default async function handler(req, res) {
   }
 
   // ---------------------------------------------------------
-  // 💾 POST METHOD: SAVE DATA
+  // 💾 POST METHOD: SAVE DATA (UNTOUCHED)
   // ---------------------------------------------------------
   if (req.method === 'POST') {
     if (!req.body) return res.status(400).json({ success: false, message: 'No payload.' });
 
     try {
-      // 1. Maintenance Queue (Web UI -> Database)
+      // 1. Maintenance Queue
       if (req.body.type === 'MAINTENANCE_TEST') {
           const maintenanceEntry = await MaintenanceLog.create({
               sensor: req.body.sensor,
@@ -29,7 +29,7 @@ export default async function handler(req, res) {
           return res.status(201).json({ success: true, data: maintenanceEntry });
       }
 
-      // 2. Maintenance Result (ESP32 -> Database)
+      // 2. Maintenance Result
       if (req.body.type === 'MAINTENANCE_RESULT') {
           const updatedLog = await MaintenanceLog.findOneAndUpdate(
               { status: 'FETCHED' }, 
@@ -60,11 +60,11 @@ export default async function handler(req, res) {
   } 
   
   // ---------------------------------------------------------
-  // 🔍 GET METHOD: FETCH DATA
+  // 🔍 GET METHOD: FETCH DATA (UNTOUCHED)
   // ---------------------------------------------------------
   else if (req.method === 'GET') {
     try {
-        // 1. ESP32 Polling (Give Commands)
+        // 1. ESP32 Polling
         if (req.query.maintenance === 'true') {
             const pendingCmd = await MaintenanceLog.findOneAndUpdate(
                 { status: 'PENDING' },
@@ -149,18 +149,38 @@ export default async function handler(req, res) {
   } 
   
   // ---------------------------------------------------------
-  // 🗑️ NEW DELETE METHOD: CLEANUP (Added for Sunday Deletion)
+  // 🗑️ NEW DELETE METHOD: CLEANUP (UPDATED FOR SPECIFIC DATE)
   // ---------------------------------------------------------
   else if (req.method === 'DELETE') {
       try {
           let deleteFilter = {};
           let message = "Cleanup successful.";
 
-          // ⭐ LOGIC TO DELETE SUNDAY DATA
-          if (req.query.date === 'sunday') {
-              // 1. Calculate the date range for the last Sunday
+          // ⭐ LOGIC 1: DELETE BY SPECIFIC DATE (e.g., ?date=2025-12-07)
+          if (req.query.date) {
+              const dateString = req.query.date;
+              const targetDate = new Date(dateString);
+
+              if (isNaN(targetDate)) {
+                  return res.status(400).json({ success: false, message: "Invalid date format. Use YYYY-MM-DD." });
+              }
+
+              // Set start of day and start of next day for exact 24-hour range
+              targetDate.setHours(0, 0, 0, 0);
+              const nextDay = new Date(targetDate);
+              nextDay.setDate(targetDate.getDate() + 1);
+
+              deleteFilter = {
+                  createdAt: { 
+                      $gte: targetDate, 
+                      $lt: nextDay      
+                  }
+              };
+              message = `Deleted all sensor data logged on ${targetDate.toLocaleDateString()}.`;
+          }
+          // ⭐ LOGIC 2: DELETE BY LAST SUNDAY (Kept for backward compatibility)
+          else if (req.query.lastsunday === 'true') {
               const targetDate = new Date();
-              // Adjust targetDate to the last Sunday (day 0)
               targetDate.setDate(targetDate.getDate() - (targetDate.getDay() + 7) % 7); 
               targetDate.setHours(0, 0, 0, 0);
 
@@ -169,20 +189,20 @@ export default async function handler(req, res) {
 
               deleteFilter = {
                   createdAt: { 
-                      $gte: targetDate, // Sunday 00:00:00
-                      $lt: nextDay      // Monday 00:00:00
+                      $gte: targetDate,
+                      $lt: nextDay
                   }
               };
               message = `Deleted all sensor data logged on the last Sunday (${targetDate.toLocaleDateString()}).`;
           } 
-          // Default cleanup (e.g., deleting bad pressure records)
+          // ⭐ LOGIC 3: DELETE BROKEN PRESSURE RECORDS
           else if (req.query.badpressure === 'true') {
               deleteFilter = { "payload.pressure": -1 };
               message = "Removed all broken pressure (-1) records.";
           }
-          // Default: No specific action
+          // Default: Missing specific action
           else {
-              return res.status(400).json({ success: false, message: "Missing specific delete query (e.g., ?date=sunday or ?badpressure=true)." });
+              return res.status(400).json({ success: false, message: "Missing specific delete query (e.g., ?date=YYYY-MM-DD, ?lastsunday=true, or ?badpressure=true)." });
           }
 
           // Execute deletion
