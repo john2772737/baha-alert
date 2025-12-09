@@ -76,46 +76,13 @@ const AICard = ({ liveData }) => {
 
                     {/* Pressure (NEW) */}
                     <div className="bg-slate-900 rounded p-2">
-                        <span className="block text-[10px] text-slate-400 uppercase">Press</span>
+                        <span className="block text-[10px] text-slate-400 uppercase">Pressure</span>
                         <span className="font-mono font-bold text-purple-400">{aiResult.details.pressure}</span>
                     </div>
                 </div>
             </div>
 
-            {/* --- SYSTEM LOGIC (Interaction Visualization) --- */}
-            {/* This shows how the sensors are "talking" to each other */}
-            <div className="mt-4 pt-3 border-t border-slate-700/30">
-                <p className="text-[10px] text-slate-500 uppercase font-bold mb-2">Detected Patterns</p>
-
-                {/* Surge Risk (Water + Pressure) */}
-                <div className="mb-2">
-                    <div className="flex justify-between text-[10px] text-slate-400 mb-1">
-                        <span>Storm Surge Risk (Water + Press)</span>
-                        <span className="text-purple-400">{aiResult.interactions?.surge_factor || 0}%</span>
-                    </div>
-                    <div className="w-full bg-slate-900 rounded-full h-1.5">
-                        <div 
-                            className="bg-purple-500 h-1.5 rounded-full transition-all duration-500" 
-                            style={{ width: `${aiResult.interactions?.surge_factor || 0}%` }}
-                        ></div>
-                    </div>
-                </div>
-
-                {/* Runoff Risk (Rain + Soil) */}
-                <div>
-                    <div className="flex justify-between text-[10px] text-slate-400 mb-1">
-                        <span>Runoff Risk (Rain + Soil)</span>
-                        <span className="text-amber-400">{aiResult.interactions?.runoff_factor || 0}%</span>
-                    </div>
-                    <div className="w-full bg-slate-900 rounded-full h-1.5">
-                        <div 
-                            className="bg-amber-500 h-1.5 rounded-full transition-all duration-500" 
-                            style={{ width: `${aiResult.interactions?.runoff_factor || 0}%` }}
-                        ></div>
-                    </div>
-                </div>
-
-            </div>
+           
         </div>
     );
 };
