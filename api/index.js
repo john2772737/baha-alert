@@ -172,8 +172,31 @@ export default async function handler(req, res) {
   // ---------------------------------------------------------
   else if (req.method === 'GET') {
     try {
-        // ... (Other GET logic remains unchanged) ...
+        // 1. ESP32 Polling
+        if (req.query.maintenance === 'true') {
+            const pendingCmd = await MaintenanceLog.findOneAndUpdate(
+                { status: 'PENDING' },
+                { $set: { status: 'FETCHED' } }, 
+                { sort: { timestamp: 1 }, new: true }
+            );
+            if (pendingCmd) return res.status(200).json({ success: true, hasCommand: true, command: pendingCmd.command });
+            else return res.status(200).json({ success: true, hasCommand: false });
+        }
 
+        // 2. UI Polling (Live Test Results)
+        if (req.query.latest_result === 'true') {
+            const result = await MaintenanceLog.findOne({
+                sensor: req.query.sensor,
+                status: 'COMPLETED',
+                value: { $ne: null }
+            }).sort({ timestamp: -1 });
+
+            return res.status(200).json({ 
+                success: true, 
+                value: result ? result.value : 'Waiting...' 
+            });
+        }
+        
         // 4. PDF REPORT: DAILY LOGS (10-minute samples)
         if (req.query.today === 'true') {
             
@@ -198,9 +221,6 @@ export default async function handler(req, res) {
             const endOfDay = new Date(targetDate);
             endOfDay.setHours(23, 59, 59, 999);
             
-            // Log for debugging
-            console.log(`Fetching logs from ${startOfDay.toISOString()} to ${endOfDay.toISOString()}`);
-
 
             const todayData = await Alert.aggregate([
                 { $match: { createdAt: { $gte: startOfDay, $lte: endOfDay } } }, // Use $gte and $lte for date range
@@ -226,8 +246,27 @@ export default async function handler(req, res) {
             return res.status(200).json({ success: true, data: todayData });
         }
 
-        // ... (Rest of GET logic remains unchanged) ...
-        
+        // 5. CHART: 7-DAY HISTORY (Daily Averages)
+        if (req.query.history === 'true') {
+            const sevenDaysAgo = new Date();
+            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+            const historyData = await Alert.aggregate([
+                { $match: { createdAt: { $gte: sevenDaysAgo } } },
+                {
+                    $group: {
+                        _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
+                        avgPressure: { $avg: "$payload.pressure" },
+                        avgRain: { $avg: "$payload.rain" }, 
+                        avgSoil: { $avg: "$payload.soil" },
+                        avgWaterDistance: { $avg: "$payload.waterDistanceCM" }
+                    }
+                },
+                { $sort: { _id: 1 } }
+            ]);
+            return res.status(200).json({ success: true, data: historyData });
+        }
+
         // 6. Default: Latest Alert (Live Dashboard)
         const latestAlert = await Alert.findOne({}).sort({ createdAt: -1 }).exec();
         return res.status(200).json({ success: true, data: latestAlert });
