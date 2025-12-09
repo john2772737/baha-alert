@@ -122,11 +122,22 @@ export const calculateFloodRisk = (rainRaw, soilRaw, waterDist, pressure) => {
         score: finalRisk.toFixed(1),
         status,
         message,
-        // We return the "Interaction" scores so you can see the communication happening
-        details: {
-            runoff_factor: (runoffRisk * 100).toFixed(0), // Rain + Soil
-            surge_factor: (surgeRisk * 100).toFixed(0),   // Water + Pressure
+        
+        // 1. The "Conversation" (How sensors affect each other)
+        interactions: {
+            runoff_factor: (runoffRisk * 100).toFixed(0),   // Rain + Soil
+            surge_factor: (surgeRisk * 100).toFixed(0),     // Water + Pressure
             flood_factor: (activeFloodRisk * 100).toFixed(0) // Rain + Water
+        },
+
+        // 2. The "Individual Voices" (What each sensor is feeling)
+        // <--- I ADDED THIS BACK FOR YOU
+        sensors: {
+            rain_status: (rainHeavy * 100).toFixed(0),
+            soil_status: (soilSaturated * 100).toFixed(0),
+            water_status: (waterCritical * 100).toFixed(0),
+            pressure_status: (pressureStorm * 100).toFixed(0) // <--- Pressure is here now
         }
     };
+};
 };

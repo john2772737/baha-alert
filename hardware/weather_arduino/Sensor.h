@@ -1,39 +1,28 @@
-#ifndef SENSOR
-#define SENSOR
+#ifndef SENSOR_H
+#define SENSOR_H
 
 #include <Arduino.h>
 #include <Wire.h>
-#include <Adafruit_BMP085.h>  
+#include <Adafruit_BMP280.h> // Back to the reliable library
 
 class Sensor {
   public:
-    // Constructor
-    Sensor(int trigPin, int echoPin,int soilPin,int rainPin);
-    
-    
-    // Initialize pins
+    Sensor(int trigPin, int echoPin, int soilPin, int rainPin);
     void begin();
+    void BMP180(); 
+    float bmpPressure(); 
 
-    //bpm180
-    void BMP180();
-    float bmpPressure();
-
-    // ultrasonic 
     long ultrasonicDistance();
-
-    //Soil Mosture
     int soilAnalog();
-
-    //Rain Sensor
     int rainAnalog();
-
-    
 
   private:
     int _trigPin;
     int _echoPin;
     int _soilPin;
     int _rainPin;
+    
+    Adafruit_BMP280 bmp; // The Adafruit Object
 };
 
 #endif
