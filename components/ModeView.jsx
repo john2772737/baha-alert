@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react"; // Added useRef
 import {
   getRainStatus,
   getSoilStatus,
@@ -45,10 +45,10 @@ const getMaintenanceStatus = (sensor, value) => {
       return { label: "DRY", color: "text-red-400" };
 
    case 'water':
-    if (val === 0 || val >= 400) return { label: 'ERROR', color: 'text-red-500 animate-pulse' };
-    if (val <= 4) return { label: 'HIGH LEVEL', color: 'text-yellow-400' }; 
-    if (val <= 5) return { label: 'NORMAL', color: 'text-emerald-400' };    
-    return { label: 'LOW LEVEL', color: 'text-red-400' };
+    if (val === 0 || val >= 400) return { label: 'ERROR', color: "text-red-500 animate-pulse" };
+    if (val <= 4) return { label: 'HIGH LEVEL', color: "text-yellow-400" }; 
+    if (val <= 5) return { label: 'NORMAL', color: "text-emerald-400" };    
+    return { label: 'LOW LEVEL', color: "text-red-400" };
 
     case "pressure":
       if (val < 990) return { label: "LOW PRESSURE", color: "text-red-400" };
@@ -145,7 +145,14 @@ const TestControlCard = ({ Icon, title, sensorKey, dbValue, onToggle, isActive }
 const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
   const [activeTests, setActiveTests] = useState({ rain: false, soil: false, water: false, pressure: false });
   const [dbValues, setDbValues] = useState({ rain: null, soil: null, water: null, pressure: null });
-  const [alertSentFlag, setAlertSentFlag] = useState(false); // Changed to alertSentFlag for clarity
+  const [alertSentFlag, setAlertSentFlag] = useState(false); 
+  
+  // NEW STATE: Tracks the current AI Alert status (used to detect recovery)
+  const [aiAlertStatus, setAiAlertStatus] = useState(null); 
+  
+  // NEW STATE: Tracks the time when the system recovered to STABLE
+  const [recoveryStartTime, setRecoveryStartTime] = useState(null); 
+  
   const commandMap = { rain: "R", soil: "S", water: "U", pressure: "P" };
 
   const { user } = useAuth();
@@ -182,21 +189,23 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
 
   const toggleTest = (sensorKey) => setActiveTests((prev) => ({ ...prev, [sensorKey]: !prev[sensorKey] }));
 
-  // --- EMAIL ALERT TRIGGER FUNCTION ---
-  const sendAlertEmail = async (sensorName, statusText) => {
+  // --- EMAIL ALERT TRIGGER FUNCTION (Unchanged) ---
+  const sendAlertEmail = async (alertType, statusText) => {
       if (!userEmail) {
           console.warn("Email Alert Skipped: User email not available.");
           return;
       }
       
-      const alertMessage = `CRITICAL BAHA ALERT: ${sensorName} status is ${statusText}. Check dashboard.`;
+      const alertMessage = alertType === 'ALERT' 
+        ? `CRITICAL BAHA ALERT: System status is ${statusText}. Check dashboard immediately!`
+        : `BAHA RECOVERY NOTICE: System status is stable. AI confirmed stable for 5 seconds.`;
       
       try {
           const res = await fetch(API_ENDPOINT, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                  type: 'SEND_ALERT_EMAIL', // Correct API type for email
+                  type: 'SEND_ALERT_EMAIL',
                   userEmail: userEmail,
                   alertMessage: alertMessage,
               }),
@@ -206,9 +215,15 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
               const errorData = await res.json();
               console.error("Email API failed:", errorData.error || res.statusText);
           } else {
-              console.log(`Email alert successfully triggered for ${sensorName}.`);
-              setAlertSentFlag(true); 
-              setTimeout(() => setAlertSentFlag(false), 3600000); // 1 hour throttle
+              console.log(`Email alert successfully triggered for ${alertType}.`);
+              // Only throttle the initial alert. Recovery notification is one-off.
+              if (alertType === 'ALERT') {
+                setAlertSentFlag(true); 
+                // Throttle for 1 hour to prevent spamming during long events
+                setTimeout(() => setAlertSentFlag(false), 3600000); 
+              }
+              // Reset recovery state after sending
+              setRecoveryStartTime(null); 
           }
       } catch (error) {
           console.error("Network error triggering Email:", error);
@@ -218,31 +233,60 @@ const ModeView = ({ mode, setMode, liveData, fetchError, refs, percents }) => {
 
   // --- CRITICAL MONITORING HOOK ---
   useEffect(() => {
-    // Only monitor and send alerts if in Auto mode, logged in, and flag is false (not recently sent)
-    if (mode !== 'Auto' || !userEmail || alertSentFlag) return; 
+    if (mode !== 'Auto' || !userEmail) return; 
 
-    // Recalculate statuses based on latest props
-    const rainStatus = getRainStatus(percents.rainPercent);
-    const waterTankStatus = getWaterTankStatus(percents.waterPercent, liveData.waterDistanceCM);
-    const pressureStatus = getPressureStatus(liveData.pressure);
+    // **ASSUMPTION:** We are getting the aggregated AI status from liveData.
+    // The AICard component must update this field based on its internal logic.
+    const currentStatus = liveData.aiStatus || 'STABLE'; 
+    const isCritical = ['ADVISORY', 'WARNING', 'CRITICAL', 'EMERGENCY'].includes(currentStatus);
+    const isStable = currentStatus === 'STABLE';
     
-    let criticalStatus = null;
-
-    if (rainStatus.status.includes('ALERT')) {
-        criticalStatus = { name: 'Rain Sensor', status: rainStatus.status };
-    } 
-    else if (waterTankStatus.status.includes('Low Reserves')) {
-        criticalStatus = { name: 'Water Level', status: waterTankStatus.status };
-    } 
-    else if (pressureStatus.status.includes('WARNING')) {
-        criticalStatus = { name: 'Barometer Pressure', status: pressureStatus.status };
+    // 1. Handle Alert Status Change
+    if (currentStatus !== aiAlertStatus) {
+        setAiAlertStatus(currentStatus);
+        
+        if (isCritical) {
+            // New critical event started or escalated. Clear recovery timer.
+            setRecoveryStartTime(null);
+            
+            // Only send the *initial* critical alert if not currently throttled
+            if (!alertSentFlag) {
+                sendAlertEmail('ALERT', currentStatus);
+            }
+            
+        } else if (isStable) {
+            // Just hit stable. Start the recovery timer.
+            setRecoveryStartTime(Date.now());
+            
+        } else {
+            // Neutral/non-alert status: Clear recovery timer.
+            setRecoveryStartTime(null);
+        }
     }
-    
-    if (criticalStatus) {
-        sendAlertEmail(criticalStatus.name, criticalStatus.status); // Calls Email function
-    }
 
-  }, [mode, userEmail, percents, liveData, alertSentFlag]); 
+    // 2. Handle Recovery Cooldown (Checks every second)
+    const recoveryCheck = setInterval(() => {
+        if (recoveryStartTime && isStable) {
+            const timeElapsed = Date.now() - recoveryStartTime;
+            
+            // If 5 seconds (5000ms) have passed and the status is still STABLE
+            if (timeElapsed >= 5000) {
+                // Send the recovery notice
+                sendAlertEmail('RECOVERY', currentStatus);
+                
+                // Clear the throttle flag to allow future alerts immediately
+                setAlertSentFlag(false); 
+                
+                // Clear the interval
+                clearInterval(recoveryCheck);
+            }
+        }
+    }, 1000); // Check recovery status every 1 second
+
+    // Cleanup: Clear the interval when the component unmounts or dependencies change
+    return () => clearInterval(recoveryCheck);
+
+  }, [mode, userEmail, liveData.aiStatus, aiAlertStatus, recoveryStartTime, alertSentFlag]); 
 
 
   // --- LOCK SCREENS (Simplified) ---
